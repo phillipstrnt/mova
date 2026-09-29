@@ -1,0 +1,176 @@
+import {
+  BarChart3,
+  Boxes,
+  ChevronDown,
+  ClipboardList,
+  LayoutDashboard,
+  Package,
+  Settings,
+  ShoppingCart,
+  Store,
+  Users,
+  X,
+} from "lucide-react";
+
+import { NavLink } from "react-router-dom";
+
+const Sidebar = ({ open, onClose }) => {
+  const navigation = [
+    {
+      label: "Overview",
+      icon: LayoutDashboard,
+      path: "/app",
+    },
+    {
+      label: "Point of Sale",
+      icon: ShoppingCart,
+      path: "/app/pos",
+    },
+    {
+      label: "Products",
+      icon: Package,
+      path: "/app/products",
+    },
+    {
+      label: "Categories",
+      icon: Boxes,
+      path: "/app/products/categories",
+    },
+    {
+      label: "Inventory",
+      icon: ClipboardList,
+      path: "/app/inventory",
+    },
+    {
+      label: "Sales",
+      icon: BarChart3,
+      path: "/app/sales",
+    },
+    {
+      label: "Customers",
+      icon: Users,
+      path: "/app/customers",
+    },
+    {
+      label: "Reports",
+      icon: BarChart3,
+      path: "/app/reports",
+    },
+    {
+      label: "Settings",
+      icon: Settings,
+      path: "/app/settings",
+    },
+  ];
+
+  return (
+    <>
+      {open && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={onClose}
+          className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:static lg:translate-x-0 ${
+          open
+            ? "translate-x-0"
+            : "-translate-x-full"
+        }`}
+      >
+        {/* Brand */}
+        <div className="flex h-20 items-center justify-between border-b border-slate-100 px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
+              <Store size={21} />
+            </div>
+
+            <div>
+              <p className="text-xl font-black tracking-tight text-slate-950">
+                MOVA
+              </p>
+
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                Business OS
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
+          <p className="mb-3 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+            Workspace
+          </p>
+
+          {navigation.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === "/app"}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold transition ${
+                    isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon
+                      size={19}
+                      className={
+                        isActive
+                          ? "text-blue-600"
+                          : "text-slate-400 group-hover:text-slate-600"
+                      }
+                    />
+
+                    <span>{item.label}</span>
+
+                    {item.label === "Products" && (
+                      <ChevronDown
+                        size={15}
+                        className="ml-auto text-slate-300"
+                      />
+                    )}
+                  </>
+                )}
+              </NavLink>
+            );
+          })}
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 p-4">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-bold text-slate-700">
+              MOVA
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Sell smart. Know more. Grow faster.
+            </p>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+};
+
+export default Sidebar;
