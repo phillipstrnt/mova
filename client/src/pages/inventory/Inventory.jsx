@@ -1,60 +1,69 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle,
-  ArrowDownToLine,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Boxes,
+  Eye,
   Package,
+  RefreshCw,
   Search,
-  TriangleAlert,
-  XCircle,
+  X,
 } from "lucide-react";
 
 import api from "../../services/api";
 
 const Inventory = () => {
   const [products, setProducts] = useState([]);
+  const [transactions, setTransactions] = useState([]);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");
+  const [filter, setFilter] = useState("ALL");
 
-  const [showAdjustmentModal, setShowAdjustmentModal] =
-    useState(false);
-
-  const [selectedProduct, setSelectedProduct] =
+  const [adjustmentModal, setAdjustmentModal] =
     useState(null);
 
-  const [adjustmentType, setAdjustmentType] =
-    useState("add");
+  const [historyProduct, setHistoryProduct] =
+    useState(null);
 
-  const [adjustmentQuantity, setAdjustmentQuantity] =
-    useState("");
+  const [adjustmentForm, setAdjustmentForm] = useState({
+    quantity: "",
+    type: "STOCK_RECEIVED",
+    reason: "",
+    notes: "",
+  });
 
-  const [adjustmentReason, setAdjustmentReason] =
-    useState("");
+  const [savingAdjustment, setSavingAdjustment] =
+    useState(false);
 
-  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const fetchProducts = async () => {
+  /*
+   * =====================================================
+   * LOAD PRODUCTS
+   * =====================================================
+   */
+
+  const loadProducts = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const response = await api.get("/products", {
-        params: {
-          search: search || undefined,
-          isActive: true,
-        },
-      });
+      const response = await api.get("/products");
 
       setProducts(response.data.products || []);
-    } catch (err) {
-      console.error("Failed to load inventory:", err);
+    } catch (error) {
+      console.error(
+        "Failed to load inventory:",
+        error
+      );
 
       setError(
-        err.response?.data?.message ||
+        error.response?.data?.message ||
           "Failed to load inventory."
       );
     } finally {
@@ -62,26 +71,68 @@ const Inventory = () => {
     }
   };
 
+  /*
+   * =====================================================
+   * LOAD INVENTORY HISTORY
+   * =====================================================
+   */
+
+  const loadTransactions = async () => {
+    try {
+      const response = await api.get(
+        "/inventory-transactions",
+        {
+          params: {
+            limit: 100,
+          },
+        }
+      );
+
+      setTransactions(
+        response.data.transactions || []
+      );
+    } catch (error) {
+      console.error(
+        "Failed to load inventory history:",
+        error
+      );
+    }
+  };
+
+  /*
+   * =====================================================
+   * INITIAL LOAD
+   * =====================================================
+   */
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProducts();
-    }, 300);
+    const loadInventory = async () => {
+      await Promise.all([
+        loadProducts(),
+        loadTransactions(),
+      ]);
+    };
 
-    return () => clearTimeout(timer);
-  }, [search]);
+    loadInventory();
+  }, []);
 
-  const inventoryStats = useMemo(() => {
-    const trackedProducts = products.filter(
-      (product) => product.trackStock
-    );
+  /*
+   * =====================================================
+   * CALCULATE INVENTORY STATISTICS
+   * =====================================================
+   */
 
-    const totalUnits = trackedProducts.reduce(
+  const statistics = useMemo(() => {
+    const totalProducts = products.length;
+
+    const totalStockUnits = products.reduce(
       (total, product) =>
-        total + Number(product.stockQuantity || 0),
+        total +
+        Number(product.stockQuantity || 0),
       0
     );
 
-    const inventoryValue = trackedProducts.reduce(
+    const inventoryValue = products.reduce(
       (total, product) =>
         total +
         Number(product.stockQuantity || 0) *
@@ -89,291 +140,544 @@ const Inventory = () => {
       0
     );
 
-    const lowStock = trackedProducts.filter(
+    const lowStockProducts = products.filter(
       (product) =>
         Number(product.stockQuantity || 0) > 0 &&
         Number(product.stockQuantity || 0) <=
           Number(product.minimumStock || 0)
     );
 
-    const outOfStock = trackedProducts.filter(
+    const outOfStockProducts = products.filter(
       (product) =>
-        Number(product.stockQuantity || 0) <= 0
+        Number(product.stockQuantity || 0) === 0
     );
 
     return {
-      products: trackedProducts.length,
-      totalUnits,
+      totalProducts,
+      totalStockUnits,
       inventoryValue,
-      lowStock: lowStock.length,
-      outOfStock: outOfStock.length,
+      lowStockProducts:
+        lowStockProducts.length,
+      outOfStockProducts:
+        outOfStockProducts.length,
     };
   }, [products]);
 
+  /*
+   * =====================================================
+   * FILTER PRODUCTS
+   * =====================================================
+   */
+
   const filteredProducts = useMemo(() => {
+    const searchValue =
+      search.trim().toLowerCase();
+
     return products.filter((product) => {
-      const quantity = Number(product.stockQuantity || 0);
-      const minimum = Number(product.minimumStock || 0);
+      const matchesSearch =
+        !searchValue ||
+        product.name
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        product.sku
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        product.barcode
+          ?.toLowerCase()
+          .includes(searchValue);
 
-      if (stockFilter === "low") {
-        return quantity > 0 && quantity <= minimum;
+      const stock =
+        Number(product.stockQuantity || 0);
+
+      const minimum =
+        Number(product.minimumStock || 0);
+
+      let matchesFilter = true;
+
+      if (filter === "HEALTHY") {
+        matchesFilter =
+          stock > minimum;
       }
 
-      if (stockFilter === "out") {
-        return quantity <= 0;
+      if (filter === "LOW") {
+        matchesFilter =
+          stock > 0 &&
+          stock <= minimum;
       }
 
-      if (stockFilter === "healthy") {
-        return quantity > minimum;
+      if (filter === "OUT") {
+        matchesFilter = stock === 0;
       }
 
-      return true;
+      return (
+        matchesSearch &&
+        matchesFilter
+      );
     });
-  }, [products, stockFilter]);
+  }, [products, search, filter]);
 
-  const formatMoney = (amount) => {
-    return new Intl.NumberFormat("en-UG", {
-      style: "currency",
-      currency: "UGX",
-      maximumFractionDigits: 0,
-    }).format(amount || 0);
+  /*
+   * =====================================================
+   * OPEN ADJUSTMENT MODAL
+   * =====================================================
+   */
+
+  const openAdjustment = (
+    product,
+    type = "STOCK_RECEIVED"
+  ) => {
+    setError("");
+    setSuccess("");
+
+    setAdjustmentModal(product);
+
+    setAdjustmentForm({
+      quantity: "",
+      type,
+      reason: "",
+      notes: "",
+    });
   };
 
-  const getStockStatus = (product) => {
-    const quantity = Number(product.stockQuantity || 0);
-    const minimum = Number(product.minimumStock || 0);
+  /*
+   * =====================================================
+   * CLOSE ADJUSTMENT MODAL
+   * =====================================================
+   */
 
-    if (quantity <= 0) {
-      return {
-        label: "Out of stock",
-        className: "bg-red-50 text-red-700",
-      };
+  const closeAdjustment = () => {
+    if (savingAdjustment) {
+      return;
     }
 
-    if (quantity <= minimum) {
-      return {
-        label: "Low stock",
-        className: "bg-amber-50 text-amber-700",
-      };
-    }
+    setAdjustmentModal(null);
 
-    return {
-      label: "Healthy",
-      className: "bg-green-50 text-green-700",
-    };
+    setAdjustmentForm({
+      quantity: "",
+      type: "STOCK_RECEIVED",
+      reason: "",
+      notes: "",
+    });
   };
 
-  const openAdjustmentModal = (product) => {
-    setSelectedProduct(product);
-    setAdjustmentType("add");
-    setAdjustmentQuantity("");
-    setAdjustmentReason("");
-    setShowAdjustmentModal(true);
+  /*
+   * =====================================================
+   * HANDLE ADJUSTMENT FORM
+   * =====================================================
+   */
+
+  const handleAdjustmentChange = (event) => {
+    const { name, value } = event.target;
+
+    setAdjustmentForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
   };
 
-  const closeAdjustmentModal = () => {
-    if (saving) return;
+  /*
+   * =====================================================
+   * SUBMIT INVENTORY ADJUSTMENT
+   * =====================================================
+   */
 
-    setShowAdjustmentModal(false);
-    setSelectedProduct(null);
-    setAdjustmentQuantity("");
-    setAdjustmentReason("");
-  };
-
-  const handleAdjustment = async (event) => {
+  const handleAdjustmentSubmit = async (
+    event
+  ) => {
     event.preventDefault();
 
-    if (!selectedProduct) return;
-
-    const quantity = Number(adjustmentQuantity);
-
-    if (!quantity || quantity <= 0) {
-      setError("Enter a quantity greater than zero.");
+    if (!adjustmentModal) {
       return;
     }
 
-    if (!adjustmentReason.trim()) {
-      setError("Please provide a reason for the adjustment.");
-      return;
-    }
-
-    const currentStock = Number(
-      selectedProduct.stockQuantity || 0
+    const quantity = Number(
+      adjustmentForm.quantity
     );
 
     if (
-      adjustmentType === "remove" &&
-      quantity > currentStock
+      !Number.isInteger(quantity) ||
+      quantity <= 0
     ) {
       setError(
-        "You cannot remove more stock than is currently available."
+        "Quantity must be a whole number greater than zero."
       );
       return;
     }
 
-    const newStock =
-      adjustmentType === "add"
-        ? currentStock + quantity
-        : currentStock - quantity;
+    if (!adjustmentForm.reason.trim()) {
+      setError(
+        "Please provide a reason for the adjustment."
+      );
+      return;
+    }
+
+    const removalTypes = [
+      "ADJUSTMENT_OUT",
+      "DAMAGE",
+      "LOSS",
+    ];
+
+    if (
+      removalTypes.includes(
+        adjustmentForm.type
+      ) &&
+      quantity >
+        Number(
+          adjustmentModal.stockQuantity || 0
+        )
+    ) {
+      setError(
+        `You cannot remove ${quantity} units. Current stock is ${adjustmentModal.stockQuantity}.`
+      );
+      return;
+    }
 
     try {
-      setSaving(true);
+      setSavingAdjustment(true);
       setError("");
+      setSuccess("");
 
-      await api.patch(
-        `/products/${selectedProduct._id}`,
+      await api.post(
+        "/inventory-transactions/adjust",
         {
-          stockQuantity: newStock,
+          productId: adjustmentModal._id,
+          quantity,
+          type: adjustmentForm.type,
+          reason:
+            adjustmentForm.reason.trim(),
+          notes:
+            adjustmentForm.notes.trim(),
         }
       );
 
-      closeAdjustmentModal();
+      setSuccess(
+        `${adjustmentModal.name} inventory updated successfully.`
+      );
 
-      await fetchProducts();
-    } catch (err) {
-      console.error("Stock adjustment failed:", err);
+      closeAdjustment();
+
+      await Promise.all([
+        loadProducts(),
+        loadTransactions(),
+      ]);
+    } catch (error) {
+      console.error(
+        "Inventory adjustment failed:",
+        error
+      );
 
       setError(
-        err.response?.data?.message ||
-          "Failed to adjust stock."
+        error.response?.data?.message ||
+          "Failed to adjust inventory."
       );
     } finally {
-      setSaving(false);
+      setSavingAdjustment(false);
     }
+  };
+
+  /*
+   * =====================================================
+   * LOAD PRODUCT HISTORY
+   * =====================================================
+   */
+
+  const openHistory = async (product) => {
+    try {
+      setHistoryLoading(true);
+      setError("");
+
+      const response = await api.get(
+        `/inventory-transactions/product/${product._id}`
+      );
+
+      setHistoryProduct({
+        product:
+          response.data.product,
+        transactions:
+          response.data.transactions || [],
+      });
+    } catch (error) {
+      console.error(
+        "Failed to load product history:",
+        error
+      );
+
+      setError(
+        error.response?.data?.message ||
+          "Failed to load product history."
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  /*
+   * =====================================================
+   * FORMAT CURRENCY
+   * =====================================================
+   */
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat(
+      "en-UG",
+      {
+        style: "currency",
+        currency: "UGX",
+        maximumFractionDigits: 0,
+      }
+    ).format(Number(amount || 0));
+  };
+
+  /*
+   * =====================================================
+   * FORMAT DATE
+   * =====================================================
+   */
+
+  const formatDate = (date) => {
+    if (!date) {
+      return "-";
+    }
+
+    return new Date(date).toLocaleString(
+      "en-UG",
+      {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }
+    );
+  };
+
+  /*
+   * =====================================================
+   * TRANSACTION LABEL
+   * =====================================================
+   */
+
+  const getTransactionLabel = (type) => {
+    const labels = {
+      OPENING_STOCK: "Opening Stock",
+      STOCK_RECEIVED: "Stock Received",
+      SALE: "Sale",
+      RETURN: "Return",
+      ADJUSTMENT_IN: "Adjustment In",
+      ADJUSTMENT_OUT: "Adjustment Out",
+      DAMAGE: "Damage",
+      LOSS: "Loss",
+      TRANSFER_IN: "Transfer In",
+      TRANSFER_OUT: "Transfer Out",
+    };
+
+    return labels[type] || type;
+  };
+
+  /*
+   * =====================================================
+   * TRANSACTION IS STOCK IN?
+   * =====================================================
+   */
+
+  const isStockIncrease = (type) => {
+    return [
+      "OPENING_STOCK",
+      "STOCK_RECEIVED",
+      "RETURN",
+      "ADJUSTMENT_IN",
+      "TRANSFER_IN",
+    ].includes(type);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <div className="mb-2 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
-            <Boxes size={22} />
-          </div>
+      {/* =================================================
+          PAGE HEADER
+      ================================================= */}
 
-          <div>
-            <p className="text-sm font-bold uppercase tracking-wider text-blue-600">
-              Stock Management
-            </p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-sm font-bold text-blue-600">
+            Inventory
+          </p>
 
-            <h1 className="text-3xl font-black tracking-tight text-slate-950">
-              Inventory
-            </h1>
-          </div>
+          <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">
+            Stock Management
+          </h1>
+
+          <p className="mt-2 text-sm text-slate-500">
+            Track stock levels, make adjustments,
+            and monitor every inventory movement.
+          </p>
         </div>
 
-        <p className="max-w-2xl text-sm leading-6 text-slate-500">
-          Monitor stock levels, identify products that need
-          attention, and make stock adjustments.
-        </p>
+        <button
+          type="button"
+          onClick={() => {
+            loadProducts();
+            loadTransactions();
+          }}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+        >
+          <RefreshCw size={17} />
+          Refresh
+        </button>
       </div>
 
-      {/* Error */}
+      {/* =================================================
+          ALERTS
+      ================================================= */}
+
       {error && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <AlertCircle
-            size={18}
+          <AlertTriangle
+            size={19}
             className="mt-0.5 shrink-0"
           />
 
-          <span>{error}</span>
+          <p>{error}</p>
 
           <button
+            type="button"
             onClick={() => setError("")}
-            className="ml-auto"
+            className="ml-auto text-red-400 hover:text-red-700"
           >
-            <XCircle size={17} />
+            <X size={17} />
           </button>
         </div>
       )}
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {success && (
+        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
+          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-xs font-black text-white">
+            ✓
+          </div>
+
+          <p>{success}</p>
+
+          <button
+            type="button"
+            onClick={() => setSuccess("")}
+            className="ml-auto text-green-500 hover:text-green-700"
+          >
+            <X size={17} />
+          </button>
+        </div>
+      )}
+
+      {/* =================================================
+          STATISTICS
+      ================================================= */}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Products
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-slate-950">
-                {inventoryStats.products}
-              </p>
-            </div>
-
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Package size={20} />
+              <Package size={21} />
             </div>
+
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+              Products
+            </span>
           </div>
+
+          <p className="mt-5 text-2xl font-black text-slate-950">
+            {statistics.totalProducts}
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Active products
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Stock Units
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-slate-950">
-                {inventoryStats.totalUnits.toLocaleString()}
-              </p>
-            </div>
-
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-              <Boxes size={20} />
+              <Boxes size={21} />
             </div>
+
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+              Units
+            </span>
           </div>
+
+          <p className="mt-5 text-2xl font-black text-slate-950">
+            {statistics.totalStockUnits.toLocaleString()}
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Units currently in stock
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Inventory Value
-              </p>
-
-              <p className="mt-2 text-xl font-black text-slate-950">
-                {formatMoney(
-                  inventoryStats.inventoryValue
-                )}
-              </p>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <Package size={21} />
             </div>
 
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-50 text-green-600">
-              <Package size={20} />
-            </div>
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+              Value
+            </span>
           </div>
+
+          <p className="mt-5 text-xl font-black text-slate-950">
+            {formatCurrency(
+              statistics.inventoryValue
+            )}
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            At buying price
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Needs Attention
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-amber-600">
-                {inventoryStats.lowStock +
-                  inventoryStats.outOfStock}
-              </p>
-
-              <p className="mt-1 text-xs text-slate-400">
-                {inventoryStats.lowStock} low ·{" "}
-                {inventoryStats.outOfStock} out
-              </p>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+              <AlertTriangle size={21} />
             </div>
 
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-              <TriangleAlert size={20} />
-            </div>
+            <span className="text-xs font-bold uppercase tracking-wide text-amber-600">
+              Attention
+            </span>
           </div>
+
+          <p className="mt-5 text-2xl font-black text-amber-700">
+            {statistics.lowStockProducts}
+          </p>
+
+          <p className="mt-1 text-sm text-amber-700/70">
+            Low stock products
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600">
+              <AlertTriangle size={21} />
+            </div>
+
+            <span className="text-xs font-bold uppercase tracking-wide text-red-600">
+              Critical
+            </span>
+          </div>
+
+          <p className="mt-5 text-2xl font-black text-red-700">
+            {statistics.outOfStockProducts}
+          </p>
+
+          <p className="mt-1 text-sm text-red-700/70">
+            Out of stock
+          </p>
         </div>
       </div>
 
-      {/* Search / filters */}
+      {/* =================================================
+          FILTERS
+      ================================================= */}
+
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
-          <div className="relative">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
             <Search
               size={18}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
@@ -385,37 +689,57 @@ const Inventory = () => {
               onChange={(event) =>
                 setSearch(event.target.value)
               }
-              placeholder="Search products..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              placeholder="Search by product name, SKU or barcode..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
             />
           </div>
 
-          <select
-            value={stockFilter}
-            onChange={(event) =>
-              setStockFilter(event.target.value)
-            }
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-          >
-            <option value="all">All stock</option>
-            <option value="healthy">Healthy stock</option>
-            <option value="low">Low stock</option>
-            <option value="out">Out of stock</option>
-          </select>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["ALL", "All"],
+              ["HEALTHY", "Healthy"],
+              ["LOW", "Low Stock"],
+              ["OUT", "Out of Stock"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() =>
+                  setFilter(value)
+                }
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${
+                  filter === value
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Inventory table */}
+      {/* =================================================
+          PRODUCT TABLE
+      ================================================= */}
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="font-black text-slate-900">
-            Stock Overview
-          </h2>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="font-black text-slate-950">
+                Stock Overview
+              </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
-            {filteredProducts.length} product
-            {filteredProducts.length === 1 ? "" : "s"}
-          </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {filteredProducts.length} product
+                {filteredProducts.length === 1
+                  ? ""
+                  : "s"} displayed
+              </p>
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -431,180 +755,350 @@ const Inventory = () => {
         ) : filteredProducts.length === 0 ? (
           <div className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <Boxes size={25} />
+              <Package size={25} />
             </div>
 
-            <h3 className="mt-4 font-bold text-slate-900">
-              No inventory found
+            <h3 className="mt-4 font-black text-slate-800">
+              No products found
             </h3>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Try changing your search or stock filter.
+            <p className="mt-1 max-w-sm text-sm text-slate-500">
+              Try changing your search or inventory
+              filter.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[950px] w-full">
-              <thead className="bg-slate-50">
-                <tr className="text-left text-xs font-black uppercase tracking-wider text-slate-500">
-                  <th className="px-5 py-4">
+            <table className="min-w-[900px] w-full">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
                     Product
                   </th>
 
-                  <th className="px-5 py-4">
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
                     SKU
                   </th>
 
-                  <th className="px-5 py-4">
-                    Current Stock
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                    Buying Price
                   </th>
 
-                  <th className="px-5 py-4">
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                    Stock
+                  </th>
+
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
                     Minimum
                   </th>
 
-                  <th className="px-5 py-4">
-                    Stock Value
-                  </th>
-
-                  <th className="px-5 py-4">
+                  <th className="px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
                     Status
                   </th>
 
-                  <th className="px-5 py-4 text-right">
-                    Action
+                  <th className="px-5 py-4 text-right text-xs font-black uppercase tracking-wider text-slate-400">
+                    Actions
                   </th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-100">
-                {filteredProducts.map((product) => {
-                  const status = getStockStatus(product);
+              <tbody>
+                {filteredProducts.map(
+                  (product) => {
+                    const stock = Number(
+                      product.stockQuantity || 0
+                    );
 
-                  const stockValue =
-                    Number(product.stockQuantity || 0) *
-                    Number(product.buyingPrice || 0);
+                    const minimum = Number(
+                      product.minimumStock || 0
+                    );
 
-                  return (
-                    <tr
-                      key={product._id}
-                      className="transition hover:bg-slate-50/70"
-                    >
-                      <td className="px-5 py-4">
-                        <p className="font-bold text-slate-900">
-                          {product.name}
-                        </p>
+                    const isOut =
+                      stock === 0;
 
-                        {product.trackStock === false && (
-                          <p className="mt-1 text-xs text-slate-400">
-                            Stock tracking disabled
-                          </p>
-                        )}
-                      </td>
+                    const isLow =
+                      !isOut &&
+                      stock <= minimum;
 
-                      <td className="px-5 py-4">
-                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-xs font-bold text-slate-600">
+                    return (
+                      <tr
+                        key={product._id}
+                        className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
+                              {product.image ? (
+                                <img
+                                  src={
+                                    product.image
+                                  }
+                                  alt={
+                                    product.name
+                                  }
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <Package
+                                  size={18}
+                                />
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="font-bold text-slate-900">
+                                {product.name}
+                              </p>
+
+                              <p className="text-xs text-slate-400">
+                                {product.unit ||
+                                  "piece"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-5 py-4 text-sm font-semibold text-slate-600">
                           {product.sku}
-                        </span>
-                      </td>
+                        </td>
 
-                      <td className="px-5 py-4">
-                        <span
-                          className={`text-lg font-black ${
-                            status.label === "Out of stock"
-                              ? "text-red-600"
-                              : status.label ===
-                                  "Low stock"
-                                ? "text-amber-600"
-                                : "text-slate-900"
-                          }`}
-                        >
-                          {Number(
-                            product.stockQuantity || 0
-                          ).toLocaleString()}
-                        </span>
+                        <td className="px-5 py-4 text-sm font-semibold text-slate-700">
+                          {formatCurrency(
+                            product.buyingPrice
+                          )}
+                        </td>
 
-                        <span className="ml-1 text-xs text-slate-400">
-                          {product.unit}
-                        </span>
-                      </td>
+                        <td className="px-5 py-4">
+                          <span className="text-lg font-black text-slate-950">
+                            {stock}
+                          </span>
+                        </td>
 
-                      <td className="px-5 py-4 text-sm font-semibold text-slate-600">
-                        {Number(
-                          product.minimumStock || 0
-                        ).toLocaleString()}
-                      </td>
+                        <td className="px-5 py-4 text-sm font-semibold text-slate-600">
+                          {minimum}
+                        </td>
 
-                      <td className="px-5 py-4 text-sm font-bold text-slate-800">
-                        {formatMoney(stockValue)}
-                      </td>
+                        <td className="px-5 py-4">
+                          {isOut ? (
+                            <span className="inline-flex rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-600">
+                              Out of stock
+                            </span>
+                          ) : isLow ? (
+                            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-600">
+                              Low stock
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-600">
+                              Healthy
+                            </span>
+                          )}
+                        </td>
 
-                      <td className="px-5 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${status.className}`}
-                        >
-                          {status.label}
-                        </span>
-                      </td>
+                        <td className="px-5 py-4">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openHistory(
+                                  product
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                            >
+                              <Eye
+                                size={15}
+                              />
+                              History
+                            </button>
 
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          onClick={() =>
-                            openAdjustmentModal(product)
-                          }
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                        >
-                          <ArrowDownToLine
-                            size={16}
-                          />
-                          Adjust
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openAdjustment(
+                                  product,
+                                  "STOCK_RECEIVED"
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700"
+                            >
+                              <ArrowUp
+                                size={15}
+                              />
+                              Adjust
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Adjustment Modal */}
-      {showAdjustmentModal && selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl">
+      {/* =================================================
+          RECENT INVENTORY ACTIVITY
+      ================================================= */}
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="font-black text-slate-950">
+            Recent Inventory Activity
+          </h2>
+
+          <p className="mt-1 text-xs text-slate-500">
+            The latest stock movements recorded by
+            MOVA.
+          </p>
+        </div>
+
+        {transactions.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-500">
+            No inventory transactions have been
+            recorded yet.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {transactions
+              .slice(0, 10)
+              .map((transaction) => {
+                const increase =
+                  isStockIncrease(
+                    transaction.type
+                  );
+
+                return (
+                  <div
+                    key={transaction._id}
+                    className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                          increase
+                            ? "bg-green-50 text-green-600"
+                            : "bg-red-50 text-red-600"
+                        }`}
+                      >
+                        {increase ? (
+                          <ArrowUp size={18} />
+                        ) : (
+                          <ArrowDown
+                            size={18}
+                          />
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="font-bold text-slate-900">
+                          {transaction
+                            .productId
+                            ?.name ||
+                            "Product"}
+                        </p>
+
+                        <p className="text-xs text-slate-500">
+                          {getTransactionLabel(
+                            transaction.type
+                          )}{" "}
+                          •{" "}
+                          {transaction.userId
+                            ?.name ||
+                            "System"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-6 sm:justify-end">
+                      <div className="text-right">
+                        <p
+                          className={`font-black ${
+                            increase
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {increase
+                            ? "+"
+                            : "-"}
+                          {
+                            transaction.quantity
+                          }
+                        </p>
+
+                        <p className="text-[11px] text-slate-400">
+                          {
+                            transaction.stockBefore
+                          }{" "}
+                          →{" "}
+                          {
+                            transaction.stockAfter
+                          }
+                        </p>
+                      </div>
+
+                      <p className="text-xs text-slate-400">
+                        {formatDate(
+                          transaction.createdAt
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </div>
+
+      {/* =================================================
+          ADJUSTMENT MODAL
+      ================================================= */}
+
+      {adjustmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
               <div>
-                <h2 className="text-xl font-black text-slate-950">
-                  Adjust Stock
+                <h2 className="text-lg font-black text-slate-950">
+                  Adjust Inventory
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {selectedProduct.name}
+                  {adjustmentModal.name}
                 </p>
               </div>
 
               <button
-                onClick={closeAdjustmentModal}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                type="button"
+                onClick={
+                  closeAdjustment
+                }
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               >
                 <X size={20} />
               </button>
             </div>
 
             <form
-              onSubmit={handleAdjustment}
+              onSubmit={
+                handleAdjustmentSubmit
+              }
               className="space-y-5 p-6"
             >
               <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Current stock
-                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-500">
+                    Current stock
+                  </span>
 
-                <p className="mt-1 text-2xl font-black text-slate-900">
-                  {selectedProduct.stockQuantity}{" "}
-                  {selectedProduct.unit}
-                </p>
+                  <span className="text-xl font-black text-slate-950">
+                    {
+                      adjustmentModal.stockQuantity
+                    }
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -612,35 +1106,36 @@ const Inventory = () => {
                   Adjustment type
                 </label>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdjustmentType("add")
-                    }
-                    className={`rounded-xl border px-4 py-3 text-sm font-bold ${
-                      adjustmentType === "add"
-                        ? "border-green-500 bg-green-50 text-green-700"
-                        : "border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    Add Stock
-                  </button>
+                <select
+                  name="type"
+                  value={
+                    adjustmentForm.type
+                  }
+                  onChange={
+                    handleAdjustmentChange
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                >
+                  <option value="STOCK_RECEIVED">
+                    Stock Received
+                  </option>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdjustmentType("remove")
-                    }
-                    className={`rounded-xl border px-4 py-3 text-sm font-bold ${
-                      adjustmentType === "remove"
-                        ? "border-red-500 bg-red-50 text-red-700"
-                        : "border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    Remove Stock
-                  </button>
-                </div>
+                  <option value="ADJUSTMENT_IN">
+                    Adjustment In
+                  </option>
+
+                  <option value="ADJUSTMENT_OUT">
+                    Adjustment Out
+                  </option>
+
+                  <option value="DAMAGE">
+                    Damaged Stock
+                  </option>
+
+                  <option value="LOSS">
+                    Lost Stock
+                  </option>
+                </select>
               </div>
 
               <div>
@@ -651,14 +1146,17 @@ const Inventory = () => {
                 <input
                   type="number"
                   min="1"
-                  value={adjustmentQuantity}
-                  onChange={(event) =>
-                    setAdjustmentQuantity(
-                      event.target.value
-                    )
+                  step="1"
+                  name="quantity"
+                  value={
+                    adjustmentForm.quantity
+                  }
+                  onChange={
+                    handleAdjustmentChange
                   }
                   placeholder="Enter quantity"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  required
                 />
               </div>
 
@@ -667,45 +1165,232 @@ const Inventory = () => {
                   Reason
                 </label>
 
-                <textarea
-                  value={adjustmentReason}
-                  onChange={(event) =>
-                    setAdjustmentReason(
-                      event.target.value
-                    )
+                <input
+                  type="text"
+                  name="reason"
+                  value={
+                    adjustmentForm.reason
                   }
-                  rows="3"
-                  placeholder="e.g. New stock received, damaged goods, stock count correction..."
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                  onChange={
+                    handleAdjustmentChange
+                  }
+                  placeholder="Why is the stock changing?"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  required
                 />
               </div>
 
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Notes
+                  <span className="ml-1 font-normal text-slate-400">
+                    (optional)
+                  </span>
+                </label>
+
+                <textarea
+                  name="notes"
+                  value={
+                    adjustmentForm.notes
+                  }
+                  onChange={
+                    handleAdjustmentChange
+                  }
+                  rows="3"
+                  placeholder="Additional information..."
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              {error && (
+                <div className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={closeAdjustmentModal}
-                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                  onClick={
+                    closeAdjustment
+                  }
+                  disabled={
+                    savingAdjustment
+                  }
+                  className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  disabled={saving}
-                  className={`rounded-xl px-6 py-3 text-sm font-bold text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${
-                    adjustmentType === "add"
-                      ? "bg-green-600 shadow-green-600/20 hover:bg-green-700"
-                      : "bg-red-600 shadow-red-600/20 hover:bg-red-700"
-                  }`}
+                  disabled={
+                    savingAdjustment
+                  }
+                  className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {saving
+                  {savingAdjustment
                     ? "Saving..."
-                    : adjustmentType === "add"
-                      ? "Add Stock"
-                      : "Remove Stock"}
+                    : "Save Adjustment"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================
+          HISTORY MODAL
+      ================================================= */}
+
+      {historyProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-black text-slate-950">
+                  Inventory History
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  {historyProduct.product
+                    ?.name || "Product"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setHistoryProduct(null)
+                }
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-auto">
+              {historyLoading ? (
+                <div className="flex min-h-64 items-center justify-center">
+                  <div className="text-center">
+                    <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+
+                    <p className="mt-3 text-sm text-slate-500">
+                      Loading history...
+                    </p>
+                  </div>
+                </div>
+              ) : historyProduct.transactions
+                  ?.length === 0 ? (
+                <div className="p-10 text-center text-sm text-slate-500">
+                  No inventory movements have
+                  been recorded for this product.
+                </div>
+              ) : (
+                <table className="min-w-[800px] w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left">
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        Date
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        Action
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        Quantity
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        Stock
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        User
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-slate-400">
+                        Reason
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {historyProduct.transactions.map(
+                      (transaction) => {
+                        const increase =
+                          isStockIncrease(
+                            transaction.type
+                          );
+
+                        return (
+                          <tr
+                            key={
+                              transaction._id
+                            }
+                            className="border-b border-slate-100 last:border-b-0"
+                          >
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {formatDate(
+                                transaction.createdAt
+                              )}
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <span className="font-bold text-slate-800">
+                                {getTransactionLabel(
+                                  transaction.type
+                                )}
+                              </span>
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <span
+                                className={`font-black ${
+                                  increase
+                                    ? "text-green-600"
+                                    : "text-red-600"
+                                }`}
+                              >
+                                {increase
+                                  ? "+"
+                                  : "-"}
+                                {
+                                  transaction.quantity
+                                }
+                              </span>
+                            </td>
+
+                            <td className="px-6 py-4 text-sm font-bold text-slate-700">
+                              {
+                                transaction.stockBefore
+                              }{" "}
+                              →{" "}
+                              {
+                                transaction.stockAfter
+                              }
+                            </td>
+
+                            <td className="px-6 py-4 text-sm text-slate-600">
+                              {transaction
+                                .userId
+                                ?.name ||
+                                "System"}
+                            </td>
+
+                            <td className="max-w-xs px-6 py-4 text-sm text-slate-500">
+                              {transaction.reason ||
+                                "-"}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}

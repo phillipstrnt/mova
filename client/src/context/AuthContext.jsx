@@ -1,116 +1,284 @@
-
-import { createContext, useContext, useEffect, useState } from "react";
-
 import {
-  getCurrentUser,
-  login as loginRequest,
-  registerBusiness as registerRequest,
-} from "../services/auth";
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
-import { storage } from "../services/storage";
+import api from "../services/api";
 
-const AuthContext = createContext(null);
+const AuthContext =
+  createContext(null);
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(storage.getUser());
-  const [business, setBusiness] = useState(storage.getBusiness());
-  const [branch, setBranch] = useState(storage.getBranch());
-  const [loading, setLoading] = useState(true);
+export const AuthProvider = ({
+  children,
+}) => {
+  const [user, setUser] =
+    useState(null);
+
+  const [business, setBusiness] =
+    useState(null);
+
+  const [branch, setBranch] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
 
   useEffect(() => {
-    const restoreSession = async () => {
-      const token = storage.getToken();
+    const loadStoredUser =
+      async () => {
+        const token =
+          localStorage.getItem(
+            "mova_token"
+          );
 
-      // No saved token means there is no session to restore.
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await getCurrentUser();
-
-        if (response?.user) {
-          setUser(response.user);
-          storage.setUser(response.user);
+        if (!token) {
+          setLoading(false);
+          return;
         }
 
-        if (response?.business) {
-          setBusiness(response.business);
-          storage.setBusiness(response.business);
+        try {
+          const response =
+            await api.get(
+              "/auth/me"
+            );
+
+          const data =
+            response.data;
+
+          const currentUser =
+            data.user ||
+            data.data?.user ||
+            null;
+
+          const currentBusiness =
+            data.business ||
+            data.data?.business ||
+            null;
+
+          const currentBranch =
+            data.branch ||
+            data.data?.branch ||
+            null;
+
+          setUser(currentUser);
+          setBusiness(
+            currentBusiness
+          );
+          setBranch(currentBranch);
+
+          if (currentUser) {
+            localStorage.setItem(
+              "mova_user",
+              JSON.stringify(
+                currentUser
+              )
+            );
+          }
+
+          if (currentBusiness) {
+            localStorage.setItem(
+              "mova_business",
+              JSON.stringify(
+                currentBusiness
+              )
+            );
+          }
+
+          if (currentBranch) {
+            localStorage.setItem(
+              "mova_branch",
+              JSON.stringify(
+                currentBranch
+              )
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Failed to restore MOVA session:",
+            error
+          );
+
+          localStorage.removeItem(
+            "mova_token"
+          );
+
+          localStorage.removeItem(
+            "mova_user"
+          );
+
+          localStorage.removeItem(
+            "mova_business"
+          );
+
+          localStorage.removeItem(
+            "mova_branch"
+          );
+
+          setUser(null);
+          setBusiness(null);
+          setBranch(null);
+        } finally {
+          setLoading(false);
         }
+      };
 
-        if (response?.branch) {
-          setBranch(response.branch);
-          storage.setBranch(response.branch);
-        }
-      } catch (error) {
-        console.error("Session restoration failed:", error);
-
-        // Token may have expired or become invalid.
-        storage.clear();
-
-        setUser(null);
-        setBusiness(null);
-        setBranch(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    restoreSession();
+    loadStoredUser();
   }, []);
 
-  const login = async (credentials) => {
-    const response = await loginRequest(credentials);
+  const login = async (
+    email,
+    password
+  ) => {
+    try {
+      const response =
+        await api.post(
+          "/auth/login",
+          {
+            email:
+              email.trim(),
+            password,
+          }
+        );
 
-    storage.setToken(response.token);
-    storage.setUser(response.user);
-    storage.setBusiness(response.business);
-    storage.setBranch(response.branch);
+      const data =
+        response.data;
 
-    setUser(response.user);
-    setBusiness(response.business);
-    setBranch(response.branch);
+      /*
+        Support common backend response
+        structures.
+      */
+      const token =
+        data.token ||
+        data.data?.token;
 
-    return response;
-  };
+      const loggedInUser =
+        data.user ||
+        data.data?.user ||
+        null;
 
-  const register = async (businessData) => {
-    const response = await registerRequest(businessData);
+      const loggedInBusiness =
+        data.business ||
+        data.data?.business ||
+        null;
 
-    storage.setToken(response.token);
-    storage.setUser(response.user);
-    storage.setBusiness(response.business);
-    storage.setBranch(response.branch);
+      const loggedInBranch =
+        data.branch ||
+        data.data?.branch ||
+        null;
 
-    setUser(response.user);
-    setBusiness(response.business);
-    setBranch(response.branch);
+      if (!token) {
+        throw new Error(
+          "Login succeeded but the server did not return an authentication token."
+        );
+      }
 
-    return response;
+      localStorage.setItem(
+        "mova_token",
+        token
+      );
+
+      if (loggedInUser) {
+        localStorage.setItem(
+          "mova_user",
+          JSON.stringify(
+            loggedInUser
+          )
+        );
+      }
+
+      if (loggedInBusiness) {
+        localStorage.setItem(
+          "mova_business",
+          JSON.stringify(
+            loggedInBusiness
+          )
+        );
+      }
+
+      if (loggedInBranch) {
+        localStorage.setItem(
+          "mova_branch",
+          JSON.stringify(
+            loggedInBranch
+          )
+        );
+      }
+
+      setUser(loggedInUser);
+      setBusiness(
+        loggedInBusiness
+      );
+      setBranch(loggedInBranch);
+
+      return {
+        success: true,
+        user: loggedInUser,
+        business:
+          loggedInBusiness,
+        branch:
+          loggedInBranch,
+      };
+    } catch (error) {
+      console.error(
+        "MOVA login error:",
+        error
+      );
+
+      /*
+        IMPORTANT:
+        Return the backend's actual message.
+        This makes debugging much easier.
+      */
+      const message =
+        error.response?.data
+          ?.message ||
+        error.response?.data
+          ?.error ||
+        error.message ||
+        "Unable to sign in.";
+
+      throw new Error(message);
+    }
   };
 
   const logout = () => {
-    storage.clear();
+    localStorage.removeItem(
+      "mova_token"
+    );
+
+    localStorage.removeItem(
+      "mova_user"
+    );
+
+    localStorage.removeItem(
+      "mova_business"
+    );
+
+    localStorage.removeItem(
+      "mova_branch"
+    );
 
     setUser(null);
     setBusiness(null);
     setBranch(null);
   };
 
+  const value = {
+    user,
+    business,
+    branch,
+    loading,
+    isAuthenticated:
+      Boolean(user),
+    login,
+    logout,
+  };
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        business,
-        branch,
-        loading,
-        isAuthenticated: Boolean(user),
-        login,
-        register,
-        logout,
-      }}
+      value={value}
     >
       {children}
     </AuthContext.Provider>
@@ -118,15 +286,14 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(AuthContext);
 
   if (!context) {
     throw new Error(
-      "useAuth must be used inside an AuthProvider"
+      "useAuth must be used inside AuthProvider."
     );
   }
 
   return context;
 };
-
-export default AuthContext;

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import Sales from "./pages/sales/Sales";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import DashboardLayout from "./layouts/DashboardLayout";
+import Customers from "./pages/customers/Customers";
 
 import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
@@ -92,9 +93,7 @@ const App = () => {
 
           <Route
             path="customers"
-            element={
-              <PlaceholderPage title="Customers" />
-            }
+            element={<Customers />}
           />
 
           <Route

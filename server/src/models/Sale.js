@@ -44,7 +44,9 @@ const saleItemSchema = new mongoose.Schema(
       min: 0,
     },
   },
-  { _id: false }
+  {
+    _id: false,
+  }
 );
 
 const saleSchema = new mongoose.Schema(
@@ -70,6 +72,13 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      default: null,
+      index: true,
+    },
+
     receiptNumber: {
       type: String,
       required: true,
@@ -81,8 +90,11 @@ const saleSchema = new mongoose.Schema(
       type: [saleItemSchema],
       required: true,
       validate: {
-        validator: (items) => items.length > 0,
-        message: "A sale must contain at least one item.",
+        validator: (items) =>
+          items.length > 0,
+
+        message:
+          "A sale must contain at least one item.",
       },
     },
 
@@ -117,13 +129,22 @@ const saleSchema = new mongoose.Schema(
 
     paymentStatus: {
       type: String,
-      enum: ["PAID", "PENDING", "REFUNDED"],
+      enum: [
+        "PAID",
+        "PENDING",
+        "REFUNDED",
+      ],
       default: "PAID",
     },
 
     status: {
       type: String,
-      enum: ["COMPLETED", "CANCELLED", "REFUNDED"],
+      enum: [
+        "COMPLETED",
+        "CANCELLED",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED",
+      ],
       default: "COMPLETED",
     },
 
@@ -138,21 +159,42 @@ const saleSchema = new mongoose.Schema(
   }
 );
 
+/*
+ * Business + date
+ */
 saleSchema.index({
   businessId: 1,
   createdAt: -1,
 });
 
+/*
+ * Business + payment method
+ */
 saleSchema.index({
   businessId: 1,
   paymentMethod: 1,
 });
 
+/*
+ * Business + cashier
+ */
 saleSchema.index({
   businessId: 1,
   cashierId: 1,
 });
 
-const Sale = mongoose.model("Sale", saleSchema);
+/*
+ * Business + customer + date
+ */
+saleSchema.index({
+  businessId: 1,
+  customerId: 1,
+  createdAt: -1,
+});
+
+const Sale = mongoose.model(
+  "Sale",
+  saleSchema
+);
 
 export default Sale;
