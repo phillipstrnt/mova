@@ -6,7 +6,6 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
 import connectDB from "./config/db.js";
-import returnRoutes from "./routes/return.routes.js";
 
 import authRoutes from "./routes/auth.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
@@ -14,6 +13,8 @@ import productRoutes from "./routes/product.routes.js";
 import saleRoutes from "./routes/sale.routes.js";
 import inventoryTransactionRoutes from "./routes/inventoryTransaction.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
+import returnRoutes from "./routes/return.routes.js";
+import supplierRoutes from "./routes/supplier.routes.js";
 
 dotenv.config();
 
@@ -21,8 +22,7 @@ connectDB();
 
 const app = express();
 
-const PORT =
-  process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
 
@@ -57,6 +57,12 @@ app.use(
 );
 
 app.use(cookieParser());
+
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   "/api/auth",
@@ -93,15 +99,31 @@ app.use(
   returnRoutes
 );
 
+app.use(
+  "/api/suppliers",
+  supplierRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| Root Route
+|--------------------------------------------------------------------------
+*/
+
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message:
-      "MOVA API is running 🚀",
+    message: "MOVA API is running 🚀",
     platform: "MOVA",
     version: "0.1.0",
   });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Health Check
+|--------------------------------------------------------------------------
+*/
 
 app.get(
   "/api/health",
@@ -110,11 +132,16 @@ app.get(
       success: true,
       status: "healthy",
       service: "MOVA API",
-      timestamp:
-        new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     });
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| 404 Handler
+|--------------------------------------------------------------------------
+*/
 
 app.use((req, res) => {
   res.status(404).json({
@@ -122,6 +149,12 @@ app.use((req, res) => {
     message: "Route not found",
   });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Global Error Handler
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   (
@@ -142,9 +175,15 @@ app.use(
       message:
         error.message ||
         "Internal server error",
-      });
+    });
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| Start Server
+|--------------------------------------------------------------------------
+*/
 
 app.listen(
   PORT,
