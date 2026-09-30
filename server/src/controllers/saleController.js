@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 import Sale from "../models/Sale.js";
@@ -5,13 +6,21 @@ import Product from "../models/Product.js";
 import Customer from "../models/Customer.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
 
+/*
+|--------------------------------------------------------------------------
+| GENERATE RECEIPT NUMBER
+|--------------------------------------------------------------------------
+*/
+
 const generateReceiptNumber = () => {
   const now = new Date();
 
   const year = now.getFullYear();
+
   const month = String(
     now.getMonth() + 1
   ).padStart(2, "0");
+
   const day = String(
     now.getDate()
   ).padStart(2, "0");
@@ -29,12 +38,7 @@ const generateReceiptNumber = () => {
 |--------------------------------------------------------------------------
 */
 
-export const createSale = async (
-  req,
-  res
-) => {
-  const session = await mongoose.startSession();
-
+export const createSale = async (req, res) => {
   try {
     const {
       items,
@@ -44,14 +48,11 @@ export const createSale = async (
       notes = "",
     } = req.body;
 
-    const businessId =
-      req.user.businessId;
+    const businessId = req.user.businessId;
 
-    const branchId =
-      req.user.branchId || null;
+    const branchId = req.user.branchId || null;
 
-    const cashierId =
-      req.user._id;
+    const cashierId = req.user._id;
 
     /*
     |--------------------------------------------------------------------------
@@ -70,6 +71,12 @@ export const createSale = async (
       });
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT METHOD VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
     const validPaymentMethods = [
       "CASH",
       "MOBILE_MONEY",
@@ -84,13 +91,17 @@ export const createSale = async (
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Invalid payment method.",
+        message: "Invalid payment method.",
       });
     }
 
-    const numericDiscount =
-      Number(discount);
+    /*
+    |--------------------------------------------------------------------------
+    | DISCOUNT VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    const numericDiscount = Number(discount);
 
     if (
       Number.isNaN(numericDiscount) ||
@@ -119,17 +130,15 @@ export const createSale = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid customer ID.",
+          message: "Invalid customer ID.",
         });
       }
 
-      customer =
-        await Customer.findOne({
-          _id: customerId,
-          businessId,
-          isActive: true,
-        });
+      customer = await Customer.findOne({
+        _id: customerId,
+        businessId,
+        isActive: true,
+      });
 
       if (!customer) {
         return res.status(404).json({
@@ -151,6 +160,12 @@ export const createSale = async (
     let subtotal = 0;
 
     for (const item of items) {
+      /*
+      |--------------------------------------------------------------------------
+      | PRODUCT ID VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
       if (
         !item.productId ||
         !mongoose.Types.ObjectId.isValid(
@@ -164,8 +179,13 @@ export const createSale = async (
         });
       }
 
-      const quantity =
-        Number(item.quantity);
+      /*
+      |--------------------------------------------------------------------------
+      | QUANTITY VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
+      const quantity = Number(item.quantity);
 
       if (
         !Number.isInteger(quantity) ||
@@ -178,12 +198,17 @@ export const createSale = async (
         });
       }
 
-      const product =
-        await Product.findOne({
-          _id: item.productId,
-          businessId,
-          isActive: true,
-        });
+      /*
+      |--------------------------------------------------------------------------
+      | FIND PRODUCT
+      |--------------------------------------------------------------------------
+      */
+
+      const product = await Product.findOne({
+        _id: item.productId,
+        businessId,
+        isActive: true,
+      });
 
       if (!product) {
         return res.status(404).json({
@@ -205,15 +230,22 @@ export const createSale = async (
       ) {
         return res.status(400).json({
           success: false,
-          message: `Insufficient stock for ${product.name}. Available: ${product.stockQuantity}.`,
+          message:
+            `Insufficient stock for ${product.name}. ` +
+            `Available: ${product.stockQuantity}.`,
         });
       }
 
-      const unitPrice =
-        Number(
-          item.unitPrice ??
-            product.sellingPrice
-        );
+      /*
+      |--------------------------------------------------------------------------
+      | PRICE
+      |--------------------------------------------------------------------------
+      */
+
+      const unitPrice = Number(
+        item.unitPrice ??
+          product.sellingPrice
+      );
 
       if (
         Number.isNaN(unitPrice) ||
@@ -221,14 +253,27 @@ export const createSale = async (
       ) {
         return res.status(400).json({
           success: false,
-          message: `Invalid selling price for ${product.name}.`,
+          message:
+            `Invalid selling price for ${product.name}.`,
         });
       }
+
+      /*
+      |--------------------------------------------------------------------------
+      | ITEM SUBTOTAL
+      |--------------------------------------------------------------------------
+      */
 
       const itemSubtotal =
         unitPrice * quantity;
 
       subtotal += itemSubtotal;
+
+      /*
+      |--------------------------------------------------------------------------
+      | STORE NORMALIZED ITEM
+      |--------------------------------------------------------------------------
+      */
 
       normalizedItems.push({
         product,
@@ -239,20 +284,18 @@ export const createSale = async (
         unitPrice,
         buyingPrice:
           product.buyingPrice,
-        subtotal:
-          itemSubtotal,
+        subtotal: itemSubtotal,
       });
     }
 
     /*
     |--------------------------------------------------------------------------
-    | DISCOUNT VALIDATION
+    | DISCOUNT CHECK
     |--------------------------------------------------------------------------
     */
 
     if (
-      numericDiscount >
-      subtotal
+      numericDiscount > subtotal
     ) {
       return res.status(400).json({
         success: false,
@@ -261,16 +304,14 @@ export const createSale = async (
       });
     }
 
-    const total =
-      subtotal - numericDiscount;
-
     /*
     |--------------------------------------------------------------------------
-    | START SESSION
+    | CALCULATE TOTAL
     |--------------------------------------------------------------------------
     */
 
-    session.startTransaction();
+    const total =
+      subtotal - numericDiscount;
 
     /*
     |--------------------------------------------------------------------------
@@ -281,13 +322,14 @@ export const createSale = async (
     const inventoryEntries = [];
 
     for (const item of normalizedItems) {
-      const product =
-        item.product;
+      const product = item.product;
 
       /*
-      | Products with stock tracking
-      | get their stock reduced.
+      |--------------------------------------------------------------------------
+      | ONLY REDUCE STOCK IF TRACKING IS ENABLED
+      |--------------------------------------------------------------------------
       */
+
       if (product.trackStock) {
         const updatedProduct =
           await Product.findOneAndUpdate(
@@ -307,33 +349,56 @@ export const createSale = async (
             },
             {
               new: true,
-              session,
             }
           );
 
+        /*
+        |--------------------------------------------------------------------------
+        | STOCK UPDATE FAILED
+        |--------------------------------------------------------------------------
+        */
+
         if (!updatedProduct) {
-          throw new Error(
-            `Insufficient stock for ${product.name}.`
-          );
+          return res.status(400).json({
+            success: false,
+            message:
+              `Insufficient stock for ${product.name}.`,
+          });
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | INVENTORY LEDGER ENTRY
+        |--------------------------------------------------------------------------
+        */
 
         inventoryEntries.push({
           businessId,
           branchId,
+
           productId:
             product._id,
-          userId: cashierId,
+
+          userId:
+            cashierId,
+
           type: "SALE",
+
           quantity:
             item.quantity,
+
           stockBefore:
             product.stockQuantity,
+
           stockAfter:
             updatedProduct.stockQuantity,
+
           reason:
             "Product sold",
+
           referenceType:
             "SALE",
+
           notes:
             `Sale of ${item.quantity} ${product.unit}(s).`,
         });
@@ -342,7 +407,7 @@ export const createSale = async (
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE SALE
+    | PREPARE SALE ITEMS
     |--------------------------------------------------------------------------
     */
 
@@ -351,64 +416,76 @@ export const createSale = async (
         (item) => ({
           productId:
             item.productId,
-          name: item.name,
-          sku: item.sku,
+
+          name:
+            item.name,
+
+          sku:
+            item.sku,
+
           quantity:
             item.quantity,
+
           unitPrice:
             item.unitPrice,
+
           buyingPrice:
             item.buyingPrice,
+
           subtotal:
             item.subtotal,
         })
       );
 
+    /*
+    |--------------------------------------------------------------------------
+    | GENERATE RECEIPT
+    |--------------------------------------------------------------------------
+    */
+
     const receiptNumber =
       generateReceiptNumber();
 
-    const saleDocuments =
-      await Sale.create(
-        [
-          {
-            businessId,
-            branchId,
-            cashierId,
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE SALE
+    |--------------------------------------------------------------------------
+    */
 
-            customerId:
-              customer
-                ? customer._id
-                : null,
+    const sale = await Sale.create({
+      businessId,
 
-            receiptNumber,
+      branchId,
 
-            items: saleItems,
+      cashierId,
 
-            subtotal,
+      customerId:
+        customer
+          ? customer._id
+          : null,
 
-            discount:
-              numericDiscount,
+      receiptNumber,
 
-            total,
+      items:
+        saleItems,
 
-            paymentMethod,
+      subtotal,
 
-            paymentStatus:
-              "PAID",
+      discount:
+        numericDiscount,
 
-            status:
-              "COMPLETED",
+      total,
 
-            notes,
-          },
-        ],
-        {
-          session,
-        }
-      );
+      paymentMethod,
 
-    const sale =
-      saleDocuments[0];
+      paymentStatus:
+        "PAID",
+
+      status:
+        "COMPLETED",
+
+      notes,
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -419,19 +496,15 @@ export const createSale = async (
     if (
       inventoryEntries.length > 0
     ) {
-      for (const entry of inventoryEntries) {
-        await InventoryTransaction.create(
-          [
-            {
-              ...entry,
-              referenceId:
-                sale._id,
-            },
-          ],
-          {
-            session,
-          }
-        );
+      for (
+        const entry of inventoryEntries
+      ) {
+        await InventoryTransaction.create({
+          ...entry,
+
+          referenceId:
+            sale._id,
+        });
       }
     }
 
@@ -444,65 +517,76 @@ export const createSale = async (
     if (customer) {
       await Customer.updateOne(
         {
-          _id: customer._id,
+          _id:
+            customer._id,
+
           businessId,
         },
+
         {
           $inc: {
             totalOrders: 1,
-            totalSpent: total,
+
+            totalSpent:
+              total,
           },
-        },
-        {
-          session,
         }
       );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | COMMIT TRANSACTION
-    |--------------------------------------------------------------------------
-    */
-
-    await session.commitTransaction();
-
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE
+    | SUCCESS RESPONSE
     |--------------------------------------------------------------------------
     */
 
     return res.status(201).json({
       success: true,
+
       message:
         "Sale completed successfully.",
+
       sale: {
-        id: sale._id,
+        id:
+          sale._id,
+
         receiptNumber:
           sale.receiptNumber,
+
         customerId:
           sale.customerId,
+
         items:
           sale.items,
+
         subtotal:
           sale.subtotal,
+
         discount:
           sale.discount,
+
         total:
           sale.total,
+
         paymentMethod:
           sale.paymentMethod,
+
         paymentStatus:
           sale.paymentStatus,
+
         status:
           sale.status,
+
         createdAt:
           sale.createdAt,
       },
     });
   } catch (error) {
-    await session.abortTransaction();
+    /*
+    |--------------------------------------------------------------------------
+    | ERROR HANDLING
+    |--------------------------------------------------------------------------
+    */
 
     console.error(
       "Create sale error:",
@@ -511,12 +595,11 @@ export const createSale = async (
 
     return res.status(500).json({
       success: false,
+
       message:
         error.message ||
         "Failed to complete sale.",
     });
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -560,7 +643,9 @@ export const getSales = async (
       filter.receiptNumber = {
         $regex:
           search.trim(),
-        $options: "i",
+
+        $options:
+          "i",
       };
     }
 
@@ -617,6 +702,12 @@ export const getSales = async (
       }
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | PAGINATION
+    |--------------------------------------------------------------------------
+    */
+
     const pageNumber =
       Math.max(
         Number(page),
@@ -636,6 +727,12 @@ export const getSales = async (
       (pageNumber - 1) *
       limitNumber;
 
+    /*
+    |--------------------------------------------------------------------------
+    | FETCH SALES
+    |--------------------------------------------------------------------------
+    */
+
     const [
       sales,
       total,
@@ -650,25 +747,39 @@ export const getSales = async (
           "name phone email"
         )
         .sort({
-          createdAt: -1,
+          createdAt:
+            -1,
         })
         .skip(skip)
-        .limit(limitNumber),
+        .limit(
+          limitNumber
+        ),
 
       Sale.countDocuments(
         filter
       ),
     ]);
 
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE
+    |--------------------------------------------------------------------------
+    */
+
     return res.json({
       success: true,
+
       sales,
+
       pagination: {
         page:
           pageNumber,
+
         limit:
           limitNumber,
+
         total,
+
         pages:
           Math.ceil(
             total /
@@ -684,6 +795,7 @@ export const getSales = async (
 
     return res.status(500).json({
       success: false,
+
       message:
         "Failed to fetch sales.",
     });
@@ -704,6 +816,12 @@ export const getSaleById = async (
     const { id } =
       req.params;
 
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATE ID
+    |--------------------------------------------------------------------------
+    */
+
     if (
       !mongoose.Types.ObjectId.isValid(
         id
@@ -711,14 +829,22 @@ export const getSaleById = async (
     ) {
       return res.status(400).json({
         success: false,
+
         message:
           "Invalid sale ID.",
       });
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | FIND SALE
+    |--------------------------------------------------------------------------
+    */
+
     const sale =
       await Sale.findOne({
         _id: id,
+
         businessId:
           req.user.businessId,
       })
@@ -731,16 +857,30 @@ export const getSaleById = async (
           "name phone email address"
         );
 
+    /*
+    |--------------------------------------------------------------------------
+    | SALE NOT FOUND
+    |--------------------------------------------------------------------------
+    */
+
     if (!sale) {
       return res.status(404).json({
         success: false,
+
         message:
           "Sale not found.",
       });
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE
+    |--------------------------------------------------------------------------
+    */
+
     return res.json({
       success: true,
+
       sale,
     });
   } catch (error) {
@@ -751,8 +891,10 @@ export const getSaleById = async (
 
     return res.status(500).json({
       success: false,
+
       message:
         "Failed to fetch sale.",
     });
   }
 };
+

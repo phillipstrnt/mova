@@ -4,7 +4,6 @@ import api from "../../services/api";
 
 import {
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -89,6 +88,55 @@ const getErrorMessage = (error, fallback) => {
   );
 };
 
+/*
+ * IMPORTANT:
+ *
+ * Sale.items.productId is the actual MongoDB Product _id.
+ *
+ * We deliberately DO NOT use item._id because the Sale
+ * schema has _id: false on sale items.
+ */
+const getProductId = (item) => {
+  if (!item) return "";
+
+  const productId = item.productId;
+
+  if (!productId) {
+    return "";
+  }
+
+  if (typeof productId === "string") {
+    return productId;
+  }
+
+  if (typeof productId === "object") {
+    if (typeof productId._id === "string") {
+      return productId._id;
+    }
+
+    if (productId._id) {
+      return String(productId._id);
+    }
+
+    if (typeof productId.$oid === "string") {
+      return productId.$oid;
+    }
+  }
+
+  return "";
+};
+
+/*
+ * Basic MongoDB ObjectId validation on the frontend.
+ *
+ * The backend performs the authoritative validation.
+ */
+const isValidObjectId = (value) => {
+  return /^[a-fA-F0-9]{24}$/.test(
+    String(value || "")
+  );
+};
+
 const Sales = () => {
   const [sales, setSales] = useState([]);
 
@@ -165,7 +213,12 @@ const Sales = () => {
 
       const data = response.data;
 
-      setSales(data.sales || []);
+      setSales(
+        Array.isArray(data.sales)
+          ? data.sales
+          : []
+      );
+
       setTotalSales(
         data.pagination?.total ||
           data.total ||
@@ -452,7 +505,6 @@ const Sales = () => {
     `);
 
     receiptWindow.document.close();
-
     receiptWindow.focus();
 
     setTimeout(() => {
@@ -461,6 +513,13 @@ const Sales = () => {
   };
 
   const openReturnModal = async (sale) => {
+    if (!sale?._id) {
+      setError(
+        "This sale does not have a valid sale ID."
+      );
+      return;
+    }
+
     try {
       setReturnSale(sale);
       setReturnSuccess(null);
@@ -468,8 +527,9 @@ const Sales = () => {
       setReturnNotes("");
       setRefundMethod("CASH");
       setReturnQuantities({});
+      setReturnableItems([]);
+      setError("");
       setShowReturnModal(true);
-
       setLoadingReturnItems(true);
 
       const response = await api.get(
@@ -481,7 +541,27 @@ const Sales = () => {
         response.data.returnableItems ||
         [];
 
-      setReturnableItems(items);
+      /*
+       * Normalize the response.
+       *
+       * We do not create an ID when the backend
+       * doesn't provide one.
+       */
+      const normalizedItems = Array.isArray(items)
+        ? items.map((item) => {
+            const productId =
+              getProductId(item);
+
+            return {
+              ...item,
+              productId,
+              invalidProductId:
+                !isValidObjectId(productId),
+            };
+          })
+        : [];
+
+      setReturnableItems(normalizedItems);
     } catch (requestError) {
       console.error(
         "Failed to load returnable items:",
@@ -519,6 +599,10 @@ const Sales = () => {
     value,
     max
   ) => {
+    if (!isValidObjectId(productId)) {
+      return;
+    }
+
     let quantity = Number(value);
 
     if (Number.isNaN(quantity)) {
@@ -536,13 +620,13 @@ const Sales = () => {
     }));
   };
 
-  const getReturnQuantity = (
-    item
-  ) => {
+  const getReturnQuantity = (item) => {
     const productId =
-      item.productId?._id ||
-      item.productId ||
-      item._id;
+      getProductId(item);
+
+    if (!isValidObjectId(productId)) {
+      return 0;
+    }
 
     return Number(
       returnQuantities[productId] || 0
@@ -552,29 +636,54 @@ const Sales = () => {
   const selectedReturnItems = useMemo(() => {
     return returnableItems
       .map((item) => {
+        /*
+         * ONLY productId is accepted.
+         *
+         * We intentionally do NOT fall back to:
+         * item._id
+         */
         const productId =
-          item.productId?._id ||
-          item.productId ||
-          item._id;
+          getProductId(item);
 
         const quantity =
           Number(
             returnQuantities[productId] || 0
           );
 
+        const maxQuantity =
+          Number(
+            item.returnableQuantity ??
+              item.quantity ??
+              0
+          );
+
         return {
           ...item,
           productId,
-          quantity,
+          quantity: Math.min(
+            Math.max(quantity, 0),
+            maxQuantity
+          ),
         };
       })
       .filter(
-        (item) => item.quantity > 0
+        (item) =>
+          isValidObjectId(item.productId) &&
+          item.quantity > 0
       );
   }, [
     returnableItems,
     returnQuantities,
   ]);
+
+  const invalidReturnItems = useMemo(() => {
+    return returnableItems.filter(
+      (item) =>
+        !isValidObjectId(
+          getProductId(item)
+        )
+    );
+  }, [returnableItems]);
 
   const returnTotal = useMemo(() => {
     return selectedReturnItems.reduce(
@@ -598,7 +707,10 @@ const Sales = () => {
   const submitReturn = async (event) => {
     event.preventDefault();
 
-    if (!returnSale) {
+    if (!returnSale?._id) {
+      setError(
+        "The selected sale does not have a valid ID."
+      );
       return;
     }
 
@@ -606,7 +718,7 @@ const Sales = () => {
       selectedReturnItems.length === 0
     ) {
       setError(
-        "Select at least one item to return."
+        "Select at least one valid item to return."
       );
       return;
     }
@@ -614,6 +726,25 @@ const Sales = () => {
     if (!returnReason.trim()) {
       setError(
         "Please provide a reason for the return."
+      );
+      return;
+    }
+
+    /*
+     * Final frontend validation before sending
+     * anything to the backend.
+     */
+    const invalidSelectedItem =
+      selectedReturnItems.find(
+        (item) =>
+          !isValidObjectId(
+            item.productId
+          )
+      );
+
+    if (invalidSelectedItem) {
+      setError(
+        "One or more returned items have an invalid product ID. Please close and reopen the return window."
       );
       return;
     }
@@ -627,8 +758,12 @@ const Sales = () => {
 
         items: selectedReturnItems.map(
           (item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
+            productId: String(
+              item.productId
+            ),
+            quantity: Number(
+              item.quantity
+            ),
           })
         ),
 
@@ -638,6 +773,11 @@ const Sales = () => {
 
         notes: returnNotes.trim(),
       };
+
+      console.log(
+        "RETURN PAYLOAD:",
+        payload
+      );
 
       const response = await api.post(
         "/returns",
@@ -683,6 +823,7 @@ const Sales = () => {
 
         <div>
           <div className="flex items-center gap-3">
+
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
               <Package size={22} />
             </div>
@@ -723,12 +864,14 @@ const Sales = () => {
 
       {error && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+
           <AlertCircle
             size={20}
             className="mt-0.5 shrink-0"
           />
 
           <div className="flex-1">
+
             <p className="font-bold">
               Something went wrong
             </p>
@@ -736,6 +879,7 @@ const Sales = () => {
             <p className="mt-1 text-sm">
               {error}
             </p>
+
           </div>
 
           <button
@@ -745,6 +889,7 @@ const Sales = () => {
           >
             <X size={18} />
           </button>
+
         </div>
       )}
 
@@ -803,6 +948,7 @@ const Sales = () => {
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
 
           <div className="relative lg:col-span-2">
+
             <Search
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -812,11 +958,14 @@ const Sales = () => {
               type="text"
               value={search}
               onChange={(event) =>
-                setSearch(event.target.value)
+                setSearch(
+                  event.target.value
+                )
               }
               placeholder="Search receipt number..."
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
             />
+
           </div>
 
           <select
@@ -884,6 +1033,7 @@ const Sales = () => {
         </div>
 
         <div className="mt-3 flex justify-end">
+
           <button
             type="button"
             onClick={clearFilters}
@@ -891,6 +1041,7 @@ const Sales = () => {
           >
             Clear filters
           </button>
+
         </div>
 
       </div>
@@ -901,7 +1052,9 @@ const Sales = () => {
 
         {loading ? (
           <div className="flex min-h-[300px] items-center justify-center">
+
             <div className="flex items-center gap-3 text-slate-500">
+
               <RefreshCw
                 size={22}
                 className="animate-spin"
@@ -910,10 +1063,13 @@ const Sales = () => {
               <span className="font-semibold">
                 Loading sales...
               </span>
+
             </div>
+
           </div>
         ) : visibleSales.length === 0 ? (
           <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
+
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-400">
               <Package size={30} />
             </div>
@@ -925,6 +1081,7 @@ const Sales = () => {
             <p className="mt-1 max-w-md text-sm text-slate-500">
               No transactions match your current search and filters.
             </p>
+
           </div>
         ) : (
           <>
@@ -999,6 +1156,7 @@ const Sales = () => {
                         </td>
 
                         <td className="px-5 py-4">
+
                           <span
                             className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                               paymentClasses[
@@ -1013,6 +1171,7 @@ const Sales = () => {
                               sale.paymentMethod ||
                               "-"}
                           </span>
+
                         </td>
 
                         <td className="px-5 py-4 text-right font-black text-slate-900">
@@ -1022,6 +1181,7 @@ const Sales = () => {
                         </td>
 
                         <td className="px-5 py-4">
+
                           <span
                             className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                               statusClasses[
@@ -1045,6 +1205,7 @@ const Sales = () => {
                                   letter.toUpperCase()
                               )}
                           </span>
+
                         </td>
 
                         <td className="px-5 py-4">
@@ -1304,11 +1465,14 @@ const Sales = () => {
                         []).map(
                         (item, index) => (
                           <tr
-                            key={`${item.productId}-${index}`}
+                            key={`${getProductId(
+                              item
+                            )}-${index}`}
                             className="border-t border-slate-100"
                           >
 
                             <td className="px-4 py-3">
+
                               <p className="font-bold text-slate-900">
                                 {item.name ||
                                   "-"}
@@ -1318,6 +1482,7 @@ const Sales = () => {
                                 {item.sku ||
                                   ""}
                               </p>
+
                             </td>
 
                             <td className="px-4 py-3 text-center text-sm text-slate-700">
@@ -1375,6 +1540,7 @@ const Sales = () => {
                 </div>
 
                 <div className="flex justify-between border-t border-slate-200 pt-3">
+
                   <span className="font-black text-slate-900">
                     Total
                   </span>
@@ -1384,6 +1550,7 @@ const Sales = () => {
                       selectedSale.total
                     )}
                   </span>
+
                 </div>
 
               </div>
@@ -1451,6 +1618,7 @@ const Sales = () => {
                 </div>
 
                 <div>
+
                   <h2 className="text-lg font-black text-slate-900">
                     Return Items
                   </h2>
@@ -1460,6 +1628,7 @@ const Sales = () => {
                     {returnSale?.receiptNumber ||
                       "-"}
                   </p>
+
                 </div>
 
               </div>
@@ -1496,6 +1665,7 @@ const Sales = () => {
 
                 {returnSuccess.returnNumber && (
                   <div className="mx-auto mt-5 max-w-sm rounded-xl bg-slate-50 p-4">
+
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       Return Number
                     </p>
@@ -1505,6 +1675,7 @@ const Sales = () => {
                         returnSuccess.returnNumber
                       }
                     </p>
+
                   </div>
                 )}
 
@@ -1525,7 +1696,9 @@ const Sales = () => {
 
                 {loadingReturnItems ? (
                   <div className="flex min-h-[200px] items-center justify-center">
+
                     <div className="flex items-center gap-3 text-slate-500">
+
                       <RefreshCw
                         size={22}
                         className="animate-spin"
@@ -1534,11 +1707,14 @@ const Sales = () => {
                       <span className="font-semibold">
                         Loading returnable items...
                       </span>
+
                     </div>
+
                   </div>
                 ) : returnableItems.length ===
                   0 ? (
                   <div className="rounded-xl border border-orange-200 bg-orange-50 p-5 text-center">
+
                     <AlertCircle
                       size={28}
                       className="mx-auto text-orange-600"
@@ -1551,9 +1727,38 @@ const Sales = () => {
                     <p className="mt-1 text-sm text-orange-700">
                       This sale may already have been fully returned.
                     </p>
+
                   </div>
                 ) : (
                   <>
+                    {invalidReturnItems.length >
+                      0 && (
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+
+                        <div className="flex items-start gap-3">
+
+                          <AlertCircle
+                            size={20}
+                            className="mt-0.5 shrink-0 text-red-600"
+                          />
+
+                          <div>
+
+                            <p className="font-bold text-red-800">
+                              Some items cannot be returned
+                            </p>
+
+                            <p className="mt-1 text-sm text-red-700">
+                              One or more sale items do not contain a valid product ID. Those items have been disabled to prevent an invalid return.
+                            </p>
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    )}
+
                     <div>
 
                       <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-500">
@@ -1565,9 +1770,14 @@ const Sales = () => {
                         {returnableItems.map(
                           (item, index) => {
                             const productId =
-                              item.productId?._id ||
-                              item.productId ||
-                              item._id;
+                              getProductId(
+                                item
+                              );
+
+                            const validProductId =
+                              isValidObjectId(
+                                productId
+                              );
 
                             const maxQuantity =
                               Number(
@@ -1583,25 +1793,45 @@ const Sales = () => {
 
                             return (
                               <div
-                                key={`${productId}-${index}`}
-                                className="rounded-xl border border-slate-200 p-4"
+                                key={`${productId || "invalid"}-${index}`}
+                                className={`rounded-xl border p-4 ${
+                                  validProductId
+                                    ? "border-slate-200"
+                                    : "border-red-200 bg-red-50"
+                                }`}
                               >
 
                                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
                                   <div className="min-w-0">
+
                                     <p className="font-bold text-slate-900">
                                       {item.name ||
                                         item.productName ||
                                         "Product"}
                                     </p>
 
-                                    <p className="mt-1 text-xs text-slate-500">
-                                      Available to return:{" "}
-                                      {
-                                        maxQuantity
-                                      }
-                                    </p>
+                                    {item.sku && (
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        SKU:{" "}
+                                        {
+                                          item.sku
+                                        }
+                                      </p>
+                                    )}
+
+                                    {validProductId ? (
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        Available to return:{" "}
+                                        {
+                                          maxQuantity
+                                        }
+                                      </p>
+                                    ) : (
+                                      <p className="mt-1 text-xs font-bold text-red-600">
+                                        Invalid product ID
+                                      </p>
+                                    )}
 
                                     <p className="mt-1 text-sm font-semibold text-slate-700">
                                       {formatCurrency(
@@ -1611,6 +1841,7 @@ const Sales = () => {
                                       )}{" "}
                                       each
                                     </p>
+
                                   </div>
 
                                   <div className="flex items-center gap-3">
@@ -1626,7 +1857,14 @@ const Sales = () => {
                                         maxQuantity
                                       }
                                       value={
-                                        quantity
+                                        validProductId
+                                          ? quantity
+                                          : 0
+                                      }
+                                      disabled={
+                                        !validProductId ||
+                                        maxQuantity <=
+                                          0
                                       }
                                       onChange={(
                                         event
@@ -1639,7 +1877,7 @@ const Sales = () => {
                                           maxQuantity
                                         )
                                       }
-                                      className="w-24 rounded-lg border border-slate-200 px-3 py-2 text-center text-sm font-bold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                      className="w-24 rounded-lg border border-slate-200 px-3 py-2 text-center text-sm font-bold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                                     />
 
                                   </div>
@@ -1658,6 +1896,7 @@ const Sales = () => {
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 
                       <div>
+
                         <label className="mb-2 block text-sm font-bold text-slate-700">
                           Refund Method
                         </label>
@@ -1693,9 +1932,11 @@ const Sales = () => {
                             )
                           )}
                         </select>
+
                       </div>
 
                       <div className="rounded-xl bg-orange-50 p-4">
+
                         <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
                           Estimated Refund
                         </p>
@@ -1705,11 +1946,13 @@ const Sales = () => {
                             returnTotal
                           )}
                         </p>
+
                       </div>
 
                     </div>
 
                     <div>
+
                       <label className="mb-2 block text-sm font-bold text-slate-700">
                         Reason
                       </label>
@@ -1728,9 +1971,11 @@ const Sales = () => {
                         placeholder="e.g. Damaged product"
                         className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                       />
+
                     </div>
 
                     <div>
+
                       <label className="mb-2 block text-sm font-bold text-slate-700">
                         Notes
                       </label>
@@ -1749,6 +1994,7 @@ const Sales = () => {
                         placeholder="Additional information..."
                         className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                       />
+
                     </div>
 
                     <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
@@ -1796,6 +2042,7 @@ const Sales = () => {
                       </button>
 
                     </div>
+
                   </>
                 )}
 
@@ -1811,7 +2058,9 @@ const Sales = () => {
 
       {loadingSale && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/30">
+
           <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl">
+
             <RefreshCw
               size={20}
               className="animate-spin text-blue-600"
@@ -1820,7 +2069,9 @@ const Sales = () => {
             <span className="font-bold text-slate-700">
               Loading sale...
             </span>
+
           </div>
+
         </div>
       )}
 

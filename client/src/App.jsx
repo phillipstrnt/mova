@@ -1,18 +1,20 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import Sales from "./pages/sales/Sales";
+
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import DashboardLayout from "./layouts/DashboardLayout";
-import Customers from "./pages/customers/Customers";
 
 import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
+import Sales from "./pages/Sales/Sales";
 import Products from "./pages/products/Products";
 import Categories from "./pages/products/Categories";
 import Inventory from "./pages/inventory/Inventory";
+import Customers from "./pages/customers/Customers";
 
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
+
 
 const PlaceholderPage = ({ title }) => {
   return (
@@ -28,9 +30,15 @@ const PlaceholderPage = ({ title }) => {
   );
 };
 
+
 const App = () => {
   return (
     <Routes>
+
+      {/* ==================================================
+          AUTHENTICATION
+      ================================================== */}
+
       <Route
         path="/login"
         element={<Login />}
@@ -46,6 +54,11 @@ const App = () => {
         element={<ForgotPassword />}
       />
 
+
+      {/* ==================================================
+          ROOT REDIRECT
+      ================================================== */}
+
       <Route
         path="/"
         element={
@@ -56,20 +69,51 @@ const App = () => {
         }
       />
 
+
+      {/* ==================================================
+          PROTECTED APPLICATION
+      ================================================== */}
+
       <Route element={<ProtectedRoute />}>
+
         <Route
           path="/app"
           element={<DashboardLayout />}
         >
+
+          {/* ==============================================
+              DASHBOARD
+          ============================================== */}
+
           <Route
             index
             element={<Dashboard />}
           />
 
+
+          {/* ==============================================
+              POINT OF SALE
+          ============================================== */}
+
           <Route
             path="pos"
             element={<POS />}
           />
+
+
+          {/* ==============================================
+              SALES HISTORY
+          ============================================== */}
+
+          <Route
+            path="sales"
+            element={<Sales />}
+          />
+
+
+          {/* ==============================================
+              PRODUCTS
+          ============================================== */}
 
           <Route
             path="products"
@@ -81,36 +125,62 @@ const App = () => {
             element={<Categories />}
           />
 
+
+          {/* ==============================================
+              INVENTORY
+          ============================================== */}
+
           <Route
             path="inventory"
             element={<Inventory />}
           />
 
-          <Route
-            path="sales"
-            element={<Sales />}
-          />
+
+          {/* ==============================================
+              CUSTOMERS
+          ============================================== */}
 
           <Route
             path="customers"
             element={<Customers />}
           />
 
+
+          {/* ==============================================
+              REPORTS
+          ============================================== */}
+
           <Route
             path="reports"
             element={
-              <PlaceholderPage title="Reports" />
+              <PlaceholderPage
+                title="Reports"
+              />
             }
           />
+
+
+          {/* ==============================================
+              SETTINGS
+          ============================================== */}
 
           <Route
             path="settings"
             element={
-              <PlaceholderPage title="Settings" />
+              <PlaceholderPage
+                title="Settings"
+              />
             }
           />
+
         </Route>
+
       </Route>
+
+
+      {/* ==================================================
+          UNKNOWN ROUTES
+      ================================================== */}
 
       <Route
         path="*"
@@ -121,8 +191,10 @@ const App = () => {
           />
         }
       />
+
     </Routes>
   );
 };
+
 
 export default App;

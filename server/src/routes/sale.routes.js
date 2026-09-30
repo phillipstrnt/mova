@@ -6,16 +6,34 @@ import {
   getSaleById,
 } from "../controllers/saleController.js";
 
-import { protect } from "../middleware/authMiddleware.js";
+import {
+  protect,
+} from "../middleware/authMiddleware.js";
 
-const router = express.Router();
+const router =
+  express.Router();
 
 router.use(protect);
 
-router.post("/", createSale);
+/*
+|--------------------------------------------------------------------------
+| SALES
+|--------------------------------------------------------------------------
+*/
 
-router.get("/", getSales);
+router.get(
+  "/",
+  getSales
+);
 
-router.get("/:id", getSaleById);
+router.get(
+  "/:id",
+  getSaleById
+);
+
+router.post(
+  "/",
+  createSale
+);
 
 export default router;

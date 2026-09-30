@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Receipt from "../../components/POS/Receipt";
 
 import {
   AlertCircle,
@@ -16,7 +17,6 @@ import {
 } from "lucide-react";
 
 import api from "../../services/api";
-
 
 const PAYMENT_METHODS = [
   {
@@ -41,7 +41,6 @@ const PAYMENT_METHODS = [
   },
 ];
 
-
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat("en-UG", {
     style: "currency",
@@ -49,7 +48,6 @@ const formatCurrency = (amount) => {
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 };
-
 
 const POS = () => {
   // ====================================================
@@ -64,7 +62,6 @@ const POS = () => {
   const [loadingProducts, setLoadingProducts] =
     useState(true);
 
-
   // ====================================================
   // CART
   // ====================================================
@@ -74,14 +71,12 @@ const POS = () => {
   const [discount, setDiscount] =
     useState(0);
 
-
   // ====================================================
   // PAYMENT
   // ====================================================
 
   const [paymentMethod, setPaymentMethod] =
     useState("CASH");
-
 
   // ====================================================
   // CUSTOMER
@@ -102,7 +97,6 @@ const POS = () => {
   const [customerPanelOpen, setCustomerPanelOpen] =
     useState(false);
 
-
   // ====================================================
   // SALE
   // ====================================================
@@ -116,6 +110,18 @@ const POS = () => {
   const [error, setError] =
     useState("");
 
+  // ====================================================
+  // RECEIPT
+  // ====================================================
+
+  const [showReceipt, setShowReceipt] =
+    useState(false);
+
+  const [completedSale, setCompletedSale] =
+    useState(null);
+
+  const [completedCustomer, setCompletedCustomer] =
+    useState(null);
 
   // ====================================================
   // FETCH PRODUCTS
@@ -151,11 +157,9 @@ const POS = () => {
     }
   };
 
-
   useEffect(() => {
     fetchProducts();
   }, []);
-
 
   // ====================================================
   // SEARCH CUSTOMERS
@@ -196,7 +200,6 @@ const POS = () => {
       }
     };
 
-
     const timer =
       setTimeout(
         searchCustomers,
@@ -206,7 +209,6 @@ const POS = () => {
     return () =>
       clearTimeout(timer);
   }, [customerSearch]);
-
 
   // ====================================================
   // FILTER PRODUCTS
@@ -240,7 +242,6 @@ const POS = () => {
       productSearch,
     ]);
 
-
   // ====================================================
   // CART TOTALS
   // ====================================================
@@ -250,16 +251,14 @@ const POS = () => {
       return cart.reduce(
         (sum, item) =>
           sum +
-          item.sellingPrice *
+          Number(item.sellingPrice || 0) *
             item.quantity,
         0
       );
     }, [cart]);
 
-
   const parsedDiscount =
     Number(discount) || 0;
-
 
   const total =
     Math.max(
@@ -267,7 +266,6 @@ const POS = () => {
         parsedDiscount,
       0
     );
-
 
   // ====================================================
   // ADD PRODUCT TO CART
@@ -331,7 +329,6 @@ const POS = () => {
     });
   };
 
-
   // ====================================================
   // INCREASE QUANTITY
   // ====================================================
@@ -368,7 +365,6 @@ const POS = () => {
     );
   };
 
-
   // ====================================================
   // DECREASE QUANTITY
   // ====================================================
@@ -394,7 +390,6 @@ const POS = () => {
     );
   };
 
-
   // ====================================================
   // REMOVE CART ITEM
   // ====================================================
@@ -410,7 +405,6 @@ const POS = () => {
     );
   };
 
-
   // ====================================================
   // CLEAR CART
   // ====================================================
@@ -420,7 +414,6 @@ const POS = () => {
     setDiscount(0);
     setError("");
   };
-
 
   // ====================================================
   // SELECT CUSTOMER
@@ -436,7 +429,6 @@ const POS = () => {
     setError("");
   };
 
-
   // ====================================================
   // REMOVE CUSTOMER
   // ====================================================
@@ -445,6 +437,30 @@ const POS = () => {
     setSelectedCustomer(null);
   };
 
+  // ====================================================
+  // CLOSE RECEIPT
+  // ====================================================
+
+  const closeReceipt = () => {
+    setShowReceipt(false);
+  };
+
+  // ====================================================
+  // START NEW SALE
+  // ====================================================
+
+  const startNewSale = () => {
+    setShowReceipt(false);
+    setCompletedSale(null);
+    setCompletedCustomer(null);
+    setSaleSuccess(null);
+    setError("");
+    setPaymentMethod("CASH");
+    setDiscount(0);
+    setCart([]);
+    setSelectedCustomer(null);
+    setCustomerSearch("");
+  };
 
   // ====================================================
   // COMPLETE SALE
@@ -454,7 +470,6 @@ const POS = () => {
     setError("");
     setSaleSuccess(null);
 
-
     if (cart.length === 0) {
       setError(
         "Add at least one product to the cart."
@@ -462,7 +477,6 @@ const POS = () => {
 
       return;
     }
-
 
     if (
       parsedDiscount >
@@ -475,10 +489,8 @@ const POS = () => {
       return;
     }
 
-
     try {
       setProcessingSale(true);
-
 
       const payload = {
         items: cart.map(
@@ -501,17 +513,58 @@ const POS = () => {
           null,
       };
 
-
       const response =
         await api.post(
           "/sales",
           payload
         );
 
-
       const sale =
         response.data.sale;
 
+      if (!sale) {
+        throw new Error(
+          "Sale was completed but no sale information was returned."
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | SAVE COMPLETED SALE
+      |--------------------------------------------------------------------------
+      */
+
+      setCompletedSale({
+        ...sale,
+
+        /*
+        | The backend already returns sale items.
+        | Keep them exactly as returned.
+        */
+        items:
+          sale.items || [],
+      });
+
+      /*
+      |--------------------------------------------------------------------------
+      | SAVE CUSTOMER
+      |--------------------------------------------------------------------------
+      */
+
+      const saleCustomer =
+        response.data.customer ||
+        selectedCustomer ||
+        null;
+
+      setCompletedCustomer(
+        saleCustomer
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | SUCCESS INFORMATION
+      |--------------------------------------------------------------------------
+      */
 
       setSaleSuccess({
         receiptNumber:
@@ -524,19 +577,38 @@ const POS = () => {
           sale.paymentMethod,
 
         customer:
-          response.data.customer ||
-          selectedCustomer ||
-          null,
+          saleCustomer,
       });
 
+      /*
+      |--------------------------------------------------------------------------
+      | CLEAR CURRENT SALE
+      |--------------------------------------------------------------------------
+      */
 
-      clearCart();
+      setCart([]);
+
+      setDiscount(0);
 
       setSelectedCustomer(null);
 
       setCustomerSearch("");
 
+      /*
+      |--------------------------------------------------------------------------
+      | REFRESH PRODUCTS
+      |--------------------------------------------------------------------------
+      */
+
       await fetchProducts();
+
+      /*
+      |--------------------------------------------------------------------------
+      | OPEN RECEIPT
+      |--------------------------------------------------------------------------
+      */
+
+      setShowReceipt(true);
     } catch (error) {
       console.error(
         "Sale failed:",
@@ -545,23 +617,13 @@ const POS = () => {
 
       setError(
         error.response?.data?.message ||
+          error.message ||
           "Failed to complete sale."
       );
     } finally {
       setProcessingSale(false);
     }
   };
-
-
-  // ====================================================
-  // START NEW SALE
-  // ====================================================
-
-  const startNewSale = () => {
-    setSaleSuccess(null);
-    setError("");
-  };
-
 
   // ====================================================
   // SUCCESS SCREEN
@@ -571,6 +633,7 @@ const POS = () => {
     return (
       <div className="mx-auto max-w-2xl">
         <div className="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
             <CheckCircle2
               size={42}
@@ -588,6 +651,7 @@ const POS = () => {
           </p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
+
             <div className="rounded-2xl bg-slate-50 p-5">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
                 Receipt
@@ -611,12 +675,14 @@ const POS = () => {
                 )}
               </p>
             </div>
-          </div>
 
+          </div>
 
           {saleSuccess.customer && (
             <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-left">
+
               <div className="flex items-center gap-3">
+
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
                   <User
                     size={20}
@@ -631,17 +697,30 @@ const POS = () => {
 
                   <p className="font-bold text-slate-900">
                     {
-                      saleSuccess.customer
+                      saleSuccess
+                        .customer
                         .name
                     }
                   </p>
                 </div>
+
               </div>
+
             </div>
           )}
 
-
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+
+            <button
+              type="button"
+              onClick={() =>
+                setShowReceipt(true)
+              }
+              className="rounded-xl border border-blue-200 bg-blue-50 px-6 py-3 font-bold text-blue-600 transition hover:bg-blue-100"
+            >
+              View Receipt
+            </button>
+
             <button
               type="button"
               onClick={startNewSale}
@@ -649,12 +728,33 @@ const POS = () => {
             >
               New Sale
             </button>
+
           </div>
+
         </div>
+
+        {/* ====================================================
+            RECEIPT MODAL
+        ==================================================== */}
+
+        {showReceipt &&
+          completedSale && (
+            <Receipt
+              sale={completedSale}
+              customer={
+                completedCustomer
+              }
+              onClose={
+                closeReceipt
+              }
+              onNewSale={
+                startNewSale
+              }
+            />
+          )}
       </div>
     );
   }
-
 
   // ====================================================
   // MAIN POS
@@ -663,9 +763,9 @@ const POS = () => {
   return (
     <div className="space-y-6">
 
-      {/* ================================================
+      {/* ====================================================
           HEADER
-      ================================================ */}
+      ==================================================== */}
 
       <div>
         <h1 className="text-3xl font-black text-slate-900">
@@ -678,13 +778,13 @@ const POS = () => {
         </p>
       </div>
 
-
-      {/* ================================================
+      {/* ====================================================
           ERROR
-      ================================================ */}
+      ==================================================== */}
 
       {error && (
         <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+
           <AlertCircle
             size={20}
             className="mt-0.5 shrink-0"
@@ -703,19 +803,20 @@ const POS = () => {
           >
             <X size={18} />
           </button>
+
         </div>
       )}
 
-
-      {/* ================================================
+      {/* ====================================================
           CUSTOMER SECTION
-      ================================================ */}
+      ==================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
           <div className="flex items-center gap-3">
+
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
               <User
                 size={21}
@@ -733,11 +834,12 @@ const POS = () => {
                 customers are supported.
               </p>
             </div>
-          </div>
 
+          </div>
 
           {selectedCustomer ? (
             <div className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center">
+
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100">
                 <User
                   size={19}
@@ -746,6 +848,7 @@ const POS = () => {
               </div>
 
               <div className="min-w-0 flex-1">
+
                 <p className="font-bold text-slate-900">
                   {
                     selectedCustomer.name
@@ -753,6 +856,7 @@ const POS = () => {
                 </p>
 
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+
                   {selectedCustomer.phone && (
                     <span>
                       {
@@ -774,7 +878,9 @@ const POS = () => {
                       selectedCustomer.outstandingBalance
                     )}
                   </span>
+
                 </div>
+
               </div>
 
               <button
@@ -786,6 +892,7 @@ const POS = () => {
               >
                 <X size={18} />
               </button>
+
             </div>
           ) : (
             <button
@@ -808,16 +915,17 @@ const POS = () => {
               )}
             </button>
           )}
+
         </div>
 
-
-        {/* Customer search */}
+        {/* CUSTOMER SEARCH */}
 
         {customerPanelOpen &&
           !selectedCustomer && (
             <div className="mt-5 border-t border-slate-100 pt-5">
 
               <div className="relative">
+
                 <Search
                   size={19}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -837,15 +945,14 @@ const POS = () => {
                   className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   autoFocus
                 />
-              </div>
 
+              </div>
 
               {searchingCustomers && (
                 <p className="mt-3 text-sm text-slate-500">
                   Searching customers...
                 </p>
               )}
-
 
               {!searchingCustomers &&
                 customerSearch.trim() &&
@@ -855,7 +962,6 @@ const POS = () => {
                     No customers found.
                   </div>
                 )}
-
 
               {customers.length >
                 0 && (
@@ -875,14 +981,18 @@ const POS = () => {
                         }
                         className="flex w-full items-center gap-3 p-4 text-left transition hover:bg-blue-50"
                       >
+
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
+
                           <User
                             size={18}
                             className="text-slate-500"
                           />
+
                         </div>
 
                         <div className="min-w-0 flex-1">
+
                           <p className="font-bold text-slate-900">
                             {
                               customer.name
@@ -896,9 +1006,11 @@ const POS = () => {
                               "No contact information"
                             }
                           </p>
+
                         </div>
 
                         <div className="hidden text-right sm:block">
+
                           <p className="text-xs text-slate-400">
                             Total spent
                           </p>
@@ -908,32 +1020,37 @@ const POS = () => {
                               customer.totalSpent
                             )}
                           </p>
+
                         </div>
+
                       </button>
                     )
                   )}
+
                 </div>
               )}
+
             </div>
           )}
+
       </div>
 
-
-      {/* ================================================
+      {/* ====================================================
           MAIN POS GRID
-      ================================================ */}
+      ==================================================== */}
 
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
 
-        {/* ==============================================
+        {/* ==================================================
             PRODUCTS
-        ============================================== */}
+        ================================================== */}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
             <div>
+
               <h2 className="text-xl font-black text-slate-900">
                 Products
               </h2>
@@ -942,10 +1059,11 @@ const POS = () => {
                 Select products to add them
                 to the cart.
               </p>
+
             </div>
 
-
             <div className="relative sm:w-80">
+
               <Search
                 size={18}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -964,17 +1082,21 @@ const POS = () => {
                 placeholder="Search products..."
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
-            </div>
-          </div>
 
+            </div>
+
+          </div>
 
           {loadingProducts ? (
             <div className="flex min-h-64 items-center justify-center">
+
               <div className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+
             </div>
           ) : filteredProducts.length ===
             0 ? (
             <div className="flex min-h-64 flex-col items-center justify-center text-center">
+
               <ShoppingCart
                 size={42}
                 className="text-slate-300"
@@ -987,6 +1109,7 @@ const POS = () => {
               <p className="mt-1 text-sm text-slate-500">
                 Try another search.
               </p>
+
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -1037,8 +1160,8 @@ const POS = () => {
                             className="text-slate-300"
                           />
                         )}
-                      </div>
 
+                      </div>
 
                       <div className="p-3">
 
@@ -1075,7 +1198,9 @@ const POS = () => {
                           </p>
 
                         </div>
+
                       </div>
+
                     </button>
                   );
                 }
@@ -1083,18 +1208,19 @@ const POS = () => {
 
             </div>
           )}
+
         </section>
 
-
-        {/* ==============================================
+        {/* ==================================================
             CART
-        ============================================== */}
+        ================================================== */}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
             <div>
+
               <h2 className="text-xl font-black text-slate-900">
                 Current Sale
               </h2>
@@ -1106,8 +1232,8 @@ const POS = () => {
                   ? ""
                   : "s"}
               </p>
-            </div>
 
+            </div>
 
             {cart.length >
               0 && (
@@ -1124,14 +1250,14 @@ const POS = () => {
 
           </div>
 
-
-          {/* Cart items */}
+          {/* CART ITEMS */}
 
           <div className="mt-5 max-h-[430px] space-y-3 overflow-y-auto">
 
             {cart.length ===
             0 ? (
               <div className="flex min-h-52 flex-col items-center justify-center rounded-2xl bg-slate-50 text-center">
+
                 <ShoppingCart
                   size={40}
                   className="text-slate-300"
@@ -1145,6 +1271,7 @@ const POS = () => {
                   Select products to
                   start a sale.
                 </p>
+
               </div>
             ) : (
               cart.map(
@@ -1172,20 +1299,23 @@ const POS = () => {
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center">
+
                             <ShoppingCart
                               size={18}
                               className="text-slate-300"
                             />
+
                           </div>
                         )}
-                      </div>
 
+                      </div>
 
                       <div className="min-w-0 flex-1">
 
                         <div className="flex items-start justify-between gap-2">
 
                           <div className="min-w-0">
+
                             <p className="truncate text-sm font-bold text-slate-800">
                               {
                                 item.name
@@ -1198,6 +1328,7 @@ const POS = () => {
                               )}{" "}
                               each
                             </p>
+
                           </div>
 
                           <button
@@ -1215,7 +1346,6 @@ const POS = () => {
                           </button>
 
                         </div>
-
 
                         <div className="mt-3 flex items-center justify-between">
 
@@ -1255,14 +1385,19 @@ const POS = () => {
 
                           <p className="font-black text-slate-900">
                             {formatCurrency(
-                              item.sellingPrice *
+                              Number(
+                                item.sellingPrice
+                              ) *
                                 item.quantity
                             )}
                           </p>
 
                         </div>
+
                       </div>
+
                     </div>
+
                   </div>
                 )
               )
@@ -1270,12 +1405,12 @@ const POS = () => {
 
           </div>
 
-
-          {/* Totals */}
+          {/* TOTALS */}
 
           <div className="mt-5 border-t border-slate-100 pt-5">
 
             <div className="flex items-center justify-between text-sm">
+
               <span className="text-slate-500">
                 Subtotal
               </span>
@@ -1285,10 +1420,13 @@ const POS = () => {
                   subtotal
                 )}
               </span>
+
             </div>
 
+            {/* DISCOUNT */}
 
             <div className="mt-3">
+
               <label className="mb-2 block text-sm font-bold text-slate-700">
                 Discount
               </label>
@@ -1307,10 +1445,13 @@ const POS = () => {
                 placeholder="0"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
+
             </div>
 
+            {/* TOTAL */}
 
             <div className="mt-5 flex items-center justify-between">
+
               <span className="text-lg font-bold text-slate-700">
                 Total
               </span>
@@ -1320,12 +1461,13 @@ const POS = () => {
                   total
                 )}
               </span>
+
             </div>
 
-
-            {/* Payment method */}
+            {/* PAYMENT METHOD */}
 
             <div className="mt-5">
+
               <p className="mb-3 text-sm font-bold text-slate-700">
                 Payment Method
               </p>
@@ -1359,18 +1501,16 @@ const POS = () => {
                         size={17}
                       />
 
-                      {
-                        label
-                      }
+                      {label}
                     </button>
                   )
                 )}
 
               </div>
+
             </div>
 
-
-            {/* Complete sale */}
+            {/* COMPLETE SALE */}
 
             <button
               type="button"
@@ -1402,12 +1542,13 @@ const POS = () => {
             </button>
 
           </div>
+
         </section>
 
       </div>
+
     </div>
   );
 };
-
 
 export default POS;

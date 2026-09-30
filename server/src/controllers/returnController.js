@@ -1,10 +1,55 @@
-
 import mongoose from "mongoose";
 
 import Return from "../models/Return.js";
 import Sale from "../models/Sale.js";
 import Product from "../models/Product.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+const getObjectIdString = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value instanceof mongoose.Types.ObjectId) {
+    return value.toString();
+  }
+
+  if (typeof value === "object") {
+    if (value._id) {
+      return getObjectIdString(value._id);
+    }
+
+    if (value.$oid) {
+      return String(value.$oid);
+    }
+  }
+
+  return "";
+};
+
+const getSaleItemProductId = (saleItem) => {
+  if (!saleItem) {
+    return "";
+  }
+
+  /*
+   * Sale items have _id: false.
+   *
+   * Therefore the only valid product ID is
+   * saleItem.productId.
+   */
+  return getObjectIdString(saleItem.productId);
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -16,27 +61,42 @@ const generateReturnNumber = async () => {
   const date = new Date();
 
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
 
-  const prefix = `RET-${year}${month}${day}`;
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
 
-  const latestReturn = await Return.findOne({
-    returnNumber: new RegExp(`^${prefix}-`),
-  }).sort({ createdAt: -1 });
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
-  let sequence = 1;
+  const prefix = `RET-${year}${month}${day}-`;
 
-  if (latestReturn?.returnNumber) {
-    const parts = latestReturn.returnNumber.split("-");
-    const lastSequence = Number(parts[parts.length - 1]);
+  const lastReturn = await Return.findOne({
+    returnNumber: {
+      $regex: `^${prefix}`,
+    },
+  })
+    .sort({
+      returnNumber: -1,
+    })
+    .lean();
 
-    if (Number.isInteger(lastSequence)) {
-      sequence = lastSequence + 1;
+  let nextNumber = 1;
+
+  if (lastReturn?.returnNumber) {
+    const lastNumber = Number(
+      lastReturn.returnNumber.split("-").pop()
+    );
+
+    if (!Number.isNaN(lastNumber)) {
+      nextNumber = lastNumber + 1;
     }
   }
 
-  return `${prefix}-${String(sequence).padStart(4, "0")}`;
+  return `${prefix}${String(
+    nextNumber
+  ).padStart(4, "0")}`;
 };
 
 /*
@@ -45,140 +105,121 @@ const generateReturnNumber = async () => {
 |--------------------------------------------------------------------------
 */
 
-export const getReturns = async (req, res, next) => {
+export const getReturns = async (req, res) => {
   try {
     const {
       saleId,
       status,
       refundMethod,
-      search = "",
+      search,
       startDate,
       endDate,
       page = 1,
       limit = 20,
     } = req.query;
 
-    const query = {
-      businessId: req.user.businessId,
+    const businessId = req.user.businessId;
+
+    const filter = {
+      businessId,
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Sale Filter
-    |--------------------------------------------------------------------------
-    */
-
     if (saleId) {
-      if (!mongoose.Types.ObjectId.isValid(saleId)) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          saleId
+        )
+      ) {
         return res.status(400).json({
           success: false,
           message: "Invalid sale ID.",
         });
       }
 
-      query.saleId = saleId;
+      filter.saleId = saleId;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Status Filter
-    |--------------------------------------------------------------------------
-    */
 
     if (status) {
-      query.status = status;
+      filter.status = status;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Refund Method Filter
-    |--------------------------------------------------------------------------
-    */
 
     if (refundMethod) {
-      query.refundMethod = refundMethod;
+      filter.refundMethod = refundMethod;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Search
-    |--------------------------------------------------------------------------
-    */
-
-    if (search.trim()) {
-      query.returnNumber = {
-        $regex: search.trim(),
-        $options: "i",
-      };
+    if (search?.trim()) {
+      filter.$or = [
+        {
+          returnNumber: {
+            $regex: search.trim(),
+            $options: "i",
+          },
+        },
+      ];
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Date Filter
-    |--------------------------------------------------------------------------
-    */
 
     if (startDate || endDate) {
-      query.createdAt = {};
+      filter.createdAt = {};
 
       if (startDate) {
-        query.createdAt.$gte = new Date(
-          `${startDate}T00:00:00`
-        );
+        filter.createdAt.$gte =
+          new Date(startDate);
       }
 
       if (endDate) {
-        query.createdAt.$lte = new Date(
-          `${endDate}T23:59:59`
+        const end = new Date(endDate);
+
+        end.setHours(
+          23,
+          59,
+          59,
+          999
         );
+
+        filter.createdAt.$lte = end;
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Pagination
-    |--------------------------------------------------------------------------
-    */
-
     const pageNumber = Math.max(
-      Number(page),
+      Number(page) || 1,
       1
     );
 
     const limitNumber = Math.min(
-      Math.max(Number(limit), 1),
+      Math.max(
+        Number(limit) || 20,
+        1
+      ),
       100
     );
 
     const skip =
       (pageNumber - 1) * limitNumber;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Query Database
-    |--------------------------------------------------------------------------
-    */
+    const [returns, total] =
+      await Promise.all([
+        Return.find(filter)
+          .populate(
+            "saleId",
+            "receiptNumber total createdAt status"
+          )
+          .populate(
+            "userId",
+            "name email"
+          )
+          .populate(
+            "customerId",
+            "name phone"
+          )
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limitNumber)
+          .lean(),
 
-    const [returns, total] = await Promise.all([
-      Return.find(query)
-        .populate(
-          "saleId",
-          "receiptNumber total status createdAt"
-        )
-        .populate(
-          "userId",
-          "name email role"
-        )
-        .populate(
-          "customerId",
-          "name phone email"
-        )
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNumber),
-
-      Return.countDocuments(query),
-    ]);
+        Return.countDocuments(filter),
+      ]);
 
     return res.json({
       success: true,
@@ -193,25 +234,36 @@ export const getReturns = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error(
+      "Get returns error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to load returns.",
+    });
   }
 };
 
 /*
 |--------------------------------------------------------------------------
-| GET RETURN BY ID
+| GET SINGLE RETURN
 |--------------------------------------------------------------------------
 */
 
 export const getReturnById = async (
   req,
-  res,
-  next
+  res
 ) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (
+      !mongoose.Types.ObjectId.isValid(id)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid return ID.",
@@ -221,23 +273,24 @@ export const getReturnById = async (
     const returnRecord =
       await Return.findOne({
         _id: id,
-        businessId: req.user.businessId,
+        businessId:
+          req.user.businessId,
       })
         .populate(
           "saleId",
-          "receiptNumber total status createdAt paymentMethod"
+          "receiptNumber items subtotal discount total paymentMethod status createdAt"
         )
         .populate(
           "userId",
-          "name email role"
+          "name email"
         )
         .populate(
           "customerId",
-          "name phone email"
+          "name phone"
         )
         .populate(
           "items.productId",
-          "name sku stockQuantity"
+          "name sku sellingPrice stockQuantity"
         );
 
     if (!returnRecord) {
@@ -252,7 +305,17 @@ export const getReturnById = async (
       return: returnRecord,
     });
   } catch (error) {
-    next(error);
+    console.error(
+      "Get return by ID error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to load return.",
+    });
   }
 };
 
@@ -260,178 +323,214 @@ export const getReturnById = async (
 |--------------------------------------------------------------------------
 | GET RETURNABLE ITEMS FOR A SALE
 |--------------------------------------------------------------------------
-|
-| This endpoint tells the frontend:
-|
-| - How many units were sold
-| - How many were already returned
-| - How many are still returnable
-|
-|--------------------------------------------------------------------------
 */
 
-export const getSaleReturnableItems = async (
-  req,
-  res,
-  next
-) => {
-  try {
-    const { saleId } = req.params;
+export const getSaleReturnableItems =
+  async (req, res) => {
+    try {
+      const { saleId } = req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Sale ID
-    |--------------------------------------------------------------------------
-    */
+      const businessId =
+        req.user.businessId;
 
-    if (!mongoose.Types.ObjectId.isValid(saleId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid sale ID.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Find Sale
-    |--------------------------------------------------------------------------
-    */
-
-    const sale = await Sale.findOne({
-      _id: saleId,
-      businessId: req.user.businessId,
-    }).populate(
-      "items.productId",
-      "name sku sellingPrice stockQuantity"
-    );
-
-    if (!sale) {
-      return res.status(404).json({
-        success: false,
-        message: "Sale not found.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Check Sale Status
-    |--------------------------------------------------------------------------
-    */
-
-    if (sale.status === "CANCELLED") {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Cancelled sales cannot be returned.",
-      });
-    }
-
-    if (sale.status === "REFUNDED") {
-      return res.status(400).json({
-        success: false,
-        message:
-          "This sale has already been fully refunded.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Get Previous Returns
-    |--------------------------------------------------------------------------
-    */
-
-    const previousReturns =
-      await Return.find({
-        businessId: req.user.businessId,
-        saleId: sale._id,
-        status: "COMPLETED",
-      }).lean();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Calculate Returned Quantities
-    |--------------------------------------------------------------------------
-    */
-
-    const returnedQuantities = {};
-
-    for (const returnRecord of previousReturns) {
-      for (const item of returnRecord.items) {
-        const productId =
-          item.productId.toString();
-
-        returnedQuantities[productId] =
-          (returnedQuantities[productId] || 0) +
-          Number(item.quantity);
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          saleId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid sale ID.",
+        });
       }
+
+      const sale =
+        await Sale.findOne({
+          _id: saleId,
+          businessId,
+        }).populate(
+          "items.productId",
+          "name sku sellingPrice stockQuantity"
+        );
+
+      if (!sale) {
+        return res.status(404).json({
+          success: false,
+          message: "Sale not found.",
+        });
+      }
+
+      if (sale.status === "CANCELLED") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Cancelled sales cannot be returned.",
+        });
+      }
+
+      if (sale.status === "REFUNDED") {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This sale has already been fully refunded.",
+        });
+      }
+
+      /*
+       * Find all completed returns for this sale.
+       */
+      const previousReturns =
+        await Return.find({
+          saleId: sale._id,
+          businessId,
+          status: "COMPLETED",
+        }).lean();
+
+      /*
+       * Calculate quantities already returned
+       * for each product.
+       */
+      const returnedQuantities = {};
+
+      for (const returnRecord of previousReturns) {
+        for (
+          const item of
+            returnRecord.items || []
+        ) {
+          const productId =
+            getObjectIdString(
+              item.productId
+            );
+
+          if (!productId) {
+            continue;
+          }
+
+          returnedQuantities[
+            productId
+          ] =
+            (returnedQuantities[
+              productId
+            ] || 0) +
+            Number(item.quantity || 0);
+        }
+      }
+
+      const items = sale.items.map(
+        (item) => {
+          const productId =
+            getSaleItemProductId(item);
+
+          const soldQuantity = Number(
+            item.quantity || 0
+          );
+
+          if (!productId) {
+            return {
+              productId: null,
+
+              productName:
+                item.name ||
+                "Unknown product",
+
+              name:
+                item.name ||
+                "Unknown product",
+
+              sku:
+                item.sku || "",
+
+              soldQuantity,
+
+              alreadyReturned: 0,
+
+              returnableQuantity: 0,
+
+              unitPrice: Number(
+                item.unitPrice || 0
+              ),
+
+              invalidProductId: true,
+            };
+          }
+
+          const alreadyReturned =
+            returnedQuantities[
+              productId
+            ] || 0;
+
+          const returnableQuantity =
+            Math.max(
+              soldQuantity -
+                alreadyReturned,
+              0
+            );
+
+          return {
+            productId,
+
+            productName:
+              item.name ||
+              item.productId?.name ||
+              "Unknown product",
+
+            name:
+              item.name ||
+              item.productId?.name ||
+              "Unknown product",
+
+            sku:
+              item.sku ||
+              item.productId?.sku ||
+              "",
+
+            soldQuantity,
+
+            alreadyReturned,
+
+            returnableQuantity,
+
+            unitPrice: Number(
+              item.unitPrice || 0
+            ),
+
+            invalidProductId: false,
+          };
+        }
+      );
+
+      return res.json({
+        success: true,
+
+        sale: {
+          _id: sale._id,
+          receiptNumber:
+            sale.receiptNumber,
+          status: sale.status,
+          subtotal: sale.subtotal,
+          discount: sale.discount,
+          total: sale.total,
+          paymentMethod:
+            sale.paymentMethod,
+          createdAt: sale.createdAt,
+        },
+
+        items,
+      });
+    } catch (error) {
+      console.error(
+        "Get sale returnable items error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Failed to load returnable items.",
+      });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Build Returnable Items
-    |--------------------------------------------------------------------------
-    */
-
-    const items = sale.items.map((item) => {
-      const productId =
-        item.productId?.toString();
-
-      const soldQuantity = Number(
-        item.quantity
-      );
-
-      const alreadyReturned =
-        returnedQuantities[productId] || 0;
-
-      const returnableQuantity = Math.max(
-        soldQuantity - alreadyReturned,
-        0
-      );
-
-      return {
-        productId,
-
-        productName:
-          item.name ||
-          item.productId?.name ||
-          "Unknown product",
-
-        sku:
-          item.sku ||
-          item.productId?.sku ||
-          "",
-
-        soldQuantity,
-
-        alreadyReturned,
-
-        returnableQuantity,
-
-        unitPrice: Number(
-          item.unitPrice || 0
-        ),
-      };
-    });
-
-    return res.json({
-      success: true,
-
-      sale: {
-        _id: sale._id,
-        receiptNumber: sale.receiptNumber,
-        subtotal: sale.subtotal,
-        discount: sale.discount,
-        total: sale.total,
-        status: sale.status,
-        createdAt: sale.createdAt,
-      },
-
-      items,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -441,27 +540,40 @@ export const getSaleReturnableItems = async (
 
 export const createReturn = async (
   req,
-  res,
-  next
+  res
 ) => {
+  const {
+    saleId,
+    items,
+    refundMethod,
+    reason,
+    notes = "",
+  } = req.body;
+
+  const businessId =
+    req.user.businessId;
+
+  const userId =
+    req.user._id || req.user.id;
+
+  /*
+   * Keep track of inventory changes so
+   * everything can be rolled back if
+   * something fails.
+   */
   const stockChanges = [];
+
   let createdReturn = null;
-  let ledgerCreated = false;
+
+  let createdInventoryTransactions =
+    [];
 
   try {
-    const {
-      saleId,
-      items,
-      refundMethod,
-      reason = "",
-      notes = "",
-    } = req.body;
-
     /*
-    |--------------------------------------------------------------------------
-    | Validate Sale ID
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * BASIC VALIDATION
+     * ---------------------------------------------------------------
+     */
 
     if (
       !saleId ||
@@ -471,15 +583,10 @@ export const createReturn = async (
     ) {
       return res.status(400).json({
         success: false,
-        message: "Valid sale ID is required.",
+        message:
+          "A valid sale ID is required.",
       });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Items
-    |--------------------------------------------------------------------------
-    */
 
     if (
       !Array.isArray(items) ||
@@ -488,45 +595,37 @@ export const createReturn = async (
       return res.status(400).json({
         success: false,
         message:
-          "At least one product must be returned.",
+          "At least one item must be returned.",
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Refund Method
-    |--------------------------------------------------------------------------
-    */
-
-    const allowedRefundMethods = [
-      "CASH",
-      "MOBILE_MONEY",
-      "CARD",
-      "BANK",
-      "STORE_CREDIT",
-    ];
-
-    if (
-      !allowedRefundMethods.includes(
-        refundMethod
-      )
-    ) {
+    if (!refundMethod) {
       return res.status(400).json({
         success: false,
-        message: "Invalid refund method.",
+        message:
+          "Refund method is required.",
+      });
+    }
+
+    if (!reason?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Return reason is required.",
       });
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Find Sale
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * LOAD SALE
+     * ---------------------------------------------------------------
+     */
 
-    const sale = await Sale.findOne({
-      _id: saleId,
-      businessId: req.user.businessId,
-    });
+    const sale =
+      await Sale.findOne({
+        _id: saleId,
+        businessId,
+      });
 
     if (!sale) {
       return res.status(404).json({
@@ -534,12 +633,6 @@ export const createReturn = async (
         message: "Sale not found.",
       });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate Sale Status
-    |--------------------------------------------------------------------------
-    */
 
     if (sale.status === "CANCELLED") {
       return res.status(400).json({
@@ -558,102 +651,93 @@ export const createReturn = async (
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Find Previous Returns
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * GET PREVIOUS RETURNS
+     * ---------------------------------------------------------------
+     */
 
     const previousReturns =
       await Return.find({
-        businessId: req.user.businessId,
         saleId: sale._id,
+        businessId,
         status: "COMPLETED",
       }).lean();
 
-    /*
-    |--------------------------------------------------------------------------
-    | Calculate Previously Returned Quantity
-    |--------------------------------------------------------------------------
-    */
+    const previouslyReturned = {};
 
-    const returnedQuantities = {};
-
-    for (const returnRecord of previousReturns) {
-      for (const item of returnRecord.items) {
+    for (const previousReturn of previousReturns) {
+      for (
+        const item of
+          previousReturn.items || []
+      ) {
         const productId =
-          item.productId.toString();
+          getObjectIdString(
+            item.productId
+          );
 
-        returnedQuantities[productId] =
-          (returnedQuantities[productId] || 0) +
-          Number(item.quantity);
+        if (!productId) {
+          continue;
+        }
+
+        previouslyReturned[
+          productId
+        ] =
+          (previouslyReturned[
+            productId
+          ] || 0) +
+          Number(item.quantity || 0);
       }
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Build Sale Item Lookup
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * BUILD SALE ITEM LOOKUP
+     * ---------------------------------------------------------------
+     */
 
-    const saleItems = {};
+    const saleItemsByProductId =
+      new Map();
 
     for (const saleItem of sale.items) {
       const productId =
-        saleItem.productId?.toString();
+        getSaleItemProductId(
+          saleItem
+        );
 
       if (!productId) {
         continue;
       }
 
-      saleItems[productId] = saleItem;
+      saleItemsByProductId.set(
+        productId,
+        saleItem
+      );
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Prevent Duplicate Products
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * CHECK DUPLICATE PRODUCTS
+     * ---------------------------------------------------------------
+     */
 
     const requestedProductIds =
-      items.map(
-        (item) =>
-          item.productId?.toString()
-      );
-
-    const uniqueProductIds =
-      new Set(requestedProductIds);
-
-    if (
-      uniqueProductIds.size !==
-      requestedProductIds.length
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Each product should appear only once in a return.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate And Normalize Items
-    |--------------------------------------------------------------------------
-    */
-
-    const normalizedItems = [];
+      new Set();
 
     for (const requestedItem of items) {
       const productId =
-        requestedItem.productId;
+        getObjectIdString(
+          requestedItem?.productId
+        );
 
-      /*
-      |--------------------------------------------------------------------------
-      | Validate Product ID
-      |--------------------------------------------------------------------------
-      */
+      if (!productId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Every returned item must have a valid product ID.",
+        });
+      }
 
       if (
-        !productId ||
         !mongoose.Types.ObjectId.isValid(
           productId
         )
@@ -665,29 +749,59 @@ export const createReturn = async (
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Check Product Was Sold
-      |--------------------------------------------------------------------------
-      */
+      if (
+        requestedProductIds.has(
+          productId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "The same product cannot appear more than once in a return.",
+        });
+      }
 
+      requestedProductIds.add(
+        productId
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------------
+     * NORMALIZE RETURN ITEMS
+     * ---------------------------------------------------------------
+     */
+
+    const normalizedItems = [];
+
+    let refundAmount = 0;
+
+    for (const requestedItem of items) {
+      const productId =
+        getObjectIdString(
+          requestedItem.productId
+        );
+
+      /*
+       * Make sure this product was
+       * actually part of the sale.
+       */
       const saleItem =
-        saleItems[productId];
+        saleItemsByProductId.get(
+          productId
+        );
 
       if (!saleItem) {
         return res.status(400).json({
           success: false,
           message:
-            "A product in the return was not part of the original sale.",
+            "One or more returned products were not part of this sale.",
         });
       }
 
       /*
-      |--------------------------------------------------------------------------
-      | Validate Quantity
-      |--------------------------------------------------------------------------
-      */
-
+       * Validate quantity.
+       */
       const quantity = Number(
         requestedItem.quantity
       );
@@ -699,167 +813,133 @@ export const createReturn = async (
         return res.status(400).json({
           success: false,
           message:
-            "Return quantity must be a whole number greater than zero.",
+            "Return quantity must be a positive whole number.",
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Calculate Returnable Quantity
-      |--------------------------------------------------------------------------
-      */
-
       const soldQuantity = Number(
-        saleItem.quantity
+        saleItem.quantity || 0
       );
 
       const alreadyReturned =
-        returnedQuantities[productId] || 0;
+        previouslyReturned[
+          productId
+        ] || 0;
 
-      const returnableQuantity = Math.max(
-        soldQuantity - alreadyReturned,
-        0
-      );
-
-      /*
-      |--------------------------------------------------------------------------
-      | Prevent Over-Returning
-      |--------------------------------------------------------------------------
-      */
+      const returnableQuantity =
+        Math.max(
+          soldQuantity -
+            alreadyReturned,
+          0
+        );
 
       if (
-        quantity > returnableQuantity
+        quantity >
+        returnableQuantity
       ) {
         return res.status(400).json({
           success: false,
-          message: `Cannot return ${quantity} unit(s) of ${saleItem.name}. Only ${returnableQuantity} unit(s) are still returnable.`,
+          message: `Cannot return ${quantity} unit(s) of ${saleItem.name}. Only ${returnableQuantity} unit(s) are available for return.`,
         });
       }
 
       /*
-      |--------------------------------------------------------------------------
-      | Find Product
-      |--------------------------------------------------------------------------
-      */
+       * -------------------------------------------------------------
+       * LOAD PRODUCT
+       * -------------------------------------------------------------
+       */
 
-      const product = await Product.findOne({
-        _id: productId,
-        businessId: req.user.businessId,
-      });
+      const product =
+        await Product.findOne({
+          _id: productId,
+          businessId,
+        });
 
       if (!product) {
         return res.status(404).json({
           success: false,
-          message:
-            `Product "${saleItem.name}" was not found.`,
+          message: `Product ${saleItem.name} was not found.`,
         });
       }
 
       /*
-      |--------------------------------------------------------------------------
-      | Calculate Price
-      |--------------------------------------------------------------------------
-      */
-
+       * Use the original sale price.
+       */
       const unitPrice = Number(
         saleItem.unitPrice || 0
       );
 
-      const total =
+      const subtotal =
         unitPrice * quantity;
 
+      refundAmount += subtotal;
+
       /*
-      |--------------------------------------------------------------------------
-      | Add Normalized Item
-      |--------------------------------------------------------------------------
-      */
-
+       * Return schema requires:
+       *
+       * productId
+       * name
+       * sku
+       * quantity
+       * unitPrice
+       * subtotal
+       */
       normalizedItems.push({
-        productId: product._id,
+        productId,
 
-        productName:
+        name:
           saleItem.name ||
-          product.name,
+          product.name ||
+          "Unknown product",
 
         sku:
           saleItem.sku ||
-          product.sku,
+          product.sku ||
+          "N/A",
 
         quantity,
 
         unitPrice,
 
-        total,
-
-        reason:
-          requestedItem.reason ||
-          reason ||
-          "",
+        subtotal,
       });
-    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Calculate Refund
-    |--------------------------------------------------------------------------
-    */
+      /*
+       * -------------------------------------------------------------
+       * RESTORE INVENTORY
+       * -------------------------------------------------------------
+       */
 
-    const subtotal =
-      normalizedItems.reduce(
-        (sum, item) =>
-          sum + item.total,
-        0
-      );
-
-    const refundAmount = subtotal;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Restore Inventory
-    |--------------------------------------------------------------------------
-    */
-
-    for (const item of normalizedItems) {
-      const product =
-        await Product.findOne({
-          _id: item.productId,
-          businessId:
-            req.user.businessId,
-        });
-
-      if (!product) {
-        throw new Error(
-          `Product "${item.productName}" was not found.`
-        );
-      }
-
+      /*
+       * This is the important part of the fix.
+       *
+       * stockBefore = current stock before
+       * adding the returned quantity.
+       *
+       * stockAfter = stockBefore + returned quantity.
+       */
       const stockBefore = Number(
-        product.stockQuantity
+        product.stockQuantity || 0
       );
 
       const stockAfter =
-        stockBefore + item.quantity;
+        stockBefore + quantity;
 
       /*
-      |--------------------------------------------------------------------------
-      | Atomic Stock Update
-      |--------------------------------------------------------------------------
-      */
-
+       * Update product stock.
+       */
       const updatedProduct =
         await Product.findOneAndUpdate(
           {
-            _id: item.productId,
-            businessId:
-              req.user.businessId,
-
+            _id: productId,
+            businessId,
             stockQuantity:
               stockBefore,
           },
           {
             $inc: {
               stockQuantity:
-                item.quantity,
+                quantity,
             },
           },
           {
@@ -869,241 +949,217 @@ export const createReturn = async (
 
       if (!updatedProduct) {
         throw new Error(
-          `Inventory changed while returning "${item.productName}". Please try again.`
+          `Stock for ${saleItem.name} changed before the return could be completed. Please try again.`
         );
       }
 
+      /*
+       * Save the exact stock movement.
+       * This is also used if rollback is necessary.
+       */
       stockChanges.push({
-        productId: item.productId,
-        quantity: item.quantity,
+        productId,
+        quantity,
         stockBefore,
         stockAfter,
       });
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Generate Return Number
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * CREATE RETURN NUMBER
+     * ---------------------------------------------------------------
+     */
 
     const returnNumber =
       await generateReturnNumber();
 
     /*
-    |--------------------------------------------------------------------------
-    | Create Return Record
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * CREATE RETURN
+     * ---------------------------------------------------------------
+     */
 
     createdReturn =
       await Return.create({
-        businessId:
-          req.user.businessId,
+        businessId,
 
         branchId:
-          req.user.branchId || null,
+          sale.branchId || null,
 
         saleId: sale._id,
 
         customerId:
           sale.customerId || null,
 
-        userId:
-          req.user._id,
+        userId,
 
         returnNumber,
 
         items: normalizedItems,
 
-        subtotal,
+        subtotal: refundAmount,
 
         refundAmount,
 
         refundMethod,
 
-        reason,
+        reason: reason.trim(),
 
         status: "COMPLETED",
 
-        notes,
+        notes:
+          typeof notes === "string"
+            ? notes.trim()
+            : "",
       });
 
     /*
-    |--------------------------------------------------------------------------
-    | Create Inventory Ledger Records
-    |--------------------------------------------------------------------------
-    */
-
-    try {
-      for (const change of stockChanges) {
-        const returnedItem =
-          normalizedItems.find(
-            (item) =>
-              item.productId.toString() ===
-              change.productId.toString()
-          );
-
-        await InventoryTransaction.create({
-          businessId:
-            req.user.businessId,
-
-          branchId:
-            req.user.branchId || null,
-
-          productId:
-            change.productId,
-
-          userId:
-            req.user._id,
-
-          type: "RETURN",
-
-          quantity:
-            change.quantity,
-
-          stockBefore:
-            change.stockBefore,
-
-          stockAfter:
-            change.stockAfter,
-
-          reason:
-            returnedItem?.reason ||
-            reason ||
-            "Product returned",
-
-          referenceType: "RETURN",
-
-          referenceId:
-            createdReturn._id,
-
-          notes:
-            `Stock restored through return ${returnNumber}`,
-        });
-      }
-
-      ledgerCreated = true;
-    } catch (ledgerError) {
-      /*
-      |--------------------------------------------------------------------------
-      | Remove Any Ledger Entries Already Created
-      |--------------------------------------------------------------------------
-      */
-
-      if (createdReturn) {
-        await InventoryTransaction.deleteMany({
-          referenceType: "RETURN",
-          referenceId:
-            createdReturn._id,
-          businessId:
-            req.user.businessId,
-        });
-      }
-
-      throw ledgerError;
-    }
+     * ---------------------------------------------------------------
+     * CREATE INVENTORY TRANSACTIONS
+     * ---------------------------------------------------------------
+     */
 
     /*
-    |--------------------------------------------------------------------------
-    | Calculate Total Returned Quantity
-    |--------------------------------------------------------------------------
-    */
-
-    let totalReturnedQuantity = 0;
-
-    const allCompletedReturns =
-      await Return.find({
-        businessId: req.user.businessId,
-        saleId: sale._id,
-        status: "COMPLETED",
-      }).lean();
-
-    for (const returnRecord of allCompletedReturns) {
-      for (const item of returnRecord.items) {
-        totalReturnedQuantity +=
-          Number(item.quantity);
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Calculate Total Sold Quantity
-    |--------------------------------------------------------------------------
-    */
-
-    const totalSoldQuantity =
-      sale.items.reduce(
-        (sum, item) =>
-          sum + Number(item.quantity),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Determine New Sale Status
-    |--------------------------------------------------------------------------
-    */
-
-    let newSaleStatus =
-      "PARTIALLY_REFUNDED";
-
-    if (
-      totalReturnedQuantity >=
-      totalSoldQuantity
+     * IMPORTANT FIX:
+     *
+     * InventoryTransaction requires:
+     *
+     * stockBefore
+     * stockAfter
+     *
+     * We saved those values in stockChanges
+     * above, so we use them here.
+     */
+    for (
+      const stockChange of stockChanges
     ) {
-      newSaleStatus = "REFUNDED";
-    }
+      const transaction =
+        await InventoryTransaction.create(
+          {
+            businessId,
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update Sale
-    |--------------------------------------------------------------------------
-    */
+            branchId:
+              sale.branchId || null,
 
-    await Sale.updateOne(
-      {
-        _id: sale._id,
-        businessId:
-          req.user.businessId,
-      },
-      {
-        $set: {
-          status: newSaleStatus,
-        },
-      }
-    );
+            productId:
+              stockChange.productId,
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update Payment Status
-    |--------------------------------------------------------------------------
-    |
-    | A full return means the original sale has been fully
-    | refunded.
-    |
-    */
+            userId,
 
-    if (newSaleStatus === "REFUNDED") {
-      await Sale.updateOne(
-        {
-          _id: sale._id,
-          businessId:
-            req.user.businessId,
-        },
-        {
-          $set: {
-            paymentStatus: "REFUNDED",
-          },
-        }
+            type: "RETURN",
+
+            quantity:
+              stockChange.quantity,
+
+            stockBefore:
+              stockChange.stockBefore,
+
+            stockAfter:
+              stockChange.stockAfter,
+
+            referenceType: "RETURN",
+
+            referenceId:
+              createdReturn._id,
+
+            reason:
+              `Customer return - ${reason.trim()}`,
+
+            notes:
+              `Return ${returnNumber}`,
+          }
+        );
+
+      createdInventoryTransactions.push(
+        transaction
       );
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | Success Response
-    |--------------------------------------------------------------------------
-    */
+     * ---------------------------------------------------------------
+     * DETERMINE NEW SALE STATUS
+     * ---------------------------------------------------------------
+     */
+
+    const finalReturnedQuantities = {
+      ...previouslyReturned,
+    };
+
+    for (
+      const item of normalizedItems
+    ) {
+      const productId =
+        getObjectIdString(
+          item.productId
+        );
+
+      finalReturnedQuantities[
+        productId
+      ] =
+        (finalReturnedQuantities[
+          productId
+        ] || 0) +
+        Number(item.quantity || 0);
+    }
+
+    let fullyRefunded = true;
+
+    for (const saleItem of sale.items) {
+      const productId =
+        getSaleItemProductId(
+          saleItem
+        );
+
+      if (!productId) {
+        fullyRefunded = false;
+        break;
+      }
+
+      const soldQuantity = Number(
+        saleItem.quantity || 0
+      );
+
+      const returnedQuantity =
+        Number(
+          finalReturnedQuantities[
+            productId
+          ] || 0
+        );
+
+      if (
+        returnedQuantity <
+        soldQuantity
+      ) {
+        fullyRefunded = false;
+        break;
+      }
+    }
+
+    const newStatus = fullyRefunded
+      ? "REFUNDED"
+      : "PARTIALLY_REFUNDED";
+
+    /*
+     * ---------------------------------------------------------------
+     * UPDATE SALE
+     * ---------------------------------------------------------------
+     */
+
+    sale.status = newStatus;
+
+    if (fullyRefunded) {
+      sale.paymentStatus =
+        "REFUNDED";
+    }
+
+    await sale.save();
+
+    /*
+     * ---------------------------------------------------------------
+     * SUCCESS
+     * ---------------------------------------------------------------
+     */
 
     return res.status(201).json({
       success: true,
@@ -1113,113 +1169,113 @@ export const createReturn = async (
 
       return: createdReturn,
 
-      saleStatus: newSaleStatus,
+      saleStatus: newStatus,
 
-      inventoryRestored:
-        stockChanges.map(
-          (change) => ({
-            productId:
-              change.productId,
-
-            quantity:
-              change.quantity,
-
-            stockBefore:
-              change.stockBefore,
-
-            stockAfter:
-              change.stockAfter,
-          })
-        ),
+      inventoryRestored: true,
     });
   } catch (error) {
-    /*
-    |--------------------------------------------------------------------------
-    | Roll Back Inventory
-    |--------------------------------------------------------------------------
-    |
-    | If something failed after stock was restored,
-    | restore the previous inventory state.
-    |
-    */
-
-    if (stockChanges.length > 0) {
-      for (const change of stockChanges) {
-        try {
-          await Product.updateOne(
-            {
-              _id:
-                change.productId,
-
-              businessId:
-                req.user.businessId,
-
-              stockQuantity:
-                change.stockAfter,
-            },
-            {
-              $inc: {
-                stockQuantity:
-                  -change.quantity,
-              },
-            }
-          );
-        } catch (rollbackError) {
-          console.error(
-            "Return inventory rollback failed:",
-            rollbackError
-          );
-        }
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Remove Created Ledger Entries
-    |--------------------------------------------------------------------------
-    */
-
-    if (createdReturn) {
-      try {
-        await InventoryTransaction.deleteMany({
-          referenceType: "RETURN",
-          referenceId:
-            createdReturn._id,
-          businessId:
-            req.user.businessId,
-        });
-      } catch (ledgerCleanupError) {
-        console.error(
-          "Return ledger cleanup failed:",
-          ledgerCleanupError
-        );
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Remove Return Record
-    |--------------------------------------------------------------------------
-    */
-
-    if (createdReturn) {
-      try {
-        await Return.deleteOne({
-          _id: createdReturn._id,
-        });
-      } catch (returnCleanupError) {
-        console.error(
-          "Return cleanup failed:",
-          returnCleanupError
-        );
-      }
-    }
-
     console.error(
       "Create return error:",
       error
     );
 
-    next(error);
+    /*
+     * ---------------------------------------------------------------
+     * ROLLBACK RETURN
+     * ---------------------------------------------------------------
+     */
+
+    try {
+      if (createdReturn?._id) {
+        await Return.deleteOne({
+          _id: createdReturn._id,
+        });
+      }
+    } catch (rollbackError) {
+      console.error(
+        "Failed to rollback return record:",
+        rollbackError
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------------
+     * ROLLBACK INVENTORY TRANSACTIONS
+     * ---------------------------------------------------------------
+     */
+
+    try {
+      if (
+        createdInventoryTransactions.length >
+        0
+      ) {
+        await InventoryTransaction.deleteMany(
+          {
+            _id: {
+              $in:
+                createdInventoryTransactions.map(
+                  (transaction) =>
+                    transaction._id
+                ),
+            },
+          }
+        );
+      }
+    } catch (rollbackError) {
+      console.error(
+        "Failed to rollback inventory transactions:",
+        rollbackError
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------------
+     * ROLLBACK STOCK
+     * ---------------------------------------------------------------
+     */
+
+    try {
+      for (
+        const change of stockChanges
+      ) {
+        /*
+         * Instead of blindly subtracting,
+         * restore the exact stockBefore value.
+         *
+         * This is safer if the transaction
+         * failed after multiple products.
+         */
+        await Product.findOneAndUpdate(
+          {
+            _id: change.productId,
+            businessId,
+          },
+          {
+            $set: {
+              stockQuantity:
+                change.stockBefore,
+            },
+          }
+        );
+      }
+    } catch (rollbackError) {
+      console.error(
+        "Failed to rollback product stock:",
+        rollbackError
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------------
+     * RETURN ERROR
+     * ---------------------------------------------------------------
+     */
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to process return.",
+    });
   }
 };
