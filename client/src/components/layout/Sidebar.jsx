@@ -1,13 +1,14 @@
+
 import {
   BarChart3,
   Boxes,
-  ChevronDown,
   ClipboardList,
   LayoutDashboard,
   Package,
   Settings,
   ShoppingCart,
   Store,
+  Truck,
   Users,
   X,
 } from "lucide-react";
@@ -21,41 +22,61 @@ const Sidebar = ({ open, onClose }) => {
       icon: LayoutDashboard,
       path: "/app",
     },
+
     {
       label: "Point of Sale",
       icon: ShoppingCart,
       path: "/app/pos",
     },
+
     {
       label: "Products",
       icon: Package,
       path: "/app/products",
     },
+
     {
       label: "Categories",
       icon: Boxes,
       path: "/app/products/categories",
     },
+
     {
       label: "Inventory",
       icon: ClipboardList,
       path: "/app/inventory",
     },
+
+    {
+      label: "Suppliers",
+      icon: Truck,
+      path: "/app/suppliers",
+    },
+
+    {
+      label: "Purchases",
+      icon: ShoppingCart,
+      path: "/app/purchases",
+    },
+
     {
       label: "Sales",
       icon: BarChart3,
       path: "/app/sales",
     },
+
     {
       label: "Customers",
       icon: Users,
       path: "/app/customers",
     },
+
     {
       label: "Reports",
       icon: BarChart3,
       path: "/app/reports",
     },
+
     {
       label: "Settings",
       icon: Settings,
@@ -65,6 +86,7 @@ const Sidebar = ({ open, onClose }) => {
 
   return (
     <>
+      {/* Mobile overlay */}
       {open && (
         <button
           type="button"
@@ -74,6 +96,7 @@ const Sidebar = ({ open, onClose }) => {
         />
       )}
 
+      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:static lg:translate-x-0 ${
           open
@@ -100,7 +123,9 @@ const Sidebar = ({ open, onClose }) => {
           </div>
 
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close sidebar"
             className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden"
           >
             <X size={19} />
@@ -142,13 +167,6 @@ const Sidebar = ({ open, onClose }) => {
                     />
 
                     <span>{item.label}</span>
-
-                    {item.label === "Products" && (
-                      <ChevronDown
-                        size={15}
-                        className="ml-auto text-slate-300"
-                      />
-                    )}
                   </>
                 )}
               </NavLink>

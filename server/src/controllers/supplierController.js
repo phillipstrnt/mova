@@ -1,12 +1,16 @@
+import mongoose from "mongoose";
 import Supplier from "../models/Supplier.js";
 
 const getBusinessId = (req) => {
-  return req.user?.businessId || req.user?.business?._id;
+  return req.user?.businessId || null;
 };
 
-/**
- * GET /api/suppliers
- */
+/*
+|--------------------------------------------------------------------------
+| GET ALL SUPPLIERS
+|--------------------------------------------------------------------------
+| GET /api/suppliers
+*/
 const getSuppliers = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
@@ -18,11 +22,42 @@ const getSuppliers = async (req, res) => {
       });
     }
 
-    const suppliers = await Supplier.find({
+    const {
+      search = "",
+      active = "",
+    } = req.query;
+
+    const filter = {
       businessId,
-    }).sort({
-      createdAt: -1,
-    });
+    };
+
+    if (search.trim()) {
+      const searchRegex = new RegExp(
+        search.trim(),
+        "i"
+      );
+
+      filter.$or = [
+        { name: searchRegex },
+        { contactPerson: searchRegex },
+        { phone: searchRegex },
+        { email: searchRegex },
+      ];
+    }
+
+    if (active === "true") {
+      filter.isActive = true;
+    }
+
+    if (active === "false") {
+      filter.isActive = false;
+    }
+
+    const suppliers = await Supplier.find(filter)
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -30,7 +65,10 @@ const getSuppliers = async (req, res) => {
       suppliers,
     });
   } catch (error) {
-    console.error("Get suppliers error:", error);
+    console.error(
+      "Get suppliers error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
@@ -39,17 +77,27 @@ const getSuppliers = async (req, res) => {
   }
 };
 
-/**
- * GET /api/suppliers/:id
- */
+/*
+|--------------------------------------------------------------------------
+| GET SINGLE SUPPLIER
+|--------------------------------------------------------------------------
+| GET /api/suppliers/:id
+*/
 const getSupplierById = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
 
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid supplier ID.",
+      });
+    }
+
     const supplier = await Supplier.findOne({
       _id: req.params.id,
       businessId,
-    });
+    }).lean();
 
     if (!supplier) {
       return res.status(404).json({
@@ -63,7 +111,10 @@ const getSupplierById = async (req, res) => {
       supplier,
     });
   } catch (error) {
-    console.error("Get supplier error:", error);
+    console.error(
+      "Get supplier by ID error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
@@ -72,9 +123,12 @@ const getSupplierById = async (req, res) => {
   }
 };
 
-/**
- * POST /api/suppliers
- */
+/*
+|--------------------------------------------------------------------------
+| CREATE SUPPLIER
+|--------------------------------------------------------------------------
+| POST /api/suppliers
+*/
 const createSupplier = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
@@ -96,7 +150,11 @@ const createSupplier = async (req, res) => {
       notes,
     } = req.body;
 
-    if (!name || !name.trim()) {
+    if (
+      !name ||
+      typeof name !== "string" ||
+      !name.trim()
+    ) {
       return res.status(400).json({
         success: false,
         message: "Supplier name is required.",
@@ -105,13 +163,38 @@ const createSupplier = async (req, res) => {
 
     const supplier = await Supplier.create({
       businessId,
+
       name: name.trim(),
-      contactPerson: contactPerson?.trim() || "",
-      phone: phone?.trim() || "",
-      email: email?.trim().toLowerCase() || "",
-      address: address?.trim() || "",
-      taxNumber: taxNumber?.trim() || "",
-      notes: notes?.trim() || "",
+
+      contactPerson:
+        typeof contactPerson === "string"
+          ? contactPerson.trim()
+          : "",
+
+      phone:
+        typeof phone === "string"
+          ? phone.trim()
+          : "",
+
+      email:
+        typeof email === "string"
+          ? email.trim().toLowerCase()
+          : "",
+
+      address:
+        typeof address === "string"
+          ? address.trim()
+          : "",
+
+      taxNumber:
+        typeof taxNumber === "string"
+          ? taxNumber.trim()
+          : "",
+
+      notes:
+        typeof notes === "string"
+          ? notes.trim()
+          : "",
     });
 
     return res.status(201).json({
@@ -120,7 +203,10 @@ const createSupplier = async (req, res) => {
       supplier,
     });
   } catch (error) {
-    console.error("Create supplier error:", error);
+    console.error(
+      "Create supplier error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
@@ -129,12 +215,22 @@ const createSupplier = async (req, res) => {
   }
 };
 
-/**
- * PUT /api/suppliers/:id
- */
+/*
+|--------------------------------------------------------------------------
+| UPDATE SUPPLIER
+|--------------------------------------------------------------------------
+| PUT /api/suppliers/:id
+*/
 const updateSupplier = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid supplier ID.",
+      });
+    }
 
     const {
       name,
@@ -147,37 +243,69 @@ const updateSupplier = async (req, res) => {
       isActive,
     } = req.body;
 
-    if (!name || !name.trim()) {
+    if (
+      !name ||
+      typeof name !== "string" ||
+      !name.trim()
+    ) {
       return res.status(400).json({
         success: false,
         message: "Supplier name is required.",
       });
     }
 
-    const supplier = await Supplier.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        businessId,
-      },
-      {
-        $set: {
-          name: name.trim(),
-          contactPerson: contactPerson?.trim() || "",
-          phone: phone?.trim() || "",
-          email: email?.trim().toLowerCase() || "",
-          address: address?.trim() || "",
-          taxNumber: taxNumber?.trim() || "",
-          notes: notes?.trim() || "",
-          ...(typeof isActive === "boolean"
-            ? { isActive }
-            : {}),
+    const updateData = {
+      name: name.trim(),
+
+      contactPerson:
+        typeof contactPerson === "string"
+          ? contactPerson.trim()
+          : "",
+
+      phone:
+        typeof phone === "string"
+          ? phone.trim()
+          : "",
+
+      email:
+        typeof email === "string"
+          ? email.trim().toLowerCase()
+          : "",
+
+      address:
+        typeof address === "string"
+          ? address.trim()
+          : "",
+
+      taxNumber:
+        typeof taxNumber === "string"
+          ? taxNumber.trim()
+          : "",
+
+      notes:
+        typeof notes === "string"
+          ? notes.trim()
+          : "",
+    };
+
+    if (typeof isActive === "boolean") {
+      updateData.isActive = isActive;
+    }
+
+    const supplier =
+      await Supplier.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          businessId,
         },
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
+        {
+          $set: updateData,
+        },
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
 
     if (!supplier) {
       return res.status(404).json({
@@ -192,7 +320,10 @@ const updateSupplier = async (req, res) => {
       supplier,
     });
   } catch (error) {
-    console.error("Update supplier error:", error);
+    console.error(
+      "Update supplier error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
@@ -201,27 +332,41 @@ const updateSupplier = async (req, res) => {
   }
 };
 
-/**
- * DELETE /api/suppliers/:id
- */
+/*
+|--------------------------------------------------------------------------
+| DEACTIVATE SUPPLIER
+|--------------------------------------------------------------------------
+| DELETE /api/suppliers/:id
+|--------------------------------------------------------------------------
+| We don't physically delete suppliers because old purchases
+| may still reference them.
+*/
 const deleteSupplier = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
 
-    const supplier = await Supplier.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        businessId,
-      },
-      {
-        $set: {
-          isActive: false,
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid supplier ID.",
+      });
+    }
+
+    const supplier =
+      await Supplier.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          businessId,
         },
-      },
-      {
-        new: true,
-      }
-    );
+        {
+          $set: {
+            isActive: false,
+          },
+        },
+        {
+          new: true,
+        }
+      );
 
     if (!supplier) {
       return res.status(404).json({
@@ -236,7 +381,10 @@ const deleteSupplier = async (req, res) => {
       supplier,
     });
   } catch (error) {
-    console.error("Delete supplier error:", error);
+    console.error(
+      "Delete supplier error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,

@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import supplierRoutes from "./routes/supplier.routes.js";
+import purchaseRoutes from "./routes/purchase.routes.js";
 
 import connectDB from "./config/db.js";
 
@@ -14,7 +16,7 @@ import saleRoutes from "./routes/sale.routes.js";
 import inventoryTransactionRoutes from "./routes/inventoryTransaction.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
 import returnRoutes from "./routes/return.routes.js";
-import supplierRoutes from "./routes/supplier.routes.js";
+// import supplierRoutes from "./routes/supplier.routes.js";
 
 dotenv.config();
 
@@ -102,6 +104,15 @@ app.use(
 app.use(
   "/api/suppliers",
   supplierRoutes
+);
+app.use(
+  "/api/suppliers",
+  supplierRoutes
+);
+
+app.use(
+  "/api/purchases",
+  purchaseRoutes
 );
 
 /*

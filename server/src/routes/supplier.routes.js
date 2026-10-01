@@ -15,22 +15,41 @@ import {
 
 const router = express.Router();
 
-// All supplier routes require authentication
+
+// ============================================================
+// ALL SUPPLIER ROUTES REQUIRE AUTHENTICATION
+// ============================================================
+
 router.use(protect);
 
-// Get all suppliers
+
+// ============================================================
+// GET ALL SUPPLIERS
+// GET /api/suppliers
+// ============================================================
+
 router.get(
   "/",
   getSuppliers
 );
 
-// Get one supplier
+
+// ============================================================
+// GET SINGLE SUPPLIER
+// GET /api/suppliers/:id
+// ============================================================
+
 router.get(
   "/:id",
   getSupplierById
 );
 
-// Create supplier
+
+// ============================================================
+// CREATE SUPPLIER
+// POST /api/suppliers
+// ============================================================
+
 router.post(
   "/",
   authorize(
@@ -41,7 +60,12 @@ router.post(
   createSupplier
 );
 
-// Update supplier
+
+// ============================================================
+// UPDATE SUPPLIER
+// PUT /api/suppliers/:id
+// ============================================================
+
 router.put(
   "/:id",
   authorize(
@@ -52,7 +76,12 @@ router.put(
   updateSupplier
 );
 
-// Deactivate supplier
+
+// ============================================================
+// DEACTIVATE SUPPLIER
+// DELETE /api/suppliers/:id
+// ============================================================
+
 router.delete(
   "/:id",
   authorize(
@@ -62,5 +91,6 @@ router.delete(
   ),
   deleteSupplier
 );
+
 
 export default router;
