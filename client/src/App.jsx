@@ -6,10 +6,15 @@ import DashboardLayout from "./layouts/DashboardLayout";
 import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
 import Sales from "./pages/Sales/Sales";
+
 import Products from "./pages/products/Products";
 import Categories from "./pages/products/Categories";
+
 import Inventory from "./pages/inventory/Inventory";
 import Customers from "./pages/customers/Customers";
+
+import Suppliers from "./pages/suppliers/Suppliers";
+import Purchases from "./pages/purchases/Purchases";
 
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
@@ -56,7 +61,7 @@ const App = () => {
 
 
       {/* ==================================================
-          ROOT REDIRECT
+          ROOT
       ================================================== */}
 
       <Route
@@ -81,9 +86,7 @@ const App = () => {
           element={<DashboardLayout />}
         >
 
-          {/* ==============================================
-              DASHBOARD
-          ============================================== */}
+          {/* DASHBOARD */}
 
           <Route
             index
@@ -91,9 +94,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              POINT OF SALE
-          ============================================== */}
+          {/* POS */}
 
           <Route
             path="pos"
@@ -101,9 +102,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              SALES HISTORY
-          ============================================== */}
+          {/* SALES */}
 
           <Route
             path="sales"
@@ -111,9 +110,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              PRODUCTS
-          ============================================== */}
+          {/* PRODUCTS */}
 
           <Route
             path="products"
@@ -126,9 +123,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              INVENTORY
-          ============================================== */}
+          {/* INVENTORY */}
 
           <Route
             path="inventory"
@@ -136,9 +131,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              CUSTOMERS
-          ============================================== */}
+          {/* CUSTOMERS */}
 
           <Route
             path="customers"
@@ -146,9 +139,23 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              REPORTS
-          ============================================== */}
+          {/* SUPPLIERS */}
+
+          <Route
+            path="suppliers"
+            element={<Suppliers />}
+          />
+
+
+          {/* PURCHASES */}
+
+          <Route
+            path="purchases"
+            element={<Purchases />}
+          />
+
+
+          {/* REPORTS */}
 
           <Route
             path="reports"
@@ -160,9 +167,7 @@ const App = () => {
           />
 
 
-          {/* ==============================================
-              SETTINGS
-          ============================================== */}
+          {/* SETTINGS */}
 
           <Route
             path="settings"
