@@ -6,6 +6,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
 import connectDB from "./config/db.js";
+import paymentRoutes from "./routes/payment.routes.js";
 
 import authRoutes from "./routes/auth.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
@@ -159,6 +160,11 @@ app.use(
 app.use(
   "/api/returns",
   returnRoutes
+);
+
+app.use(
+  "/api/payments",
+  paymentRoutes
 );
 
 /*
