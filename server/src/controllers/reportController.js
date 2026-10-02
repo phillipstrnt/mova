@@ -2,6 +2,7 @@ import Sale from "../models/Sale.js";
 import Payment from "../models/Payment.js";
 import Expense from "../models/Expense.js";
 import Product from "../models/Product.js";
+import Report from "../models/Report.js";
 
 /* =========================================================
    DATE HELPERS
@@ -426,6 +427,202 @@ export const getInventoryReport = async (
       message:
         error.message ||
         "Failed to generate inventory report.",
+    });
+  }
+};
+
+/* =========================================================
+   SAVE REPORT
+========================================================= */
+
+export const saveReport = async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+    const userId = req.user._id;
+
+    const {
+      name,
+      reportType = "BUSINESS",
+      startDate,
+      endDate,
+      data,
+    } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Report name is required.",
+      });
+    }
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Start date and end date are required.",
+      });
+    }
+
+    if (!data) {
+      return res.status(400).json({
+        success: false,
+        message: "Report data is required.",
+      });
+    }
+
+    const report = await Report.create({
+      businessId,
+      createdBy: userId,
+      name,
+      reportType,
+      startDate: new Date(
+        `${startDate}T00:00:00`
+      ),
+      endDate: new Date(
+        `${endDate}T23:59:59.999`
+      ),
+      data,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Report saved successfully.",
+      report,
+    });
+  } catch (error) {
+    console.error(
+      "Save report error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to save report.",
+    });
+  }
+};
+
+/* =========================================================
+   GET SAVED REPORTS
+========================================================= */
+
+export const getSavedReports = async (
+  req,
+  res
+) => {
+  try {
+    const businessId = req.user.businessId;
+
+    const reports = await Report.find({
+      businessId,
+    })
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
+
+    return res.json({
+      success: true,
+      reports,
+    });
+  } catch (error) {
+    console.error(
+      "Get saved reports error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to load saved reports.",
+    });
+  }
+};
+
+/* =========================================================
+   GET SINGLE SAVED REPORT
+========================================================= */
+
+export const getSavedReport = async (
+  req,
+  res
+) => {
+  try {
+    const businessId = req.user.businessId;
+
+    const report = await Report.findOne({
+      _id: req.params.id,
+      businessId,
+    }).lean();
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Saved report not found.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      report,
+    });
+  } catch (error) {
+    console.error(
+      "Get saved report error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to load saved report.",
+    });
+  }
+};
+
+/* =========================================================
+   DELETE SAVED REPORT
+========================================================= */
+
+export const deleteSavedReport = async (
+  req,
+  res
+) => {
+  try {
+    const businessId = req.user.businessId;
+
+    const report =
+      await Report.findOneAndDelete({
+        _id: req.params.id,
+        businessId,
+      });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Saved report not found.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Report deleted successfully.",
+    });
+  } catch (error) {
+    console.error(
+      "Delete saved report error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Failed to delete report.",
     });
   }
 };

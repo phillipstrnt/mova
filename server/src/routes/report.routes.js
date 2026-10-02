@@ -6,28 +6,69 @@ import {
   getExpenseReport,
   getProfitReport,
   getInventoryReport,
+  saveReport,
+  getSavedReports,
+  getSavedReport,
+  deleteSavedReport,
 } from "../controllers/reportController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// All report endpoints require authentication
 router.use(protect);
 
-// Sales report
-router.get("/sales", getSalesReport);
+/* =========================================================
+   GENERATED REPORTS
+========================================================= */
 
-// Payment report
-router.get("/payments", getPaymentReport);
+router.get(
+  "/sales",
+  getSalesReport
+);
 
-// Expense report
-router.get("/expenses", getExpenseReport);
+router.get(
+  "/payments",
+  getPaymentReport
+);
 
-// Profit report
-router.get("/profit", getProfitReport);
+router.get(
+  "/expenses",
+  getExpenseReport
+);
 
-// Inventory report
-router.get("/inventory", getInventoryReport);
+router.get(
+  "/profit",
+  getProfitReport
+);
+
+router.get(
+  "/inventory",
+  getInventoryReport
+);
+
+/* =========================================================
+   SAVED REPORTS
+========================================================= */
+
+router.post(
+  "/saved",
+  saveReport
+);
+
+router.get(
+  "/saved",
+  getSavedReports
+);
+
+router.get(
+  "/saved/:id",
+  getSavedReport
+);
+
+router.delete(
+  "/saved/:id",
+  deleteSavedReport
+);
 
 export default router;
