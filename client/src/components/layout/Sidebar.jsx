@@ -1,3 +1,4 @@
+
 import {
   Banknote,
   BarChart3,
@@ -5,6 +6,7 @@ import {
   ClipboardList,
   LayoutDashboard,
   Package,
+  ReceiptText,
   Settings,
   ShoppingCart,
   Store,
@@ -81,6 +83,12 @@ const Sidebar = ({
     },
 
     {
+      label: "Receipts",
+      icon: ReceiptText,
+      path: "/app/receipts",
+    },
+
+    {
       label: "Customers",
       icon: Users,
       path: "/app/customers",
@@ -125,6 +133,7 @@ const Sidebar = ({
 
         <div className="flex h-20 items-center justify-between border-b border-slate-100 px-6">
           <div className="flex items-center gap-3">
+
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
               <Store size={21} />
             </div>
@@ -138,6 +147,7 @@ const Sidebar = ({
                 Business OS
               </p>
             </div>
+
           </div>
 
           <button
@@ -153,72 +163,56 @@ const Sidebar = ({
         {/* NAVIGATION */}
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
+
           <p className="mb-3 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
             Workspace
           </p>
 
-          {navigation.map(
-            (item) => {
-              const Icon =
-                item.icon;
+          {navigation.map((item) => {
+            const Icon = item.icon;
 
-              return (
-                <NavLink
-                  key={
-                    item.path
-                  }
-                  to={
-                    item.path
-                  }
-                  end={
-                    item.path ===
-                    "/app"
-                  }
-                  onClick={
-                    onClose
-                  }
-                  className={({
-                    isActive,
-                  }) =>
-                    `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold transition ${
-                      isActive
-                        ? "bg-blue-50 text-blue-700"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
-                    }`
-                  }
-                >
-                  {({
-                    isActive,
-                  }) => (
-                    <>
-                      <Icon
-                        size={
-                          19
-                        }
-                        className={
-                          isActive
-                            ? "text-blue-600"
-                            : "text-slate-400 group-hover:text-slate-600"
-                        }
-                      />
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === "/app"}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold transition ${
+                    isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon
+                      size={19}
+                      className={
+                        isActive
+                          ? "text-blue-600"
+                          : "text-slate-400 group-hover:text-slate-600"
+                      }
+                    />
 
-                      <span>
-                        {
-                          item.label
-                        }
-                      </span>
-                    </>
-                  )}
-                </NavLink>
-              );
-            }
-          )}
+                    <span>
+                      {item.label}
+                    </span>
+                  </>
+                )}
+              </NavLink>
+            );
+          })}
+
         </nav>
 
         {/* FOOTER */}
 
         <div className="border-t border-slate-100 p-4">
+
           <div className="rounded-2xl bg-slate-50 p-4">
+
             <p className="text-xs font-bold text-slate-700">
               MOVA
             </p>
@@ -227,7 +221,9 @@ const Sidebar = ({
               Sell smart. Know more.
               Grow faster.
             </p>
+
           </div>
+
         </div>
       </aside>
     </>

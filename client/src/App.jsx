@@ -1,3 +1,4 @@
+
 import {
   Navigate,
   Route,
@@ -22,6 +23,7 @@ import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
 import Sales from "./pages/Sales/Sales";
 import Payments from "./pages/payments/Payments";
+import Receipts from "./pages/receipts/Receipts";
 import Products from "./pages/products/Products";
 import Inventory from "./pages/inventory/Inventory";
 import Customers from "./pages/customers/Customers";
@@ -42,6 +44,7 @@ const ModulePage = ({
     <div className="space-y-6">
 
       {/* Header */}
+
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
           {title}
@@ -53,6 +56,7 @@ const ModulePage = ({
       </div>
 
       {/* Module Card */}
+
       <div className="rounded-2xl border border-slate-200 bg-white p-10 shadow-sm">
 
         <div className="text-center">
@@ -183,6 +187,16 @@ const App = () => {
         <Route
           path="payments"
           element={<Payments />}
+        />
+
+
+        {/* ==================================
+            RECEIPTS
+        ================================== */}
+
+        <Route
+          path="receipts"
+          element={<Receipts />}
         />
 
 

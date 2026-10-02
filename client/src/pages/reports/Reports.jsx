@@ -10,8 +10,8 @@ import {
   Printer,
   RefreshCw,
   Save,
+  Share2,
   Trash2,
-  TrendingUp,
   Wallet,
 } from "lucide-react";
 
@@ -184,6 +184,20 @@ const Reports = () => {
     inventoryReport,
     setInventoryReport,
   ] = useState(null);
+
+  /* =========================================================
+     SHARING STATE
+  ========================================================= */
+
+  const [
+    sharingReport,
+    setSharingReport,
+  ] = useState(false);
+
+  const [
+    shareMessage,
+    setShareMessage,
+  ] = useState("");
 
   /* =========================================================
      SAVED REPORT STATE
@@ -688,276 +702,518 @@ const Reports = () => {
     };
 
   /* =========================================================
+     CREATE PDF DOCUMENT
+  ========================================================= */
+
+  const createPdfDocument =
+    () => {
+      const report =
+        getReportSummary();
+
+      const doc =
+        new jsPDF();
+
+      doc.setFontSize(20);
+
+      doc.text(
+        "MOVA",
+        14,
+        18
+      );
+
+      doc.setFontSize(11);
+
+      doc.text(
+        "Business Management Platform",
+        14,
+        25
+      );
+
+      doc.setFontSize(16);
+
+      doc.text(
+        "Business Performance Report",
+        14,
+        38
+      );
+
+      doc.setFontSize(10);
+
+      doc.text(
+        `Period: ${formatReportDate(
+          startDate
+        )} - ${formatReportDate(
+          endDate
+        )}`,
+        14,
+        46
+      );
+
+      doc.text(
+        `Generated: ${new Date().toLocaleString(
+          "en-UG"
+        )}`,
+        14,
+        52
+      );
+
+      autoTable(
+        doc,
+        {
+          startY: 60,
+
+          head: [
+            [
+              "Performance",
+              "Amount",
+            ],
+          ],
+
+          body: [
+            [
+              "Revenue",
+              formatCurrency(
+                report.revenue
+              ),
+            ],
+
+            [
+              "Cost of Goods",
+              formatCurrency(
+                report.costOfGoods
+              ),
+            ],
+
+            [
+              "Gross Profit",
+              formatCurrency(
+                report.grossProfit
+              ),
+            ],
+
+            [
+              "Expenses",
+              formatCurrency(
+                report.expenses
+              ),
+            ],
+
+            [
+              "Net Profit",
+              formatCurrency(
+                report.netProfit
+              ),
+            ],
+          ],
+        }
+      );
+
+      const paymentStart =
+        doc.lastAutoTable
+          .finalY + 10;
+
+      autoTable(
+        doc,
+        {
+          startY:
+            paymentStart,
+
+          head: [
+            [
+              "Payment Method",
+              "Amount",
+            ],
+          ],
+
+          body: [
+            [
+              "Cash",
+              formatCurrency(
+                report.cash
+              ),
+            ],
+
+            [
+              "Mobile Money",
+              formatCurrency(
+                report.mobileMoney
+              ),
+            ],
+
+            [
+              "Card",
+              formatCurrency(
+                report.card
+              ),
+            ],
+
+            [
+              "Bank",
+              formatCurrency(
+                report.bank
+              ),
+            ],
+
+            [
+              "Total Payments",
+              formatCurrency(
+                report.totalPayments
+              ),
+            ],
+          ],
+        }
+      );
+
+      const salesStart =
+        doc.lastAutoTable
+          .finalY + 10;
+
+      autoTable(
+        doc,
+        {
+          startY:
+            salesStart,
+
+          head: [
+            [
+              "Sales Information",
+              "Value",
+            ],
+          ],
+
+          body: [
+            [
+              "Total Sales",
+              formatCurrency(
+                report.totalSales
+              ),
+            ],
+
+            [
+              "Transactions",
+              formatNumber(
+                report.totalTransactions
+              ),
+            ],
+
+            [
+              "Items Sold",
+              formatNumber(
+                report.totalItems
+              ),
+            ],
+
+            [
+              "Discounts",
+              formatCurrency(
+                report.totalDiscount
+              ),
+            ],
+
+            [
+              "Expenses",
+              formatCurrency(
+                report.totalExpenses
+              ),
+            ],
+          ],
+        }
+      );
+
+      const inventoryStart =
+        doc.lastAutoTable
+          .finalY + 10;
+
+      autoTable(
+        doc,
+        {
+          startY:
+            inventoryStart,
+
+          head: [
+            [
+              "Inventory",
+              "Value",
+            ],
+          ],
+
+          body: [
+            [
+              "Total Products",
+              formatNumber(
+                report.totalProducts
+              ),
+            ],
+
+            [
+              "Inventory Value",
+              formatCurrency(
+                report.inventoryValue
+              ),
+            ],
+
+            [
+              "Low Stock",
+              formatNumber(
+                report.lowStock
+              ),
+            ],
+
+            [
+              "Out of Stock",
+              formatNumber(
+                report.outOfStock
+              ),
+            ],
+          ],
+        }
+      );
+
+      return doc;
+    };
+
+  /* =========================================================
      PDF EXPORT
   ========================================================= */
 
   const exportPDF = () => {
-    const report =
-      getReportSummary();
+    try {
+      setError("");
 
-    const doc =
-      new jsPDF();
+      const doc =
+        createPdfDocument();
 
-    doc.setFontSize(20);
+      doc.save(
+        `MOVA_Report_${startDate}_${endDate}.pdf`
+      );
+    } catch (err) {
+      console.error(
+        "PDF export error:",
+        err
+      );
 
-    doc.text(
-      "MOVA",
-      14,
-      18
-    );
-
-    doc.setFontSize(11);
-
-    doc.text(
-      "Business Management Platform",
-      14,
-      25
-    );
-
-    doc.setFontSize(16);
-
-    doc.text(
-      "Business Performance Report",
-      14,
-      38
-    );
-
-    doc.setFontSize(10);
-
-    doc.text(
-      `Period: ${formatReportDate(
-        startDate
-      )} - ${formatReportDate(
-        endDate
-      )}`,
-      14,
-      46
-    );
-
-    doc.text(
-      `Generated: ${new Date().toLocaleString(
-        "en-UG"
-      )}`,
-      14,
-      52
-    );
-
-    autoTable(
-      doc,
-      {
-        startY: 60,
-
-        head: [
-          [
-            "Performance",
-            "Amount",
-          ],
-        ],
-
-        body: [
-          [
-            "Revenue",
-            formatCurrency(
-              report.revenue
-            ),
-          ],
-
-          [
-            "Cost of Goods",
-            formatCurrency(
-              report.costOfGoods
-            ),
-          ],
-
-          [
-            "Gross Profit",
-            formatCurrency(
-              report.grossProfit
-            ),
-          ],
-
-          [
-            "Expenses",
-            formatCurrency(
-              report.expenses
-            ),
-          ],
-
-          [
-            "Net Profit",
-            formatCurrency(
-              report.netProfit
-            ),
-          ],
-        ],
-      }
-    );
-
-    const paymentStart =
-      doc.lastAutoTable
-        .finalY + 10;
-
-    autoTable(
-      doc,
-      {
-        startY:
-          paymentStart,
-
-        head: [
-          [
-            "Payment Method",
-            "Amount",
-          ],
-        ],
-
-        body: [
-          [
-            "Cash",
-            formatCurrency(
-              report.cash
-            ),
-          ],
-
-          [
-            "Mobile Money",
-            formatCurrency(
-              report.mobileMoney
-            ),
-          ],
-
-          [
-            "Card",
-            formatCurrency(
-              report.card
-            ),
-          ],
-
-          [
-            "Bank",
-            formatCurrency(
-              report.bank
-            ),
-          ],
-
-          [
-            "Total Payments",
-            formatCurrency(
-              report.totalPayments
-            ),
-          ],
-        ],
-      }
-    );
-
-    const salesStart =
-      doc.lastAutoTable
-        .finalY + 10;
-
-    autoTable(
-      doc,
-      {
-        startY:
-          salesStart,
-
-        head: [
-          [
-            "Sales Information",
-            "Value",
-          ],
-        ],
-
-        body: [
-          [
-            "Total Sales",
-            formatCurrency(
-              report.totalSales
-            ),
-          ],
-
-          [
-            "Transactions",
-            formatNumber(
-              report.totalTransactions
-            ),
-          ],
-
-          [
-            "Items Sold",
-            formatNumber(
-              report.totalItems
-            ),
-          ],
-
-          [
-            "Discounts",
-            formatCurrency(
-              report.totalDiscount
-            ),
-          ],
-
-          [
-            "Expenses",
-            formatCurrency(
-              report.totalExpenses
-            ),
-          ],
-        ],
-      }
-    );
-
-    const inventoryStart =
-      doc.lastAutoTable
-        .finalY + 10;
-
-    autoTable(
-      doc,
-      {
-        startY:
-          inventoryStart,
-
-        head: [
-          [
-            "Inventory",
-            "Value",
-          ],
-        ],
-
-        body: [
-          [
-            "Total Products",
-            formatNumber(
-              report.totalProducts
-            ),
-          ],
-
-          [
-            "Inventory Value",
-            formatCurrency(
-              report.inventoryValue
-            ),
-          ],
-
-          [
-            "Low Stock",
-            formatNumber(
-              report.lowStock
-            ),
-          ],
-
-          [
-            "Out of Stock",
-            formatNumber(
-              report.outOfStock
-            ),
-          ],
-        ],
-      }
-    );
-
-    doc.save(
-      `MOVA_Report_${startDate}_${endDate}.pdf`
-    );
+      setError(
+        "Failed to generate the PDF report."
+      );
+    }
   };
+
+  /* =========================================================
+     SHARE REPORT
+  ========================================================= */
+
+  const shareReport =
+    async () => {
+      try {
+        setSharingReport(true);
+
+        setShareMessage("");
+
+        setError("");
+
+        const report =
+          getReportSummary();
+
+        const doc =
+          createPdfDocument();
+
+        const fileName =
+          `MOVA_Report_${startDate}_${endDate}.pdf`;
+
+        const pdfBlob =
+          doc.output("blob");
+
+        const pdfFile =
+          new File(
+            [pdfBlob],
+            fileName,
+            {
+              type:
+                "application/pdf",
+            }
+          );
+
+        const shareText = [
+          "MOVA BUSINESS REPORT",
+          "",
+          `Period: ${formatReportDate(
+            startDate
+          )} - ${formatReportDate(
+            endDate
+          )}`,
+          "",
+          `Revenue: ${formatCurrency(
+            report.revenue
+          )}`,
+          `Gross Profit: ${formatCurrency(
+            report.grossProfit
+          )}`,
+          `Net Profit: ${formatCurrency(
+            report.netProfit
+          )}`,
+          `Total Sales: ${formatCurrency(
+            report.totalSales
+          )}`,
+          `Transactions: ${formatNumber(
+            report.totalTransactions
+          )}`,
+          `Items Sold: ${formatNumber(
+            report.totalItems
+          )}`,
+          `Total Expenses: ${formatCurrency(
+            report.totalExpenses
+          )}`,
+          "",
+          "Generated by MOVA Business Management Platform.",
+        ].join("\n");
+
+        /* =====================================================
+           OPTION 1: NATIVE FILE SHARING
+        ===================================================== */
+
+        if (
+          typeof navigator !==
+            "undefined" &&
+          typeof navigator.share ===
+            "function"
+        ) {
+          let canShareFile =
+            false;
+
+          if (
+            typeof navigator.canShare ===
+            "function"
+          ) {
+            try {
+              canShareFile =
+                navigator.canShare({
+                  files: [
+                    pdfFile,
+                  ],
+                });
+            } catch {
+              canShareFile = false;
+            }
+          }
+
+          if (
+            canShareFile
+          ) {
+            await navigator.share(
+              {
+                title:
+                  "MOVA Business Report",
+
+                text:
+                  shareText,
+
+                files: [
+                  pdfFile,
+                ],
+              }
+            );
+
+            setShareMessage(
+              "Report shared successfully."
+            );
+
+            return;
+          }
+
+          /* ===================================================
+             OPTION 2: NATIVE TEXT SHARING
+          =================================================== */
+
+          await navigator.share(
+            {
+              title:
+                "MOVA Business Report",
+
+              text:
+                shareText,
+            }
+          );
+
+          setShareMessage(
+            "Report summary shared successfully. Use Download PDF if you also need the PDF file."
+          );
+
+          return;
+        }
+
+        /* =====================================================
+           OPTION 3: CLIPBOARD FALLBACK
+        ===================================================== */
+
+        if (
+          typeof navigator !==
+            "undefined" &&
+          navigator.clipboard &&
+          typeof navigator.clipboard
+            .writeText ===
+            "function"
+        ) {
+          try {
+            await navigator.clipboard.writeText(
+              shareText
+            );
+
+            setShareMessage(
+              "Report summary copied to clipboard. You can paste it into WhatsApp, email, SMS or another app. The PDF can be downloaded using Download PDF."
+            );
+
+            return;
+          } catch (
+            clipboardError
+          ) {
+            console.warn(
+              "Clipboard sharing failed:",
+              clipboardError
+            );
+          }
+        }
+
+        /* =====================================================
+           OPTION 4: DOWNLOAD FALLBACK
+        ===================================================== */
+
+        doc.save(
+          fileName
+        );
+
+        setShareMessage(
+          "Your browser does not support direct sharing. The PDF has been downloaded so you can share it manually."
+        );
+      } catch (err) {
+        /*
+          When the user cancels the native share dialog,
+          browsers may throw an AbortError. This should not
+          appear as a scary application error.
+        */
+
+        if (
+          err?.name ===
+          "AbortError"
+        ) {
+          setShareMessage(
+            "Sharing was cancelled."
+          );
+
+          return;
+        }
+
+        console.error(
+          "Share report error:",
+          err
+        );
+
+        setError(
+          "Unable to share the report. Please try Download PDF instead."
+        );
+      } finally {
+        setSharingReport(false);
+      }
+    };
 
   /* =========================================================
      EXCEL EXPORT
@@ -965,28 +1221,357 @@ const Reports = () => {
 
   const exportExcel =
     () => {
+      try {
+        setError("");
+
+        const report =
+          getReportSummary();
+
+        const workbook =
+          XLSX.utils.book_new();
+
+        const summaryData = [
+          [
+            "MOVA BUSINESS REPORT",
+            "",
+          ],
+
+          [
+            "Reporting Period",
+            `${startDate} to ${endDate}`,
+          ],
+
+          [],
+
+          [
+            "PERFORMANCE",
+            "VALUE",
+          ],
+
+          [
+            "Revenue",
+            report.revenue,
+          ],
+
+          [
+            "Cost of Goods",
+            report.costOfGoods,
+          ],
+
+          [
+            "Gross Profit",
+            report.grossProfit,
+          ],
+
+          [
+            "Expenses",
+            report.expenses,
+          ],
+
+          [
+            "Net Profit",
+            report.netProfit,
+          ],
+
+          [],
+
+          [
+            "SALES",
+            "VALUE",
+          ],
+
+          [
+            "Total Sales",
+            report.totalSales,
+          ],
+
+          [
+            "Transactions",
+            report.totalTransactions,
+          ],
+
+          [
+            "Items Sold",
+            report.totalItems,
+          ],
+
+          [
+            "Discounts",
+            report.totalDiscount,
+          ],
+
+          [],
+
+          [
+            "PAYMENT METHODS",
+            "VALUE",
+          ],
+
+          [
+            "Cash",
+            report.cash,
+          ],
+
+          [
+            "Mobile Money",
+            report.mobileMoney,
+          ],
+
+          [
+            "Card",
+            report.card,
+          ],
+
+          [
+            "Bank",
+            report.bank,
+          ],
+
+          [
+            "Total Payments",
+            report.totalPayments,
+          ],
+
+          [],
+
+          [
+            "INVENTORY",
+            "VALUE",
+          ],
+
+          [
+            "Total Products",
+            report.totalProducts,
+          ],
+
+          [
+            "Inventory Value",
+            report.inventoryValue,
+          ],
+
+          [
+            "Low Stock",
+            report.lowStock,
+          ],
+
+          [
+            "Out of Stock",
+            report.outOfStock,
+          ],
+        ];
+
+        const worksheet =
+          XLSX.utils.aoa_to_sheet(
+            summaryData
+          );
+
+        worksheet["!cols"] = [
+          {
+            width: 30,
+          },
+
+          {
+            width: 24,
+          },
+        ];
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          worksheet,
+          "Summary"
+        );
+
+        const salesData = [
+          [
+            "Metric",
+            "Value",
+          ],
+
+          [
+            "Total Sales",
+            report.totalSales,
+          ],
+
+          [
+            "Transactions",
+            report.totalTransactions,
+          ],
+
+          [
+            "Items Sold",
+            report.totalItems,
+          ],
+
+          [
+            "Discounts",
+            report.totalDiscount,
+          ],
+        ];
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(
+            salesData
+          ),
+          "Sales"
+        );
+
+        const paymentsData = [
+          [
+            "Payment Method",
+            "Amount",
+          ],
+
+          [
+            "Cash",
+            report.cash,
+          ],
+
+          [
+            "Mobile Money",
+            report.mobileMoney,
+          ],
+
+          [
+            "Card",
+            report.card,
+          ],
+
+          [
+            "Bank",
+            report.bank,
+          ],
+
+          [
+            "Total",
+            report.totalPayments,
+          ],
+        ];
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(
+            paymentsData
+          ),
+          "Payments"
+        );
+
+        const expensesData = [
+          [
+            "Category",
+            "Amount",
+          ],
+        ];
+
+        Object.entries(
+          expenseReport
+            ?.categoryBreakdown ||
+            {}
+        ).forEach(
+          ([
+            category,
+            amount,
+          ]) => {
+            expensesData.push([
+              category,
+              numberValue(
+                amount
+              ),
+            ]);
+          }
+        );
+
+        expensesData.push([
+          "Total Expenses",
+          report.totalExpenses,
+        ]);
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(
+            expensesData
+          ),
+          "Expenses"
+        );
+
+        const inventoryData = [
+          [
+            "Metric",
+            "Value",
+          ],
+
+          [
+            "Total Products",
+            report.totalProducts,
+          ],
+
+          [
+            "Inventory Value",
+            report.inventoryValue,
+          ],
+
+          [
+            "Low Stock",
+            report.lowStock,
+          ],
+
+          [
+            "Out of Stock",
+            report.outOfStock,
+          ],
+        ];
+
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.aoa_to_sheet(
+            inventoryData
+          ),
+          "Inventory"
+        );
+
+        XLSX.writeFile(
+          workbook,
+          `MOVA_Report_${startDate}_${endDate}.xlsx`
+        );
+      } catch (err) {
+        console.error(
+          "Excel export error:",
+          err
+        );
+
+        setError(
+          "Failed to generate the Excel report."
+        );
+      }
+    };
+
+  /* =========================================================
+     CSV EXPORT
+  ========================================================= */
+
+  const exportCSV = () => {
+    try {
+      setError("");
+
       const report =
         getReportSummary();
 
-      const workbook =
-        XLSX.utils.book_new();
-
-      const summaryData = [
+      const rows = [
         [
           "MOVA BUSINESS REPORT",
           "",
         ],
 
         [
-          "Reporting Period",
+          "Period",
           `${startDate} to ${endDate}`,
         ],
 
         [],
 
         [
-          "PERFORMANCE",
-          "VALUE",
+          "Metric",
+          "Value",
         ],
 
         [
@@ -1014,13 +1599,6 @@ const Reports = () => {
           report.netProfit,
         ],
 
-        [],
-
-        [
-          "SALES",
-          "VALUE",
-        ],
-
         [
           "Total Sales",
           report.totalSales,
@@ -1041,15 +1619,8 @@ const Reports = () => {
           report.totalDiscount,
         ],
 
-        [],
-
         [
-          "PAYMENT METHODS",
-          "VALUE",
-        ],
-
-        [
-          "Cash",
+          "Cash Payments",
           report.cash,
         ],
 
@@ -1059,12 +1630,12 @@ const Reports = () => {
         ],
 
         [
-          "Card",
+          "Card Payments",
           report.card,
         ],
 
         [
-          "Bank",
+          "Bank Payments",
           report.bank,
         ],
 
@@ -1073,13 +1644,6 @@ const Reports = () => {
           report.totalPayments,
         ],
 
-        [],
-
-        [
-          "INVENTORY",
-          "VALUE",
-        ],
-
         [
           "Total Products",
           report.totalProducts,
@@ -1101,357 +1665,75 @@ const Reports = () => {
         ],
       ];
 
-      const worksheet =
-        XLSX.utils.aoa_to_sheet(
-          summaryData
+      const csvContent =
+        rows
+          .map(
+            (row) =>
+              row
+                .map(
+                  (cell) => {
+                    const value =
+                      String(
+                        cell ?? ""
+                      );
+
+                    return `"${value.replace(
+                      /"/g,
+                      '""'
+                    )}"`;
+                  }
+                )
+                .join(",")
+          )
+          .join("\n");
+
+      const blob =
+        new Blob(
+          [csvContent],
+          {
+            type:
+              "text/csv;charset=utf-8;",
+          }
         );
 
-      worksheet["!cols"] = [
-        {
-          width: 30,
-        },
+      const url =
+        URL.createObjectURL(
+          blob
+        );
 
-        {
-          width: 24,
-        },
-      ];
+      const link =
+        document.createElement(
+          "a"
+        );
 
-      XLSX.utils.book_append_sheet(
-        workbook,
-        worksheet,
-        "Summary"
+      link.href = url;
+
+      link.download =
+        `MOVA_Report_${startDate}_${endDate}.csv`;
+
+      document.body.appendChild(
+        link
       );
 
-      const salesData = [
-        [
-          "Metric",
-          "Value",
-        ],
+      link.click();
 
-        [
-          "Total Sales",
-          report.totalSales,
-        ],
-
-        [
-          "Transactions",
-          report.totalTransactions,
-        ],
-
-        [
-          "Items Sold",
-          report.totalItems,
-        ],
-
-        [
-          "Discounts",
-          report.totalDiscount,
-        ],
-      ];
-
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.aoa_to_sheet(
-          salesData
-        ),
-        "Sales"
+      document.body.removeChild(
+        link
       );
 
-      const paymentsData = [
-        [
-          "Payment Method",
-          "Amount",
-        ],
-
-        [
-          "Cash",
-          report.cash,
-        ],
-
-        [
-          "Mobile Money",
-          report.mobileMoney,
-        ],
-
-        [
-          "Card",
-          report.card,
-        ],
-
-        [
-          "Bank",
-          report.bank,
-        ],
-
-        [
-          "Total",
-          report.totalPayments,
-        ],
-      ];
-
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.aoa_to_sheet(
-          paymentsData
-        ),
-        "Payments"
+      URL.revokeObjectURL(
+        url
+      );
+    } catch (err) {
+      console.error(
+        "CSV export error:",
+        err
       );
 
-      const expensesData = [
-        [
-          "Category",
-          "Amount",
-        ],
-      ];
-
-      Object.entries(
-        expenseReport
-          ?.categoryBreakdown ||
-          {}
-      ).forEach(
-        ([
-          category,
-          amount,
-        ]) => {
-          expensesData.push([
-            category,
-            numberValue(
-              amount
-            ),
-          ]);
-        }
+      setError(
+        "Failed to generate the CSV report."
       );
-
-      expensesData.push([
-        "Total Expenses",
-        report.totalExpenses,
-      ]);
-
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.aoa_to_sheet(
-          expensesData
-        ),
-        "Expenses"
-      );
-
-      const inventoryData = [
-        [
-          "Metric",
-          "Value",
-        ],
-
-        [
-          "Total Products",
-          report.totalProducts,
-        ],
-
-        [
-          "Inventory Value",
-          report.inventoryValue,
-        ],
-
-        [
-          "Low Stock",
-          report.lowStock,
-        ],
-
-        [
-          "Out of Stock",
-          report.outOfStock,
-        ],
-      ];
-
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.aoa_to_sheet(
-          inventoryData
-        ),
-        "Inventory"
-      );
-
-      XLSX.writeFile(
-        workbook,
-        `MOVA_Report_${startDate}_${endDate}.xlsx`
-      );
-    };
-
-  /* =========================================================
-     CSV EXPORT
-  ========================================================= */
-
-  const exportCSV = () => {
-    const report =
-      getReportSummary();
-
-    const rows = [
-      [
-        "MOVA BUSINESS REPORT",
-        "",
-      ],
-
-      [
-        "Period",
-        `${startDate} to ${endDate}`,
-      ],
-
-      [],
-
-      [
-        "Metric",
-        "Value",
-      ],
-
-      [
-        "Revenue",
-        report.revenue,
-      ],
-
-      [
-        "Cost of Goods",
-        report.costOfGoods,
-      ],
-
-      [
-        "Gross Profit",
-        report.grossProfit,
-      ],
-
-      [
-        "Expenses",
-        report.expenses,
-      ],
-
-      [
-        "Net Profit",
-        report.netProfit,
-      ],
-
-      [
-        "Total Sales",
-        report.totalSales,
-      ],
-
-      [
-        "Transactions",
-        report.totalTransactions,
-      ],
-
-      [
-        "Items Sold",
-        report.totalItems,
-      ],
-
-      [
-        "Discounts",
-        report.totalDiscount,
-      ],
-
-      [
-        "Cash Payments",
-        report.cash,
-      ],
-
-      [
-        "Mobile Money",
-        report.mobileMoney,
-      ],
-
-      [
-        "Card Payments",
-        report.card,
-      ],
-
-      [
-        "Bank Payments",
-        report.bank,
-      ],
-
-      [
-        "Total Payments",
-        report.totalPayments,
-      ],
-
-      [
-        "Total Products",
-        report.totalProducts,
-      ],
-
-      [
-        "Inventory Value",
-        report.inventoryValue,
-      ],
-
-      [
-        "Low Stock",
-        report.lowStock,
-      ],
-
-      [
-        "Out of Stock",
-        report.outOfStock,
-      ],
-    ];
-
-    const csvContent =
-      rows
-        .map(
-          (row) =>
-            row
-              .map(
-                (cell) => {
-                  const value =
-                    String(
-                      cell ?? ""
-                    );
-
-                  return `"${value.replace(
-                    /"/g,
-                    '""'
-                  )}"`;
-                }
-              )
-              .join(",")
-        )
-        .join("\n");
-
-    const blob =
-      new Blob(
-        [csvContent],
-        {
-          type:
-            "text/csv;charset=utf-8;",
-        }
-      );
-
-    const url =
-      URL.createObjectURL(
-        blob
-      );
-
-    const link =
-      document.createElement(
-        "a"
-      );
-
-    link.href = url;
-
-    link.download =
-      `MOVA_Report_${startDate}_${endDate}.csv`;
-
-    document.body.appendChild(
-      link
-    );
-
-    link.click();
-
-    document.body.removeChild(
-      link
-    );
-
-    URL.revokeObjectURL(
-      url
-    );
+    }
   };
 
   /* =========================================================
@@ -2048,19 +2330,23 @@ const Reports = () => {
           </h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            Save this report locally or prepare it for
-            sharing.
+            Save this report locally or share the report
+            with another person or application.
           </p>
 
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
 
           <button
             onClick={
               exportPDF
             }
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            disabled={
+              loading ||
+              sharingReport
+            }
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
 
             <FileText
@@ -2075,7 +2361,11 @@ const Reports = () => {
             onClick={
               exportExcel
             }
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            disabled={
+              loading ||
+              sharingReport
+            }
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
 
             <FileSpreadsheet
@@ -2090,7 +2380,11 @@ const Reports = () => {
             onClick={
               exportCSV
             }
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            disabled={
+              loading ||
+              sharingReport
+            }
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
 
             <Download
@@ -2105,7 +2399,11 @@ const Reports = () => {
             onClick={
               printReport
             }
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            disabled={
+              loading ||
+              sharingReport
+            }
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
 
             <Printer
@@ -2116,7 +2414,38 @@ const Reports = () => {
 
           </button>
 
+          <button
+            onClick={
+              shareReport
+            }
+            disabled={
+              loading ||
+              sharingReport
+            }
+            className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+
+            <Share2
+              size={18}
+            />
+
+            {sharingReport
+              ? "Preparing..."
+              : "Share Report"}
+
+          </button>
+
         </div>
+
+        {shareMessage && (
+
+          <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+
+            {shareMessage}
+
+          </div>
+
+        )}
 
       </div>
 

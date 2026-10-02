@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 
 import api from "../../services/api";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import {
   AlertCircle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Download,
   Eye,
   Package,
   Printer,
   RefreshCw,
   RotateCcw,
   Search,
+  Share2,
   X,
 } from "lucide-react";
 
@@ -86,6 +90,50 @@ const getErrorMessage = (error, fallback) => {
     error?.message ||
     fallback
   );
+};
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+const getReceiptCustomer = (sale) => {
+  const customer = sale?.customer;
+
+  const name =
+    customer?.name ||
+    customer?.customerName ||
+    sale?.customerName ||
+    "";
+
+  const phone =
+    customer?.phone ||
+    customer?.phoneNumber ||
+    sale?.customerPhone ||
+    "";
+
+  return { name, phone };
+};
+
+const getReceiptPaymentDetails = (sale) => {
+  const amountPaid =
+    sale?.amountPaid ??
+    sale?.paidAmount ??
+    sale?.paymentAmount;
+
+  const change =
+    sale?.change ??
+    sale?.changeAmount;
+
+  return {
+    hasAmountPaid: amountPaid !== undefined && amountPaid !== null && amountPaid !== "",
+    hasChange: change !== undefined && change !== null && change !== "",
+    amountPaid: Number(amountPaid) || 0,
+    change: Number(change) || 0,
+  };
 };
 
 /*
@@ -177,6 +225,9 @@ const Sales = () => {
 
   const [returnSuccess, setReturnSuccess] =
     useState(null);
+
+  const [receiptActionMessage, setReceiptActionMessage] =
+    useState("");
 
   const pageSize = 10;
 
@@ -320,196 +371,298 @@ const Sales = () => {
     }
   };
 
-  const handlePrintReceipt = (sale) => {
-    if (!sale) return;
+  const buildReceiptHtml = (sale) => {
+    const customer = getReceiptCustomer(sale);
+    const paymentDetails = getReceiptPaymentDetails(sale);
 
-    const receiptWindow =
-      window.open(
-        "",
-        "_blank",
-        "width=500,height=700"
-      );
+    const customerHtml =
+      customer.name || customer.phone
+        ? `
+          <div>
+            <strong>Customer:</strong>
+            ${escapeHtml(customer.name || "Walk-in Customer")}
+          </div>
+          ${
+            customer.phone
+              ? `<div><strong>Phone:</strong> ${escapeHtml(customer.phone)}</div>`
+              : ""
+          }
+        `
+        : "";
 
-    if (!receiptWindow) {
-      alert(
-        "Please allow pop-ups to print the receipt."
-      );
-      return;
-    }
+    const paymentDetailsHtml =
+      paymentDetails.hasAmountPaid || paymentDetails.hasChange
+        ? `
+          <hr />
+          ${
+            paymentDetails.hasAmountPaid
+              ? `<div class="row"><span>Amount Paid</span><span>${formatCurrency(paymentDetails.amountPaid)}</span></div>`
+              : ""
+          }
+          ${
+            paymentDetails.hasChange
+              ? `<div class="row"><span>Change</span><span>${formatCurrency(paymentDetails.change)}</span></div>`
+              : ""
+          }
+        `
+        : "";
 
-    const itemsHtml = (
-      sale.items || []
-    )
+    const itemsHtml = (sale.items || [])
       .map(
         (item) => `
           <tr>
-            <td>${item.name || "-"}</td>
-            <td style="text-align:center;">
-              ${item.quantity || 0}
-            </td>
-            <td style="text-align:right;">
-              ${formatCurrency(item.subtotal)}
-            </td>
+            <td>${escapeHtml(item.name || "-")}</td>
+            <td style="text-align:center;">${Number(item.quantity) || 0}</td>
+            <td style="text-align:right;">${formatCurrency(item.subtotal)}</td>
           </tr>
         `
       )
       .join("");
 
-    receiptWindow.document.write(`
+    return `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Receipt ${sale.receiptNumber || ""}</title>
-
+          <meta charset="UTF-8" />
+          <title>Receipt ${escapeHtml(sale.receiptNumber || "")}</title>
           <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 24px;
-              color: #111827;
-            }
-
-            .receipt {
-              max-width: 420px;
-              margin: 0 auto;
-            }
-
-            h1 {
-              text-align: center;
-              margin-bottom: 4px;
-            }
-
-            .center {
-              text-align: center;
-            }
-
-            .muted {
-              color: #6b7280;
-            }
-
-            hr {
-              border: 0;
-              border-top: 1px dashed #9ca3af;
-              margin: 16px 0;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            th,
-            td {
-              padding: 8px 0;
-              border-bottom: 1px solid #e5e7eb;
-            }
-
-            .total {
-              font-size: 18px;
-              font-weight: bold;
-            }
-
-            .row {
-              display: flex;
-              justify-content: space-between;
-              margin: 8px 0;
-            }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; background: #fff; }
+            .receipt { max-width: 420px; margin: 0 auto; }
+            h1 { text-align: center; margin: 0 0 4px; font-size: 28px; }
+            .center { text-align: center; }
+            .muted { color: #6b7280; }
+            .meta { line-height: 1.7; font-size: 13px; }
+            hr { border: 0; border-top: 1px dashed #9ca3af; margin: 16px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 8px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+            th { text-align: left; color: #4b5563; }
+            .row { display: flex; justify-content: space-between; gap: 20px; margin: 8px 0; font-size: 14px; }
+            .total { font-size: 18px; font-weight: bold; }
+            .footer { margin-top: 20px; text-align: center; color: #6b7280; font-size: 12px; }
+            @media print { body { padding: 8px; } .receipt { max-width: 100%; } }
           </style>
         </head>
-
         <body>
           <div class="receipt">
-
             <h1>MOVA</h1>
-
-            <div class="center muted">
-              Business Management Platform
-            </div>
-
+            <div class="center muted">Business Management Platform</div>
             <hr />
-
-            <div>
-              <strong>Receipt:</strong>
-              ${sale.receiptNumber || "-"}
+            <div class="meta">
+              <div><strong>Receipt:</strong> ${escapeHtml(sale.receiptNumber || "-")}</div>
+              <div><strong>Date:</strong> ${escapeHtml(formatDate(sale.createdAt))}</div>
+              <div><strong>Payment:</strong> ${escapeHtml(paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-")}</div>
+              ${customerHtml}
             </div>
-
-            <div>
-              <strong>Date:</strong>
-              ${formatDate(sale.createdAt)}
-            </div>
-
-            <div>
-              <strong>Payment:</strong>
-              ${
-                paymentLabels[
-                  sale.paymentMethod
-                ] ||
-                sale.paymentMethod ||
-                "-"
-              }
-            </div>
-
             <hr />
-
             <table>
               <thead>
                 <tr>
-                  <th style="text-align:left;">
-                    Item
-                  </th>
-                  <th>
-                    Qty
-                  </th>
-                  <th style="text-align:right;">
-                    Amount
-                  </th>
+                  <th>Item</th>
+                  <th style="text-align:center;">Qty</th>
+                  <th style="text-align:right;">Amount</th>
                 </tr>
               </thead>
-
-              <tbody>
-                ${itemsHtml}
-              </tbody>
+              <tbody>${itemsHtml}</tbody>
             </table>
-
             <hr />
-
-            <div class="row">
-              <span>Subtotal</span>
-              <span>
-                ${formatCurrency(sale.subtotal)}
-              </span>
-            </div>
-
-            <div class="row">
-              <span>Discount</span>
-              <span>
-                ${formatCurrency(sale.discount)}
-              </span>
-            </div>
-
-            <div class="row total">
-              <span>Total</span>
-              <span>
-                ${formatCurrency(sale.total)}
-              </span>
-            </div>
-
-            <hr />
-
-            <div class="center muted">
-              Thank you for your business.
-            </div>
-
+            <div class="row"><span>Subtotal</span><span>${formatCurrency(sale.subtotal)}</span></div>
+            <div class="row"><span>Discount</span><span>${formatCurrency(sale.discount)}</span></div>
+            <div class="row total"><span>Total</span><span>${formatCurrency(sale.total)}</span></div>
+            ${paymentDetailsHtml}
+            <div class="footer">Thank you for your business.</div>
           </div>
         </body>
       </html>
-    `);
+    `;
+  };
 
+  const createReceiptPdf = (sale) => {
+    const doc = new jsPDF({
+      unit: "mm",
+      format: "a4",
+    });
+
+    const customer = getReceiptCustomer(sale);
+    const paymentDetails = getReceiptPaymentDetails(sale);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 18;
+
+    doc.setFontSize(22);
+    doc.setFont(undefined, "bold");
+    doc.text("MOVA", pageWidth / 2, y, { align: "center" });
+
+    y += 7;
+    doc.setFontSize(10);
+    doc.setFont(undefined, "normal");
+    doc.text("Business Management Platform", pageWidth / 2, y, { align: "center" });
+
+    y += 10;
+    doc.setFontSize(9);
+    doc.text(`Receipt: ${sale.receiptNumber || "-"}`, 14, y);
+    y += 5;
+    doc.text(`Date: ${formatDate(sale.createdAt)}`, 14, y);
+    y += 5;
+    doc.text(`Payment: ${paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-"}`, 14, y);
+
+    if (customer.name || customer.phone) {
+      y += 5;
+      doc.text(`Customer: ${customer.name || "Walk-in Customer"}`, 14, y);
+      if (customer.phone) {
+        y += 5;
+        doc.text(`Phone: ${customer.phone}`, 14, y);
+      }
+    }
+
+    const rows = (sale.items || []).map((item) => [
+      item.name || "-",
+      Number(item.quantity) || 0,
+      formatCurrency(item.unitPrice),
+      formatCurrency(item.subtotal),
+    ]);
+
+    autoTable(doc, {
+      startY: y + 7,
+      head: [["Item", "Qty", "Unit Price", "Amount"]],
+      body: rows,
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.5,
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        1: { halign: "center", cellWidth: 16 },
+        2: { halign: "right", cellWidth: 32 },
+        3: { halign: "right", cellWidth: 32 },
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    y = (doc.lastAutoTable?.finalY || y + 20) + 10;
+
+    const totals = [
+      ["Subtotal", formatCurrency(sale.subtotal)],
+      ["Discount", formatCurrency(sale.discount)],
+      ["Total", formatCurrency(sale.total)],
+    ];
+
+    if (paymentDetails.hasAmountPaid) {
+      totals.push(["Amount Paid", formatCurrency(paymentDetails.amountPaid)]);
+    }
+
+    if (paymentDetails.hasChange) {
+      totals.push(["Change", formatCurrency(paymentDetails.change)]);
+    }
+
+    totals.forEach(([label, value], index) => {
+      const isTotal = label === "Total";
+      doc.setFont(undefined, isTotal ? "bold" : "normal");
+      doc.setFontSize(isTotal ? 11 : 9);
+      doc.text(label, pageWidth - 80, y);
+      doc.text(value, pageWidth - 14, y, { align: "right" });
+      y += isTotal ? 7 : 5;
+    });
+
+    y += 7;
+    doc.setFont(undefined, "normal");
+    doc.setFontSize(9);
+    doc.text("Thank you for your business.", pageWidth / 2, y, { align: "center" });
+
+    return doc;
+  };
+
+  const handlePrintReceipt = (sale) => {
+    if (!sale) return;
+
+    const receiptWindow = window.open(
+      "",
+      "_blank",
+      "width=500,height=700"
+    );
+
+    if (!receiptWindow) {
+      setReceiptActionMessage("Please allow pop-ups to print the receipt.");
+      return;
+    }
+
+    receiptWindow.document.write(buildReceiptHtml(sale));
     receiptWindow.document.close();
     receiptWindow.focus();
 
     setTimeout(() => {
       receiptWindow.print();
     }, 300);
+  };
+
+  const handleDownloadReceipt = (sale) => {
+    if (!sale) return;
+
+    try {
+      const doc = createReceiptPdf(sale);
+      const receiptName = sale.receiptNumber || sale._id || "receipt";
+      doc.save(`MOVA_Receipt_${receiptName}.pdf`);
+      setReceiptActionMessage("Receipt PDF downloaded successfully.");
+    } catch (requestError) {
+      console.error("Failed to create receipt PDF:", requestError);
+      setReceiptActionMessage("Unable to create the receipt PDF.");
+    }
+  };
+
+  const handleShareReceipt = async (sale) => {
+    if (!sale) return;
+
+    try {
+      const doc = createReceiptPdf(sale);
+      const pdfBlob = doc.output("blob");
+      const receiptName = `MOVA_Receipt_${sale.receiptNumber || sale._id || "receipt"}.pdf`;
+      const file = new File([pdfBlob], receiptName, {
+        type: "application/pdf",
+      });
+
+      const shareText = [
+        `MOVA Receipt: ${sale.receiptNumber || "-"}`,
+        `Date: ${formatDate(sale.createdAt)}`,
+        `Total: ${formatCurrency(sale.total)}`,
+        `Payment: ${paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-"}`,
+      ].join("\n");
+
+      if (navigator.share) {
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            title: `MOVA Receipt ${sale.receiptNumber || ""}`.trim(),
+            text: shareText,
+            files: [file],
+          });
+        } else {
+          await navigator.share({
+            title: `MOVA Receipt ${sale.receiptNumber || ""}`.trim(),
+            text: shareText,
+          });
+        }
+
+        setReceiptActionMessage("Receipt sharing opened successfully.");
+        return;
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareText);
+        setReceiptActionMessage("Receipt summary copied to the clipboard.");
+        return;
+      }
+
+      doc.save(receiptName);
+      setReceiptActionMessage("Sharing is unavailable, so the receipt PDF was downloaded instead.");
+    } catch (requestError) {
+      if (requestError?.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to share receipt:", requestError);
+      setReceiptActionMessage("Unable to share the receipt.");
+    }
   };
 
   const openReturnModal = async (sale) => {
@@ -893,6 +1046,20 @@ const Sales = () => {
         </div>
       )}
 
+      {receiptActionMessage && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <span className="font-semibold">{receiptActionMessage}</span>
+          <button
+            type="button"
+            onClick={() => setReceiptActionMessage("")}
+            className="rounded-lg p-1 hover:bg-emerald-100"
+            aria-label="Dismiss receipt message"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* SUMMARY */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1227,17 +1394,29 @@ const Sales = () => {
 
                             <button
                               type="button"
-                              onClick={() =>
-                                handlePrintReceipt(
-                                  sale
-                                )
-                              }
+                              onClick={() => handlePrintReceipt(sale)}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                               title="Print receipt"
                             >
-                              <Printer
-                                size={17}
-                              />
+                              <Printer size={17} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadReceipt(sale)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                              title="Download receipt PDF"
+                            >
+                              <Download size={17} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleShareReceipt(sale)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600"
+                              title="Share receipt"
+                            >
+                              <Share2 size={17} />
                             </button>
 
                             {sale.status ===
@@ -1580,15 +1759,29 @@ const Sales = () => {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    handlePrintReceipt(
-                      selectedSale
-                    )
-                  }
+                  onClick={() => handlePrintReceipt(selectedSale)}
                   className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
                 >
                   <Printer size={17} />
                   Print Receipt
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDownloadReceipt(selectedSale)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100"
+                >
+                  <Download size={17} />
+                  Download PDF
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleShareReceipt(selectedSale)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100"
+                >
+                  <Share2 size={17} />
+                  Share Receipt
                 </button>
 
               </div>
