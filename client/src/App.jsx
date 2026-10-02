@@ -1,4 +1,8 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import DashboardLayout from "./layouts/DashboardLayout";
@@ -16,12 +20,16 @@ import Customers from "./pages/customers/Customers";
 import Suppliers from "./pages/suppliers/Suppliers";
 import Purchases from "./pages/purchases/Purchases";
 
+import Expenses from "./pages/expenses/Expenses";
+import Payments from "./pages/payments/Payments";
+
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 
-
-const PlaceholderPage = ({ title }) => {
+const PlaceholderPage = ({
+  title,
+}) => {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-8">
       <h1 className="text-2xl font-black text-slate-900">
@@ -35,14 +43,10 @@ const PlaceholderPage = ({ title }) => {
   );
 };
 
-
 const App = () => {
   return (
     <Routes>
-
-      {/* ==================================================
-          AUTHENTICATION
-      ================================================== */}
+      {/* AUTH */}
 
       <Route
         path="/login"
@@ -56,13 +60,12 @@ const App = () => {
 
       <Route
         path="/forgot-password"
-        element={<ForgotPassword />}
+        element={
+          <ForgotPassword />
+        }
       />
 
-
-      {/* ==================================================
-          ROOT
-      ================================================== */}
+      {/* ROOT */}
 
       <Route
         path="/"
@@ -74,86 +77,117 @@ const App = () => {
         }
       />
 
+      {/* PROTECTED APP */}
 
-      {/* ==================================================
-          PROTECTED APPLICATION
-      ================================================== */}
-
-      <Route element={<ProtectedRoute />}>
-
+      <Route
+        element={
+          <ProtectedRoute />
+        }
+      >
         <Route
           path="/app"
-          element={<DashboardLayout />}
+          element={
+            <DashboardLayout />
+          }
         >
-
           {/* DASHBOARD */}
 
           <Route
             index
-            element={<Dashboard />}
+            element={
+              <Dashboard />
+            }
           />
-
 
           {/* POS */}
 
           <Route
             path="pos"
-            element={<POS />}
+            element={
+              <POS />
+            }
           />
-
 
           {/* SALES */}
 
           <Route
             path="sales"
-            element={<Sales />}
+            element={
+              <Sales />
+            }
           />
-
 
           {/* PRODUCTS */}
 
           <Route
             path="products"
-            element={<Products />}
+            element={
+              <Products />
+            }
           />
+
+          {/* CATEGORIES */}
 
           <Route
             path="products/categories"
-            element={<Categories />}
+            element={
+              <Categories />
+            }
           />
-
 
           {/* INVENTORY */}
 
           <Route
             path="inventory"
-            element={<Inventory />}
+            element={
+              <Inventory />
+            }
           />
-
 
           {/* CUSTOMERS */}
 
           <Route
             path="customers"
-            element={<Customers />}
+            element={
+              <Customers />
+            }
           />
-
 
           {/* SUPPLIERS */}
 
           <Route
             path="suppliers"
-            element={<Suppliers />}
+            element={
+              <Suppliers />
+            }
           />
-
 
           {/* PURCHASES */}
 
           <Route
             path="purchases"
-            element={<Purchases />}
+            element={
+              <Purchases />
+            }
           />
 
+          {/* EXPENSES */}
+
+          <Route
+            path="expenses"
+            element={
+              <Expenses />
+            }
+          />
+
+          {/* PAYMENTS */}
+
+          <Route
+            path="payments"
+            element={
+              <Payments />
+            }
+          />
 
           {/* REPORTS */}
 
@@ -166,7 +200,6 @@ const App = () => {
             }
           />
 
-
           {/* SETTINGS */}
 
           <Route
@@ -177,15 +210,10 @@ const App = () => {
               />
             }
           />
-
         </Route>
-
       </Route>
 
-
-      {/* ==================================================
-          UNKNOWN ROUTES
-      ================================================== */}
+      {/* UNKNOWN ROUTES */}
 
       <Route
         path="*"
@@ -196,10 +224,8 @@ const App = () => {
           />
         }
       />
-
     </Routes>
   );
 };
-
 
 export default App;

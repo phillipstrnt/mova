@@ -4,8 +4,6 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import supplierRoutes from "./routes/supplier.routes.js";
-import purchaseRoutes from "./routes/purchase.routes.js";
 
 import connectDB from "./config/db.js";
 
@@ -16,7 +14,9 @@ import saleRoutes from "./routes/sale.routes.js";
 import inventoryTransactionRoutes from "./routes/inventoryTransaction.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
 import returnRoutes from "./routes/return.routes.js";
-// import supplierRoutes from "./routes/supplier.routes.js";
+import supplierRoutes from "./routes/supplier.routes.js";
+import purchaseRoutes from "./routes/purchase.routes.js";
+import expenseRoutes from "./routes/expense.routes.js";
 
 dotenv.config();
 
@@ -25,6 +25,12 @@ connectDB();
 const app = express();
 
 const PORT = process.env.PORT || 5000;
+
+/*
+|--------------------------------------------------------------------------
+| Security
+|--------------------------------------------------------------------------
+*/
 
 app.use(helmet());
 
@@ -37,6 +43,12 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
+/*
+|--------------------------------------------------------------------------
+| CORS
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   cors({
     origin:
@@ -45,6 +57,12 @@ app.use(
     credentials: true,
   })
 );
+
+/*
+|--------------------------------------------------------------------------
+| Body Parsers
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   express.json({
@@ -66,53 +84,114 @@ app.use(cookieParser());
 |--------------------------------------------------------------------------
 */
 
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/auth",
   authRoutes
 );
+
+/*
+|--------------------------------------------------------------------------
+| Categories
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   "/api/categories",
   categoryRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| Products
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/products",
   productRoutes
 );
+
+/*
+|--------------------------------------------------------------------------
+| Sales
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   "/api/sales",
   saleRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| Inventory Transactions
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
+
+/*
+|--------------------------------------------------------------------------
+| Customers
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   "/api/customers",
   customerRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| Returns
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/returns",
   returnRoutes
 );
 
-app.use(
-  "/api/suppliers",
-  supplierRoutes
-);
+/*
+|--------------------------------------------------------------------------
+| Suppliers
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/suppliers",
   supplierRoutes
 );
 
+/*
+|--------------------------------------------------------------------------
+| Purchases
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/purchases",
   purchaseRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| Expenses
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/expenses",
+  expenseRoutes
 );
 
 /*
@@ -143,7 +222,8 @@ app.get(
       success: true,
       status: "healthy",
       service: "MOVA API",
-      timestamp: new Date().toISOString(),
+      timestamp:
+        new Date().toISOString(),
     });
   }
 );
@@ -200,24 +280,31 @@ app.listen(
   PORT,
   () => {
     console.log("");
+
     console.log(
       "======================================"
     );
+
     console.log(
       "          MOVA API SERVER"
     );
+
     console.log(
       "======================================"
     );
+
     console.log(
       `Server: http://localhost:${PORT}`
     );
+
     console.log(
       `Health: http://localhost:${PORT}/api/health`
     );
+
     console.log(
       "======================================"
     );
+
     console.log("");
   }
 );

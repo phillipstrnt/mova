@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 
 import Sale from "../models/Sale.js";
@@ -48,11 +47,14 @@ export const createSale = async (req, res) => {
       notes = "",
     } = req.body;
 
-    const businessId = req.user.businessId;
+    const businessId =
+      req.user.businessId;
 
-    const branchId = req.user.branchId || null;
+    const branchId =
+      req.user.branchId || null;
 
-    const cashierId = req.user._id;
+    const cashierId =
+      req.user._id;
 
     /*
     |--------------------------------------------------------------------------
@@ -91,7 +93,8 @@ export const createSale = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid payment method.",
+        message:
+          "Invalid payment method.",
       });
     }
 
@@ -101,10 +104,13 @@ export const createSale = async (req, res) => {
     |--------------------------------------------------------------------------
     */
 
-    const numericDiscount = Number(discount);
+    const numericDiscount =
+      Number(discount);
 
     if (
-      Number.isNaN(numericDiscount) ||
+      Number.isNaN(
+        numericDiscount
+      ) ||
       numericDiscount < 0
     ) {
       return res.status(400).json({
@@ -130,15 +136,17 @@ export const createSale = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: "Invalid customer ID.",
+          message:
+            "Invalid customer ID.",
         });
       }
 
-      customer = await Customer.findOne({
-        _id: customerId,
-        businessId,
-        isActive: true,
-      });
+      customer =
+        await Customer.findOne({
+          _id: customerId,
+          businessId,
+          isActive: true,
+        });
 
       if (!customer) {
         return res.status(404).json({
@@ -185,10 +193,13 @@ export const createSale = async (req, res) => {
       |--------------------------------------------------------------------------
       */
 
-      const quantity = Number(item.quantity);
+      const quantity =
+        Number(item.quantity);
 
       if (
-        !Number.isInteger(quantity) ||
+        !Number.isInteger(
+          quantity
+        ) ||
         quantity <= 0
       ) {
         return res.status(400).json({
@@ -204,11 +215,12 @@ export const createSale = async (req, res) => {
       |--------------------------------------------------------------------------
       */
 
-      const product = await Product.findOne({
-        _id: item.productId,
-        businessId,
-        isActive: true,
-      });
+      const product =
+        await Product.findOne({
+          _id: item.productId,
+          businessId,
+          isActive: true,
+        });
 
       if (!product) {
         return res.status(404).json({
@@ -226,7 +238,8 @@ export const createSale = async (req, res) => {
 
       if (
         product.trackStock &&
-        product.stockQuantity < quantity
+        product.stockQuantity <
+          quantity
       ) {
         return res.status(400).json({
           success: false,
@@ -242,10 +255,11 @@ export const createSale = async (req, res) => {
       |--------------------------------------------------------------------------
       */
 
-      const unitPrice = Number(
-        item.unitPrice ??
-          product.sellingPrice
-      );
+      const unitPrice =
+        Number(
+          item.unitPrice ??
+            product.sellingPrice
+        );
 
       if (
         Number.isNaN(unitPrice) ||
@@ -267,7 +281,8 @@ export const createSale = async (req, res) => {
       const itemSubtotal =
         unitPrice * quantity;
 
-      subtotal += itemSubtotal;
+      subtotal +=
+        itemSubtotal;
 
       /*
       |--------------------------------------------------------------------------
@@ -277,14 +292,18 @@ export const createSale = async (req, res) => {
 
       normalizedItems.push({
         product,
-        productId: product._id,
-        name: product.name,
-        sku: product.sku,
+        productId:
+          product._id,
+        name:
+          product.name,
+        sku:
+          product.sku,
         quantity,
         unitPrice,
         buyingPrice:
           product.buyingPrice,
-        subtotal: itemSubtotal,
+        subtotal:
+          itemSubtotal,
       });
     }
 
@@ -295,7 +314,8 @@ export const createSale = async (req, res) => {
     */
 
     if (
-      numericDiscount > subtotal
+      numericDiscount >
+      subtotal
     ) {
       return res.status(400).json({
         success: false,
@@ -311,7 +331,8 @@ export const createSale = async (req, res) => {
     */
 
     const total =
-      subtotal - numericDiscount;
+      subtotal -
+      numericDiscount;
 
     /*
     |--------------------------------------------------------------------------
@@ -321,24 +342,29 @@ export const createSale = async (req, res) => {
 
     const inventoryEntries = [];
 
-    for (const item of normalizedItems) {
-      const product = item.product;
+    for (
+      const item of normalizedItems
+    ) {
+      const product =
+        item.product;
 
-      /*
-      |--------------------------------------------------------------------------
-      | ONLY REDUCE STOCK IF TRACKING IS ENABLED
-      |--------------------------------------------------------------------------
-      */
-
-      if (product.trackStock) {
+      if (
+        product.trackStock
+      ) {
         const updatedProduct =
           await Product.findOneAndUpdate(
             {
-              _id: product._id,
+              _id:
+                product._id,
+
               businessId,
-              isActive: true,
+
+              isActive:
+                true,
+
               stockQuantity: {
-                $gte: item.quantity,
+                $gte:
+                  item.quantity,
               },
             },
             {
@@ -352,25 +378,15 @@ export const createSale = async (req, res) => {
             }
           );
 
-        /*
-        |--------------------------------------------------------------------------
-        | STOCK UPDATE FAILED
-        |--------------------------------------------------------------------------
-        */
-
-        if (!updatedProduct) {
+        if (
+          !updatedProduct
+        ) {
           return res.status(400).json({
             success: false,
             message:
               `Insufficient stock for ${product.name}.`,
           });
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | INVENTORY LEDGER ENTRY
-        |--------------------------------------------------------------------------
-        */
 
         inventoryEntries.push({
           businessId,
@@ -382,7 +398,8 @@ export const createSale = async (req, res) => {
           userId:
             cashierId,
 
-          type: "SALE",
+          type:
+            "SALE",
 
           quantity:
             item.quantity,
@@ -452,40 +469,41 @@ export const createSale = async (req, res) => {
     |--------------------------------------------------------------------------
     */
 
-    const sale = await Sale.create({
-      businessId,
+    const sale =
+      await Sale.create({
+        businessId,
 
-      branchId,
+        branchId,
 
-      cashierId,
+        cashierId,
 
-      customerId:
-        customer
-          ? customer._id
-          : null,
+        customerId:
+          customer
+            ? customer._id
+            : null,
 
-      receiptNumber,
+        receiptNumber,
 
-      items:
-        saleItems,
+        items:
+          saleItems,
 
-      subtotal,
+        subtotal,
 
-      discount:
-        numericDiscount,
+        discount:
+          numericDiscount,
 
-      total,
+        total,
 
-      paymentMethod,
+        paymentMethod,
 
-      paymentStatus:
-        "PAID",
+        paymentStatus:
+          "PAID",
 
-      status:
-        "COMPLETED",
+        status:
+          "COMPLETED",
 
-      notes,
-    });
+        notes,
+      });
 
     /*
     |--------------------------------------------------------------------------
@@ -494,17 +512,21 @@ export const createSale = async (req, res) => {
     */
 
     if (
-      inventoryEntries.length > 0
+      inventoryEntries.length >
+      0
     ) {
       for (
-        const entry of inventoryEntries
+        const entry of
+          inventoryEntries
       ) {
-        await InventoryTransaction.create({
-          ...entry,
+        await InventoryTransaction.create(
+          {
+            ...entry,
 
-          referenceId:
-            sale._id,
-        });
+            referenceId:
+              sale._id,
+          }
+        );
       }
     }
 
@@ -522,10 +544,10 @@ export const createSale = async (req, res) => {
 
           businessId,
         },
-
         {
           $inc: {
-            totalOrders: 1,
+            totalOrders:
+              1,
 
             totalSpent:
               total,
@@ -582,12 +604,6 @@ export const createSale = async (req, res) => {
       },
     });
   } catch (error) {
-    /*
-    |--------------------------------------------------------------------------
-    | ERROR HANDLING
-    |--------------------------------------------------------------------------
-    */
-
     console.error(
       "Create sale error:",
       error
@@ -617,6 +633,7 @@ export const getSales = async (
     const {
       search = "",
       paymentMethod,
+      paymentStatus,
       status,
       cashierId,
       customerId,
@@ -651,7 +668,7 @@ export const getSales = async (
 
     /*
     |--------------------------------------------------------------------------
-    | FILTERS
+    | PAYMENT METHOD
     |--------------------------------------------------------------------------
     */
 
@@ -660,17 +677,110 @@ export const getSales = async (
         paymentMethod;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT STATUS
+    |--------------------------------------------------------------------------
+    |
+    | This is separate from the Sale status.
+    |
+    */
+
+    if (paymentStatus) {
+      const validPaymentStatuses = [
+        "PAID",
+        "PENDING",
+        "REFUNDED",
+      ];
+
+      if (
+        !validPaymentStatuses.includes(
+          paymentStatus
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid payment status.",
+        });
+      }
+
+      filter.paymentStatus =
+        paymentStatus;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SALE STATUS
+    |--------------------------------------------------------------------------
+    */
+
     if (status) {
+      const validSaleStatuses = [
+        "COMPLETED",
+        "CANCELLED",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED",
+      ];
+
+      if (
+        !validSaleStatuses.includes(
+          status
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid sale status.",
+        });
+      }
+
       filter.status =
         status;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CASHIER
+    |--------------------------------------------------------------------------
+    */
+
     if (cashierId) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          cashierId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid cashier ID.",
+        });
+      }
+
       filter.cashierId =
         cashierId;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER
+    |--------------------------------------------------------------------------
+    */
+
     if (customerId) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          customerId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid customer ID.",
+        });
+      }
+
       filter.customerId =
         customerId;
     }
@@ -688,17 +798,47 @@ export const getSales = async (
       filter.createdAt = {};
 
       if (startDate) {
-        filter.createdAt.$gte =
+        const start =
           new Date(
             `${startDate}T00:00:00`
           );
+
+        if (
+          Number.isNaN(
+            start.getTime()
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid start date.",
+          });
+        }
+
+        filter.createdAt.$gte =
+          start;
       }
 
       if (endDate) {
-        filter.createdAt.$lte =
+        const end =
           new Date(
             `${endDate}T23:59:59.999`
           );
+
+        if (
+          Number.isNaN(
+            end.getTime()
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid end date.",
+          });
+        }
+
+        filter.createdAt.$lte =
+          end;
       }
     }
 
@@ -897,4 +1037,3 @@ export const getSaleById = async (
     });
   }
 };
-

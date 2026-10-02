@@ -1,5 +1,5 @@
-
 import {
+  Banknote,
   BarChart3,
   Boxes,
   ClipboardList,
@@ -15,7 +15,10 @@ import {
 
 import { NavLink } from "react-router-dom";
 
-const Sidebar = ({ open, onClose }) => {
+const Sidebar = ({
+  open,
+  onClose,
+}) => {
   const navigation = [
     {
       label: "Overview",
@@ -60,6 +63,18 @@ const Sidebar = ({ open, onClose }) => {
     },
 
     {
+      label: "Expenses",
+      icon: Banknote,
+      path: "/app/expenses",
+    },
+
+    {
+      label: "Payments",
+      icon: Banknote,
+      path: "/app/payments",
+    },
+
+    {
       label: "Sales",
       icon: BarChart3,
       path: "/app/sales",
@@ -86,7 +101,8 @@ const Sidebar = ({ open, onClose }) => {
 
   return (
     <>
-      {/* Mobile overlay */}
+      {/* MOBILE OVERLAY */}
+
       {open && (
         <button
           type="button"
@@ -96,7 +112,8 @@ const Sidebar = ({ open, onClose }) => {
         />
       )}
 
-      {/* Sidebar */}
+      {/* SIDEBAR */}
+
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:static lg:translate-x-0 ${
           open
@@ -104,7 +121,8 @@ const Sidebar = ({ open, onClose }) => {
             : "-translate-x-full"
         }`}
       >
-        {/* Brand */}
+        {/* BRAND */}
+
         <div className="flex h-20 items-center justify-between border-b border-slate-100 px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
@@ -126,55 +144,79 @@ const Sidebar = ({ open, onClose }) => {
             type="button"
             onClick={onClose}
             aria-label="Close sidebar"
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden"
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 lg:hidden"
           >
             <X size={19} />
           </button>
         </div>
 
-        {/* Navigation */}
+        {/* NAVIGATION */}
+
         <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
           <p className="mb-3 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
             Workspace
           </p>
 
-          {navigation.map((item) => {
-            const Icon = item.icon;
+          {navigation.map(
+            (item) => {
+              const Icon =
+                item.icon;
 
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === "/app"}
-                onClick={onClose}
-                className={({ isActive }) =>
-                  `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold transition ${
-                    isActive
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <Icon
-                      size={19}
-                      className={
-                        isActive
-                          ? "text-blue-600"
-                          : "text-slate-400 group-hover:text-slate-600"
-                      }
-                    />
+              return (
+                <NavLink
+                  key={
+                    item.path
+                  }
+                  to={
+                    item.path
+                  }
+                  end={
+                    item.path ===
+                    "/app"
+                  }
+                  onClick={
+                    onClose
+                  }
+                  className={({
+                    isActive,
+                  }) =>
+                    `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold transition ${
+                      isActive
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                    }`
+                  }
+                >
+                  {({
+                    isActive,
+                  }) => (
+                    <>
+                      <Icon
+                        size={
+                          19
+                        }
+                        className={
+                          isActive
+                            ? "text-blue-600"
+                            : "text-slate-400 group-hover:text-slate-600"
+                        }
+                      />
 
-                    <span>{item.label}</span>
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
+                      <span>
+                        {
+                          item.label
+                        }
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+              );
+            }
+          )}
         </nav>
 
-        {/* Footer */}
+        {/* FOOTER */}
+
         <div className="border-t border-slate-100 p-4">
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="text-xs font-bold text-slate-700">
@@ -182,7 +224,8 @@ const Sidebar = ({ open, onClose }) => {
             </p>
 
             <p className="mt-1 text-xs leading-5 text-slate-400">
-              Sell smart. Know more. Grow faster.
+              Sell smart. Know more.
+              Grow faster.
             </p>
           </div>
         </div>
