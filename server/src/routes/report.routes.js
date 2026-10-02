@@ -12,9 +12,16 @@ import {
   deleteSavedReport,
 } from "../controllers/reportController.js";
 
-import { protect } from "../middleware/authMiddleware.js";
+import {
+  protect,
+} from "../middleware/authMiddleware.js";
 
-const router = express.Router();
+const router =
+  express.Router();
+
+/* =========================================================
+   PROTECT ALL REPORT ROUTES
+========================================================= */
 
 router.use(protect);
 

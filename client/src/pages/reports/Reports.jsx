@@ -4,10 +4,13 @@ import {
   BarChart3,
   Calendar,
   Download,
+  Eye,
   FileSpreadsheet,
   FileText,
   Printer,
   RefreshCw,
+  Save,
+  Trash2,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -22,276 +25,689 @@ import api from "../../api";
    HELPERS
 ========================================================= */
 
-const getLocalDateString = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+const getLocalDateString = (
+  date = new Date()
+) => {
+  const year =
+    date.getFullYear();
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 };
 
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(value) || 0);
+const formatCurrency = (
+  value
+) => {
+  return new Intl.NumberFormat(
+    "en-UG",
+    {
+      style: "currency",
+      currency: "UGX",
+      maximumFractionDigits: 0,
+    }
+  ).format(
+    Number(value) || 0
+  );
 };
 
-const numberValue = (value) => Number(value) || 0;
+const numberValue = (
+  value
+) => Number(value) || 0;
 
-const formatNumber = (value) => {
-  return new Intl.NumberFormat("en-UG").format(
+const formatNumber = (
+  value
+) => {
+  return new Intl.NumberFormat(
+    "en-UG"
+  ).format(
     numberValue(value)
   );
 };
 
-const formatReportDate = (date) => {
-  if (!date) return "";
+const formatReportDate = (
+  date
+) => {
+  if (!date) {
+    return "";
+  }
 
-  const parsed = new Date(`${date}T00:00:00`);
+  const parsed =
+    new Date(
+      `${date}T00:00:00`
+    );
 
-  return parsed.toLocaleDateString("en-UG", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return parsed.toLocaleDateString(
+    "en-UG",
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }
+  );
+};
+
+const formatSavedDate = (
+  date
+) => {
+  if (!date) {
+    return "";
+  }
+
+  return new Date(
+    date
+  ).toLocaleDateString(
+    "en-UG",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  );
 };
 
 /* =========================================================
-   REPORTS
+   REPORTS COMPONENT
 ========================================================= */
 
 const Reports = () => {
-  const today = getLocalDateString();
+  const today =
+    getLocalDateString();
 
-  const firstDayDate = new Date(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    1
-  );
+  const firstDayDate =
+    new Date(
+      new Date().getFullYear(),
+      new Date().getMonth(),
+      1
+    );
 
-  const firstDay = getLocalDateString(firstDayDate);
-
-  const [startDate, setStartDate] = useState(firstDay);
-  const [endDate, setEndDate] = useState(today);
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const [salesReport, setSalesReport] = useState(null);
-  const [paymentReport, setPaymentReport] = useState(null);
-  const [expenseReport, setExpenseReport] = useState(null);
-  const [profitReport, setProfitReport] = useState(null);
-  const [inventoryReport, setInventoryReport] = useState(null);
+  const firstDay =
+    getLocalDateString(
+      firstDayDate
+    );
 
   /* =========================================================
-     LOAD REPORTS
+     DATE STATE
   ========================================================= */
 
-  const loadReports = async () => {
-    if (!startDate || !endDate) {
-      setError(
-        "Please select both a start date and an end date."
-      );
-      return;
-    }
+  const [
+    startDate,
+    setStartDate,
+  ] = useState(firstDay);
 
-    if (startDate > endDate) {
-      setError(
-        "Start date cannot be after the end date."
-      );
-      return;
-    }
+  const [
+    endDate,
+    setEndDate,
+  ] = useState(today);
 
-    try {
-      setLoading(true);
-      setError("");
+  /* =========================================================
+     REPORT STATE
+  ========================================================= */
 
-      const params = {
-        startDate,
-        endDate,
-      };
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-      console.log(
-        "Loading reports for:",
-        params
-      );
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-      const [
-        salesResponse,
-        paymentResponse,
-        expenseResponse,
-        profitResponse,
-        inventoryResponse,
-      ] = await Promise.all([
-        api.get("/reports/sales", { params }),
-        api.get("/reports/payments", { params }),
-        api.get("/reports/expenses", { params }),
-        api.get("/reports/profit", { params }),
-        api.get("/reports/inventory"),
-      ]);
+  const [
+    salesReport,
+    setSalesReport,
+  ] = useState(null);
 
-      console.log(
-        "Sales report:",
-        salesResponse.data
-      );
+  const [
+    paymentReport,
+    setPaymentReport,
+  ] = useState(null);
 
-      console.log(
-        "Payment report:",
-        paymentResponse.data
-      );
+  const [
+    expenseReport,
+    setExpenseReport,
+  ] = useState(null);
 
-      console.log(
-        "Expense report:",
-        expenseResponse.data
-      );
+  const [
+    profitReport,
+    setProfitReport,
+  ] = useState(null);
 
-      console.log(
-        "Profit report:",
-        profitResponse.data
-      );
+  const [
+    inventoryReport,
+    setInventoryReport,
+  ] = useState(null);
 
-      console.log(
-        "Inventory report:",
-        inventoryResponse.data
-      );
+  /* =========================================================
+     SAVED REPORT STATE
+  ========================================================= */
 
-      setSalesReport(
-        salesResponse.data?.report || null
-      );
+  const [
+    savedReports,
+    setSavedReports,
+  ] = useState([]);
 
-      setPaymentReport(
-        paymentResponse.data?.report || null
-      );
+  const [
+    savingReport,
+    setSavingReport,
+  ] = useState(false);
 
-      setExpenseReport(
-        expenseResponse.data?.report || null
-      );
+  const [
+    saveReportName,
+    setSaveReportName,
+  ] = useState("");
 
-      setProfitReport(
-        profitResponse.data?.report || null
-      );
+  const [
+    selectedSavedReport,
+    setSelectedSavedReport,
+  ] = useState(null);
 
-      setInventoryReport(
-        inventoryResponse.data?.report || null
-      );
-    } catch (err) {
-      console.error(
-        "Reports error:",
-        err
-      );
+  const [
+    savedReportLoading,
+    setSavedReportLoading,
+  ] = useState(false);
 
-      setError(
-        err.response?.data?.message ||
-          "Failed to load reports."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  /* =========================================================
+     LOAD CURRENT REPORTS
+  ========================================================= */
+
+  const loadReports =
+    async () => {
+      if (
+        !startDate ||
+        !endDate
+      ) {
+        setError(
+          "Please select both a start date and an end date."
+        );
+
+        return;
+      }
+
+      if (
+        startDate >
+        endDate
+      ) {
+        setError(
+          "Start date cannot be after the end date."
+        );
+
+        return;
+      }
+
+      try {
+        setLoading(true);
+
+        setError("");
+
+        const params = {
+          startDate,
+          endDate,
+        };
+
+        console.log(
+          "Loading reports for:",
+          params
+        );
+
+        const [
+          salesResponse,
+          paymentResponse,
+          expenseResponse,
+          profitResponse,
+          inventoryResponse,
+        ] =
+          await Promise.all([
+            api.get(
+              "/reports/sales",
+              {
+                params,
+              }
+            ),
+
+            api.get(
+              "/reports/payments",
+              {
+                params,
+              }
+            ),
+
+            api.get(
+              "/reports/expenses",
+              {
+                params,
+              }
+            ),
+
+            api.get(
+              "/reports/profit",
+              {
+                params,
+              }
+            ),
+
+            api.get(
+              "/reports/inventory"
+            ),
+          ]);
+
+        console.log(
+          "Sales report:",
+          salesResponse.data
+        );
+
+        console.log(
+          "Payment report:",
+          paymentResponse.data
+        );
+
+        console.log(
+          "Expense report:",
+          expenseResponse.data
+        );
+
+        console.log(
+          "Profit report:",
+          profitResponse.data
+        );
+
+        console.log(
+          "Inventory report:",
+          inventoryResponse.data
+        );
+
+        setSalesReport(
+          salesResponse.data
+            ?.report || null
+        );
+
+        setPaymentReport(
+          paymentResponse.data
+            ?.report || null
+        );
+
+        setExpenseReport(
+          expenseResponse.data
+            ?.report || null
+        );
+
+        setProfitReport(
+          profitResponse.data
+            ?.report || null
+        );
+
+        setInventoryReport(
+          inventoryResponse.data
+            ?.report || null
+        );
+      } catch (err) {
+        console.error(
+          "Reports error:",
+          err
+        );
+
+        setError(
+          err.response?.data
+            ?.message ||
+            "Failed to load reports."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  /* =========================================================
+     LOAD SAVED REPORTS
+  ========================================================= */
+
+  const loadSavedReports =
+    async () => {
+      try {
+        const response =
+          await api.get(
+            "/reports/saved"
+          );
+
+        setSavedReports(
+          response.data
+            ?.reports || []
+        );
+      } catch (err) {
+        console.error(
+          "Saved reports error:",
+          err
+        );
+      }
+    };
+
+  /* =========================================================
+     INITIAL LOAD
+  ========================================================= */
 
   useEffect(() => {
     loadReports();
+    loadSavedReports();
   }, []);
 
   /* =========================================================
-     REPORT DATA
+     REPORT SUMMARY
   ========================================================= */
 
-  const getReportSummary = () => {
-    return {
-      revenue: numberValue(
-        profitReport?.revenue
-      ),
+  const getReportSummary =
+    () => {
+      return {
+        revenue:
+          numberValue(
+            profitReport?.revenue
+          ),
 
-      costOfGoods: numberValue(
-        profitReport?.costOfGoods
-      ),
+        costOfGoods:
+          numberValue(
+            profitReport?.costOfGoods
+          ),
 
-      grossProfit: numberValue(
-        profitReport?.grossProfit
-      ),
+        grossProfit:
+          numberValue(
+            profitReport?.grossProfit
+          ),
 
-      expenses: numberValue(
-        profitReport?.totalExpenses
-      ),
+        expenses:
+          numberValue(
+            profitReport?.totalExpenses
+          ),
 
-      netProfit: numberValue(
-        profitReport?.netProfit
-      ),
+        netProfit:
+          numberValue(
+            profitReport?.netProfit
+          ),
 
-      totalSales: numberValue(
-        salesReport?.totalSales
-      ),
+        totalSales:
+          numberValue(
+            salesReport?.totalSales
+          ),
 
-      totalTransactions: numberValue(
-        salesReport?.totalTransactions
-      ),
+        totalTransactions:
+          numberValue(
+            salesReport?.totalTransactions
+          ),
 
-      totalItems: numberValue(
-        salesReport?.totalItems
-      ),
+        totalItems:
+          numberValue(
+            salesReport?.totalItems
+          ),
 
-      totalDiscount: numberValue(
-        salesReport?.totalDiscount
-      ),
+        totalDiscount:
+          numberValue(
+            salesReport?.totalDiscount
+          ),
 
-      totalPayments: numberValue(
-        paymentReport?.totalPayments
-      ),
+        totalPayments:
+          numberValue(
+            paymentReport?.totalPayments
+          ),
 
-      cash: numberValue(
-        paymentReport?.breakdown?.CASH
-      ),
+        cash:
+          numberValue(
+            paymentReport
+              ?.breakdown?.CASH
+          ),
 
-      mobileMoney: numberValue(
-        paymentReport?.breakdown?.MOBILE_MONEY
-      ),
+        mobileMoney:
+          numberValue(
+            paymentReport
+              ?.breakdown
+              ?.MOBILE_MONEY
+          ),
 
-      card: numberValue(
-        paymentReport?.breakdown?.CARD
-      ),
+        card:
+          numberValue(
+            paymentReport
+              ?.breakdown?.CARD
+          ),
 
-      bank: numberValue(
-        paymentReport?.breakdown?.BANK
-      ),
+        bank:
+          numberValue(
+            paymentReport
+              ?.breakdown?.BANK
+          ),
 
-      totalExpenses: numberValue(
-        expenseReport?.totalExpenses
-      ),
+        totalExpenses:
+          numberValue(
+            expenseReport
+              ?.totalExpenses
+          ),
 
-      inventoryValue: numberValue(
-        inventoryReport?.inventoryValue
-      ),
+        inventoryValue:
+          numberValue(
+            inventoryReport
+              ?.inventoryValue
+          ),
 
-      totalProducts: numberValue(
-        inventoryReport?.totalProducts
-      ),
+        totalProducts:
+          numberValue(
+            inventoryReport
+              ?.totalProducts
+          ),
 
-      lowStock: numberValue(
-        inventoryReport?.lowStockCount
-      ),
+        lowStock:
+          numberValue(
+            inventoryReport
+              ?.lowStockCount
+          ),
 
-      outOfStock: numberValue(
-        inventoryReport?.outOfStockCount
-      ),
+        outOfStock:
+          numberValue(
+            inventoryReport
+              ?.outOfStockCount
+          ),
+      };
     };
-  };
+
+  /* =========================================================
+     SAVE REPORT
+  ========================================================= */
+
+  const handleSaveReport =
+    async () => {
+      if (
+        !saveReportName.trim()
+      ) {
+        setError(
+          "Please enter a name for the report."
+        );
+
+        return;
+      }
+
+      if (
+        !startDate ||
+        !endDate
+      ) {
+        setError(
+          "Please select a valid date range."
+        );
+
+        return;
+      }
+
+      if (
+        startDate >
+        endDate
+      ) {
+        setError(
+          "Start date cannot be after the end date."
+        );
+
+        return;
+      }
+
+      try {
+        setSavingReport(true);
+
+        setError("");
+
+        const reportData =
+          getReportSummary();
+
+        await api.post(
+          "/reports/saved",
+          {
+            name:
+              saveReportName.trim(),
+
+            reportType:
+              "BUSINESS",
+
+            startDate,
+
+            endDate,
+
+            data: {
+              ...reportData,
+
+              paymentBreakdown:
+                paymentReport
+                  ?.breakdown || {},
+
+              expenseBreakdown:
+                expenseReport
+                  ?.categoryBreakdown ||
+                {},
+            },
+          }
+        );
+
+        setSaveReportName("");
+
+        await loadSavedReports();
+      } catch (err) {
+        console.error(
+          "Save report error:",
+          err
+        );
+
+        setError(
+          err.response?.data
+            ?.message ||
+            "Failed to save report."
+        );
+      } finally {
+        setSavingReport(false);
+      }
+    };
+
+  /* =========================================================
+     VIEW SAVED REPORT
+  ========================================================= */
+
+  const handleViewSavedReport =
+    async (id) => {
+      try {
+        setSavedReportLoading(
+          true
+        );
+
+        const response =
+          await api.get(
+            `/reports/saved/${id}`
+          );
+
+        setSelectedSavedReport(
+          response.data
+            ?.report || null
+        );
+      } catch (err) {
+        console.error(
+          "View saved report error:",
+          err
+        );
+
+        setError(
+          err.response?.data
+            ?.message ||
+            "Failed to open saved report."
+        );
+      } finally {
+        setSavedReportLoading(
+          false
+        );
+      }
+    };
+
+  /* =========================================================
+     DELETE SAVED REPORT
+  ========================================================= */
+
+  const handleDeleteSavedReport =
+    async (id) => {
+      const confirmed =
+        window.confirm(
+          "Are you sure you want to delete this saved report?"
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setError("");
+
+        await api.delete(
+          `/reports/saved/${id}`
+        );
+
+        if (
+          selectedSavedReport?._id ===
+          id
+        ) {
+          setSelectedSavedReport(
+            null
+          );
+        }
+
+        await loadSavedReports();
+      } catch (err) {
+        console.error(
+          "Delete report error:",
+          err
+        );
+
+        setError(
+          err.response?.data
+            ?.message ||
+            "Failed to delete report."
+        );
+      }
+    };
 
   /* =========================================================
      PDF EXPORT
   ========================================================= */
 
   const exportPDF = () => {
-    const report = getReportSummary();
+    const report =
+      getReportSummary();
 
-    const doc = new jsPDF();
+    const doc =
+      new jsPDF();
 
     doc.setFontSize(20);
-    doc.text("MOVA", 14, 18);
+
+    doc.text(
+      "MOVA",
+      14,
+      18
+    );
 
     doc.setFontSize(11);
+
     doc.text(
       "Business Management Platform",
       14,
@@ -299,6 +715,7 @@ const Reports = () => {
     );
 
     doc.setFontSize(16);
+
     doc.text(
       "Business Performance Report",
       14,
@@ -306,10 +723,13 @@ const Reports = () => {
     );
 
     doc.setFontSize(10);
+
     doc.text(
       `Period: ${formatReportDate(
         startDate
-      )} - ${formatReportDate(endDate)}`,
+      )} - ${formatReportDate(
+        endDate
+      )}`,
       14,
       46
     );
@@ -322,513 +742,547 @@ const Reports = () => {
       52
     );
 
-    autoTable(doc, {
-      startY: 60,
+    autoTable(
+      doc,
+      {
+        startY: 60,
 
-      head: [
-        [
-          "Performance",
-          "Amount",
-        ],
-      ],
-
-      body: [
-        [
-          "Revenue",
-          formatCurrency(
-            report.revenue
-          ),
+        head: [
+          [
+            "Performance",
+            "Amount",
+          ],
         ],
 
-        [
-          "Cost of Goods",
-          formatCurrency(
-            report.costOfGoods
-          ),
-        ],
+        body: [
+          [
+            "Revenue",
+            formatCurrency(
+              report.revenue
+            ),
+          ],
 
-        [
-          "Gross Profit",
-          formatCurrency(
-            report.grossProfit
-          ),
-        ],
+          [
+            "Cost of Goods",
+            formatCurrency(
+              report.costOfGoods
+            ),
+          ],
 
-        [
-          "Expenses",
-          formatCurrency(
-            report.expenses
-          ),
-        ],
+          [
+            "Gross Profit",
+            formatCurrency(
+              report.grossProfit
+            ),
+          ],
 
-        [
-          "Net Profit",
-          formatCurrency(
-            report.netProfit
-          ),
+          [
+            "Expenses",
+            formatCurrency(
+              report.expenses
+            ),
+          ],
+
+          [
+            "Net Profit",
+            formatCurrency(
+              report.netProfit
+            ),
+          ],
         ],
-      ],
-    });
+      }
+    );
 
     const paymentStart =
-      doc.lastAutoTable.finalY + 10;
+      doc.lastAutoTable
+        .finalY + 10;
 
-    autoTable(doc, {
-      startY: paymentStart,
+    autoTable(
+      doc,
+      {
+        startY:
+          paymentStart,
 
-      head: [
-        [
-          "Payment Method",
-          "Amount",
-        ],
-      ],
-
-      body: [
-        [
-          "Cash",
-          formatCurrency(
-            report.cash
-          ),
+        head: [
+          [
+            "Payment Method",
+            "Amount",
+          ],
         ],
 
-        [
-          "Mobile Money",
-          formatCurrency(
-            report.mobileMoney
-          ),
-        ],
+        body: [
+          [
+            "Cash",
+            formatCurrency(
+              report.cash
+            ),
+          ],
 
-        [
-          "Card",
-          formatCurrency(
-            report.card
-          ),
-        ],
+          [
+            "Mobile Money",
+            formatCurrency(
+              report.mobileMoney
+            ),
+          ],
 
-        [
-          "Bank",
-          formatCurrency(
-            report.bank
-          ),
-        ],
+          [
+            "Card",
+            formatCurrency(
+              report.card
+            ),
+          ],
 
-        [
-          "Total Payments",
-          formatCurrency(
-            report.totalPayments
-          ),
+          [
+            "Bank",
+            formatCurrency(
+              report.bank
+            ),
+          ],
+
+          [
+            "Total Payments",
+            formatCurrency(
+              report.totalPayments
+            ),
+          ],
         ],
-      ],
-    });
+      }
+    );
 
     const salesStart =
-      doc.lastAutoTable.finalY + 10;
+      doc.lastAutoTable
+        .finalY + 10;
 
-    autoTable(doc, {
-      startY: salesStart,
+    autoTable(
+      doc,
+      {
+        startY:
+          salesStart,
 
-      head: [
-        [
-          "Sales Information",
-          "Value",
-        ],
-      ],
-
-      body: [
-        [
-          "Total Sales",
-          formatCurrency(
-            report.totalSales
-          ),
+        head: [
+          [
+            "Sales Information",
+            "Value",
+          ],
         ],
 
-        [
-          "Transactions",
-          formatNumber(
-            report.totalTransactions
-          ),
-        ],
+        body: [
+          [
+            "Total Sales",
+            formatCurrency(
+              report.totalSales
+            ),
+          ],
 
-        [
-          "Items Sold",
-          formatNumber(
-            report.totalItems
-          ),
-        ],
+          [
+            "Transactions",
+            formatNumber(
+              report.totalTransactions
+            ),
+          ],
 
-        [
-          "Discounts",
-          formatCurrency(
-            report.totalDiscount
-          ),
-        ],
+          [
+            "Items Sold",
+            formatNumber(
+              report.totalItems
+            ),
+          ],
 
-        [
-          "Expenses",
-          formatCurrency(
-            report.totalExpenses
-          ),
+          [
+            "Discounts",
+            formatCurrency(
+              report.totalDiscount
+            ),
+          ],
+
+          [
+            "Expenses",
+            formatCurrency(
+              report.totalExpenses
+            ),
+          ],
         ],
-      ],
-    });
+      }
+    );
 
     const inventoryStart =
-      doc.lastAutoTable.finalY + 10;
+      doc.lastAutoTable
+        .finalY + 10;
 
-    autoTable(doc, {
-      startY: inventoryStart,
+    autoTable(
+      doc,
+      {
+        startY:
+          inventoryStart,
 
-      head: [
-        [
-          "Inventory",
-          "Value",
-        ],
-      ],
-
-      body: [
-        [
-          "Total Products",
-          formatNumber(
-            report.totalProducts
-          ),
+        head: [
+          [
+            "Inventory",
+            "Value",
+          ],
         ],
 
-        [
-          "Inventory Value",
-          formatCurrency(
-            report.inventoryValue
-          ),
+        body: [
+          [
+            "Total Products",
+            formatNumber(
+              report.totalProducts
+            ),
+          ],
+
+          [
+            "Inventory Value",
+            formatCurrency(
+              report.inventoryValue
+            ),
+          ],
+
+          [
+            "Low Stock",
+            formatNumber(
+              report.lowStock
+            ),
+          ],
+
+          [
+            "Out of Stock",
+            formatNumber(
+              report.outOfStock
+            ),
+          ],
         ],
+      }
+    );
 
-        [
-          "Low Stock",
-          formatNumber(
-            report.lowStock
-          ),
-        ],
-
-        [
-          "Out of Stock",
-          formatNumber(
-            report.outOfStock
-          ),
-        ],
-      ],
-    });
-
-    const fileName =
-      `MOVA_Report_${startDate}_${endDate}.pdf`;
-
-    doc.save(fileName);
+    doc.save(
+      `MOVA_Report_${startDate}_${endDate}.pdf`
+    );
   };
 
   /* =========================================================
      EXCEL EXPORT
   ========================================================= */
 
-  const exportExcel = () => {
-    const report = getReportSummary();
+  const exportExcel =
+    () => {
+      const report =
+        getReportSummary();
 
-    const workbook =
-      XLSX.utils.book_new();
+      const workbook =
+        XLSX.utils.book_new();
 
-    const summaryData = [
-      ["MOVA BUSINESS REPORT"],
-      [
-        "Reporting Period",
-        `${startDate} to ${endDate}`,
-      ],
-      [],
-      ["PERFORMANCE", "VALUE"],
+      const summaryData = [
+        [
+          "MOVA BUSINESS REPORT",
+          "",
+        ],
 
-      [
-        "Revenue",
-        report.revenue,
-      ],
+        [
+          "Reporting Period",
+          `${startDate} to ${endDate}`,
+        ],
 
-      [
-        "Cost of Goods",
-        report.costOfGoods,
-      ],
+        [],
 
-      [
-        "Gross Profit",
-        report.grossProfit,
-      ],
+        [
+          "PERFORMANCE",
+          "VALUE",
+        ],
 
-      [
-        "Expenses",
-        report.expenses,
-      ],
+        [
+          "Revenue",
+          report.revenue,
+        ],
 
-      [
-        "Net Profit",
-        report.netProfit,
-      ],
+        [
+          "Cost of Goods",
+          report.costOfGoods,
+        ],
 
-      [],
-      ["SALES", "VALUE"],
+        [
+          "Gross Profit",
+          report.grossProfit,
+        ],
 
-      [
-        "Total Sales",
-        report.totalSales,
-      ],
+        [
+          "Expenses",
+          report.expenses,
+        ],
 
-      [
-        "Transactions",
-        report.totalTransactions,
-      ],
+        [
+          "Net Profit",
+          report.netProfit,
+        ],
 
-      [
-        "Items Sold",
-        report.totalItems,
-      ],
+        [],
 
-      [
-        "Discounts",
-        report.totalDiscount,
-      ],
+        [
+          "SALES",
+          "VALUE",
+        ],
 
-      [],
-      [
-        "PAYMENT METHODS",
-        "VALUE",
-      ],
+        [
+          "Total Sales",
+          report.totalSales,
+        ],
 
-      [
-        "Cash",
-        report.cash,
-      ],
+        [
+          "Transactions",
+          report.totalTransactions,
+        ],
 
-      [
-        "Mobile Money",
-        report.mobileMoney,
-      ],
+        [
+          "Items Sold",
+          report.totalItems,
+        ],
 
-      [
-        "Card",
-        report.card,
-      ],
+        [
+          "Discounts",
+          report.totalDiscount,
+        ],
 
-      [
-        "Bank",
-        report.bank,
-      ],
+        [],
 
-      [
-        "Total Payments",
-        report.totalPayments,
-      ],
+        [
+          "PAYMENT METHODS",
+          "VALUE",
+        ],
 
-      [],
-      ["INVENTORY", "VALUE"],
+        [
+          "Cash",
+          report.cash,
+        ],
 
-      [
-        "Total Products",
-        report.totalProducts,
-      ],
+        [
+          "Mobile Money",
+          report.mobileMoney,
+        ],
 
-      [
-        "Inventory Value",
-        report.inventoryValue,
-      ],
+        [
+          "Card",
+          report.card,
+        ],
 
-      [
-        "Low Stock",
-        report.lowStock,
-      ],
+        [
+          "Bank",
+          report.bank,
+        ],
 
-      [
-        "Out of Stock",
-        report.outOfStock,
-      ],
-    ];
+        [
+          "Total Payments",
+          report.totalPayments,
+        ],
 
-    const worksheet =
-      XLSX.utils.aoa_to_sheet(
-        summaryData
+        [],
+
+        [
+          "INVENTORY",
+          "VALUE",
+        ],
+
+        [
+          "Total Products",
+          report.totalProducts,
+        ],
+
+        [
+          "Inventory Value",
+          report.inventoryValue,
+        ],
+
+        [
+          "Low Stock",
+          report.lowStock,
+        ],
+
+        [
+          "Out of Stock",
+          report.outOfStock,
+        ],
+      ];
+
+      const worksheet =
+        XLSX.utils.aoa_to_sheet(
+          summaryData
+        );
+
+      worksheet["!cols"] = [
+        {
+          width: 30,
+        },
+
+        {
+          width: 24,
+        },
+      ];
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        "Summary"
       );
 
-    worksheet["!cols"] = [
-      {
-        width: 28,
-      },
-      {
-        width: 22,
-      },
-    ];
+      const salesData = [
+        [
+          "Metric",
+          "Value",
+        ],
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Summary"
-    );
+        [
+          "Total Sales",
+          report.totalSales,
+        ],
 
-    const salesData = [
-      [
-        "Metric",
-        "Value",
-      ],
+        [
+          "Transactions",
+          report.totalTransactions,
+        ],
 
-      [
-        "Total Sales",
-        report.totalSales,
-      ],
+        [
+          "Items Sold",
+          report.totalItems,
+        ],
 
-      [
-        "Transactions",
-        report.totalTransactions,
-      ],
+        [
+          "Discounts",
+          report.totalDiscount,
+        ],
+      ];
 
-      [
-        "Items Sold",
-        report.totalItems,
-      ],
-
-      [
-        "Discounts",
-        report.totalDiscount,
-      ],
-    ];
-
-    const salesSheet =
-      XLSX.utils.aoa_to_sheet(
-        salesData
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(
+          salesData
+        ),
+        "Sales"
       );
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      salesSheet,
-      "Sales"
-    );
+      const paymentsData = [
+        [
+          "Payment Method",
+          "Amount",
+        ],
 
-    const paymentsData = [
-      [
-        "Payment Method",
-        "Amount",
-      ],
+        [
+          "Cash",
+          report.cash,
+        ],
 
-      [
-        "Cash",
-        report.cash,
-      ],
+        [
+          "Mobile Money",
+          report.mobileMoney,
+        ],
 
-      [
-        "Mobile Money",
-        report.mobileMoney,
-      ],
+        [
+          "Card",
+          report.card,
+        ],
 
-      [
-        "Card",
-        report.card,
-      ],
+        [
+          "Bank",
+          report.bank,
+        ],
 
-      [
-        "Bank",
-        report.bank,
-      ],
+        [
+          "Total",
+          report.totalPayments,
+        ],
+      ];
 
-      [
-        "Total",
-        report.totalPayments,
-      ],
-    ];
-
-    const paymentsSheet =
-      XLSX.utils.aoa_to_sheet(
-        paymentsData
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(
+          paymentsData
+        ),
+        "Payments"
       );
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      paymentsSheet,
-      "Payments"
-    );
+      const expensesData = [
+        [
+          "Category",
+          "Amount",
+        ],
+      ];
 
-    const expensesData = [
-      [
-        "Category",
-        "Amount",
-      ],
-    ];
-
-    Object.entries(
-      expenseReport?.categoryBreakdown || {}
-    ).forEach(
-      ([category, amount]) => {
-        expensesData.push([
+      Object.entries(
+        expenseReport
+          ?.categoryBreakdown ||
+          {}
+      ).forEach(
+        ([
           category,
-          numberValue(amount),
-        ]);
-      }
-    );
-
-    expensesData.push([
-      "Total Expenses",
-      report.totalExpenses,
-    ]);
-
-    const expensesSheet =
-      XLSX.utils.aoa_to_sheet(
-        expensesData
+          amount,
+        ]) => {
+          expensesData.push([
+            category,
+            numberValue(
+              amount
+            ),
+          ]);
+        }
       );
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      expensesSheet,
-      "Expenses"
-    );
+      expensesData.push([
+        "Total Expenses",
+        report.totalExpenses,
+      ]);
 
-    const inventoryData = [
-      [
-        "Metric",
-        "Value",
-      ],
-
-      [
-        "Total Products",
-        report.totalProducts,
-      ],
-
-      [
-        "Inventory Value",
-        report.inventoryValue,
-      ],
-
-      [
-        "Low Stock",
-        report.lowStock,
-      ],
-
-      [
-        "Out of Stock",
-        report.outOfStock,
-      ],
-    ];
-
-    const inventorySheet =
-      XLSX.utils.aoa_to_sheet(
-        inventoryData
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(
+          expensesData
+        ),
+        "Expenses"
       );
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      inventorySheet,
-      "Inventory"
-    );
+      const inventoryData = [
+        [
+          "Metric",
+          "Value",
+        ],
 
-    XLSX.writeFile(
-      workbook,
-      `MOVA_Report_${startDate}_${endDate}.xlsx`
-    );
-  };
+        [
+          "Total Products",
+          report.totalProducts,
+        ],
+
+        [
+          "Inventory Value",
+          report.inventoryValue,
+        ],
+
+        [
+          "Low Stock",
+          report.lowStock,
+        ],
+
+        [
+          "Out of Stock",
+          report.outOfStock,
+        ],
+      ];
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(
+          inventoryData
+        ),
+        "Inventory"
+      );
+
+      XLSX.writeFile(
+        workbook,
+        `MOVA_Report_${startDate}_${endDate}.xlsx`
+      );
+    };
 
   /* =========================================================
      CSV EXPORT
   ========================================================= */
 
   const exportCSV = () => {
-    const report = getReportSummary();
+    const report =
+      getReportSummary();
 
     const rows = [
       [
@@ -939,55 +1393,74 @@ const Reports = () => {
       ],
     ];
 
-    const csvContent = rows
-      .map((row) =>
-        row
-          .map((cell) => {
-            const value =
-              String(cell ?? "");
+    const csvContent =
+      rows
+        .map(
+          (row) =>
+            row
+              .map(
+                (cell) => {
+                  const value =
+                    String(
+                      cell ?? ""
+                    );
 
-            return `"${value.replace(
-              /"/g,
-              '""'
-            )}"`;
-          })
-          .join(",")
-      )
-      .join("\n");
+                  return `"${value.replace(
+                    /"/g,
+                    '""'
+                  )}"`;
+                }
+              )
+              .join(",")
+        )
+        .join("\n");
 
-    const blob = new Blob(
-      [csvContent],
-      {
-        type: "text/csv;charset=utf-8;",
-      }
-    );
+    const blob =
+      new Blob(
+        [csvContent],
+        {
+          type:
+            "text/csv;charset=utf-8;",
+        }
+      );
 
     const url =
-      URL.createObjectURL(blob);
+      URL.createObjectURL(
+        blob
+      );
 
     const link =
-      document.createElement("a");
+      document.createElement(
+        "a"
+      );
 
     link.href = url;
 
     link.download =
       `MOVA_Report_${startDate}_${endDate}.csv`;
 
-    document.body.appendChild(link);
+    document.body.appendChild(
+      link
+    );
 
     link.click();
 
-    document.body.removeChild(link);
+    document.body.removeChild(
+      link
+    );
 
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(
+      url
+    );
   };
 
   /* =========================================================
-     PRINT
+     PRINT REPORT
   ========================================================= */
 
   const printReport = () => {
-    const report = getReportSummary();
+    const report =
+      getReportSummary();
 
     const printWindow =
       window.open(
@@ -1006,14 +1479,24 @@ const Reports = () => {
 
     printWindow.document.write(`
       <!DOCTYPE html>
+
       <html>
+
         <head>
-          <title>MOVA Business Report</title>
+
+          <title>
+            MOVA Business Report
+          </title>
 
           <style>
+
             body {
-              font-family: Arial, sans-serif;
+              font-family:
+                Arial,
+                sans-serif;
+
               padding: 40px;
+
               color: #111827;
             }
 
@@ -1023,30 +1506,41 @@ const Reports = () => {
 
             h2 {
               margin-top: 30px;
-              border-bottom: 1px solid #ddd;
+
+              border-bottom:
+                1px solid #ddd;
+
               padding-bottom: 8px;
             }
 
             .subtitle {
               color: #6b7280;
+
               margin-bottom: 25px;
             }
 
             table {
               width: 100%;
-              border-collapse: collapse;
+
+              border-collapse:
+                collapse;
+
               margin-top: 12px;
             }
 
             th,
             td {
-              border: 1px solid #ddd;
+              border:
+                1px solid #ddd;
+
               padding: 10px;
+
               text-align: left;
             }
 
             th {
-              background: #f3f4f6;
+              background:
+                #f3f4f6;
             }
 
             .profit {
@@ -1055,16 +1549,22 @@ const Reports = () => {
 
             .footer {
               margin-top: 40px;
+
               font-size: 12px;
+
               color: #6b7280;
             }
 
             @media print {
+
               body {
                 padding: 20px;
               }
+
             }
+
           </style>
+
         </head>
 
         <body>
@@ -1076,18 +1576,29 @@ const Reports = () => {
           </div>
 
           <div class="subtitle">
-            Business Performance Report<br />
+
+            Business Performance Report
+
+            <br />
+
             ${formatReportDate(
               startDate
-            )} -
+            )}
+
+            -
+
             ${formatReportDate(
               endDate
             )}
+
           </div>
 
-          <h2>Performance</h2>
+          <h2>
+            Performance
+          </h2>
 
           <table>
+
             <tr>
               <th>Metric</th>
               <th>Amount</th>
@@ -1095,43 +1606,57 @@ const Reports = () => {
 
             <tr>
               <td>Revenue</td>
-              <td>${formatCurrency(
-                report.revenue
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.revenue
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Cost of Goods</td>
-              <td>${formatCurrency(
-                report.costOfGoods
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.costOfGoods
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Gross Profit</td>
-              <td>${formatCurrency(
-                report.grossProfit
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.grossProfit
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Expenses</td>
-              <td>${formatCurrency(
-                report.expenses
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.expenses
+                )}
+              </td>
             </tr>
 
             <tr class="profit">
               <td>Net Profit</td>
-              <td>${formatCurrency(
-                report.netProfit
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.netProfit
+                )}
+              </td>
             </tr>
+
           </table>
 
-          <h2>Sales</h2>
+          <h2>
+            Sales
+          </h2>
 
           <table>
+
             <tr>
               <th>Metric</th>
               <th>Value</th>
@@ -1139,123 +1664,192 @@ const Reports = () => {
 
             <tr>
               <td>Total Sales</td>
-              <td>${formatCurrency(
-                report.totalSales
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.totalSales
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Transactions</td>
-              <td>${formatNumber(
-                report.totalTransactions
-              )}</td>
+              <td>
+                ${formatNumber(
+                  report.totalTransactions
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Items Sold</td>
-              <td>${formatNumber(
-                report.totalItems
-              )}</td>
+              <td>
+                ${formatNumber(
+                  report.totalItems
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Discounts</td>
-              <td>${formatCurrency(
-                report.totalDiscount
-              )}</td>
+              <td>
+                ${formatCurrency(
+                  report.totalDiscount
+                )}
+              </td>
             </tr>
+
           </table>
 
-          <h2>Payments</h2>
+          <h2>
+            Payments
+          </h2>
 
           <table>
+
             <tr>
-              <th>Payment Method</th>
-              <th>Amount</th>
+              <th>
+                Payment Method
+              </th>
+
+              <th>
+                Amount
+              </th>
             </tr>
 
             <tr>
               <td>Cash</td>
-              <td>${formatCurrency(
-                report.cash
-              )}</td>
+
+              <td>
+                ${formatCurrency(
+                  report.cash
+                )}
+              </td>
             </tr>
 
             <tr>
-              <td>Mobile Money</td>
-              <td>${formatCurrency(
-                report.mobileMoney
-              )}</td>
+              <td>
+                Mobile Money
+              </td>
+
+              <td>
+                ${formatCurrency(
+                  report.mobileMoney
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Card</td>
-              <td>${formatCurrency(
-                report.card
-              )}</td>
+
+              <td>
+                ${formatCurrency(
+                  report.card
+                )}
+              </td>
             </tr>
 
             <tr>
               <td>Bank</td>
-              <td>${formatCurrency(
-                report.bank
-              )}</td>
+
+              <td>
+                ${formatCurrency(
+                  report.bank
+                )}
+              </td>
             </tr>
 
             <tr class="profit">
-              <td>Total Payments</td>
-              <td>${formatCurrency(
-                report.totalPayments
-              )}</td>
+
+              <td>
+                Total Payments
+              </td>
+
+              <td>
+                ${formatCurrency(
+                  report.totalPayments
+                )}
+              </td>
+
             </tr>
+
           </table>
 
-          <h2>Inventory</h2>
+          <h2>
+            Inventory
+          </h2>
 
           <table>
+
             <tr>
               <th>Metric</th>
               <th>Value</th>
             </tr>
 
             <tr>
-              <td>Total Products</td>
-              <td>${formatNumber(
-                report.totalProducts
-              )}</td>
+              <td>
+                Total Products
+              </td>
+
+              <td>
+                ${formatNumber(
+                  report.totalProducts
+                )}
+              </td>
             </tr>
 
             <tr>
-              <td>Inventory Value</td>
-              <td>${formatCurrency(
-                report.inventoryValue
-              )}</td>
+              <td>
+                Inventory Value
+              </td>
+
+              <td>
+                ${formatCurrency(
+                  report.inventoryValue
+                )}
+              </td>
             </tr>
 
             <tr>
-              <td>Low Stock</td>
-              <td>${formatNumber(
-                report.lowStock
-              )}</td>
+              <td>
+                Low Stock
+              </td>
+
+              <td>
+                ${formatNumber(
+                  report.lowStock
+                )}
+              </td>
             </tr>
 
             <tr>
-              <td>Out of Stock</td>
-              <td>${formatNumber(
-                report.outOfStock
-              )}</td>
+              <td>
+                Out of Stock
+              </td>
+
+              <td>
+                ${formatNumber(
+                  report.outOfStock
+                )}
+              </td>
             </tr>
+
           </table>
 
           <div class="footer">
-            Generated by MOVA<br />
+
+            Generated by MOVA
+
+            <br />
+
             Generated on:
             ${new Date().toLocaleString(
               "en-UG"
             )}
+
           </div>
 
         </body>
+
       </html>
     `);
 
@@ -1269,32 +1863,39 @@ const Reports = () => {
   };
 
   /* =========================================================
-     UI
+     RENDER
   ========================================================= */
 
   return (
     <div className="space-y-6">
 
-      {/* HEADER */}
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
         <div>
+
           <h1 className="text-2xl font-bold text-slate-900">
             Reports
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Analyze, export and share MOVA business
-            performance.
+            Analyze, save, export and manage MOVA
+            business reports.
           </p>
+
         </div>
 
         <button
-          onClick={loadReports}
+          onClick={
+            loadReports
+          }
           disabled={loading}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
+
           <RefreshCw
             size={17}
             className={
@@ -1305,17 +1906,21 @@ const Reports = () => {
           />
 
           Refresh
+
         </button>
 
       </div>
 
-      {/* DATE FILTER */}
+      {/* =====================================================
+          DATE FILTER
+      ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
         <div className="grid gap-4 md:grid-cols-3">
 
           <div>
+
             <label className="mb-2 block text-sm font-medium text-slate-700">
               Start Date
             </label>
@@ -1329,7 +1934,9 @@ const Reports = () => {
 
               <input
                 type="date"
-                value={startDate}
+                value={
+                  startDate
+                }
                 onChange={(event) =>
                   setStartDate(
                     event.target.value
@@ -1339,6 +1946,7 @@ const Reports = () => {
               />
 
             </div>
+
           </div>
 
           <div>
@@ -1356,7 +1964,9 @@ const Reports = () => {
 
               <input
                 type="date"
-                value={endDate}
+                value={
+                  endDate
+                }
                 onChange={(event) =>
                   setEndDate(
                     event.target.value
@@ -1366,13 +1976,18 @@ const Reports = () => {
               />
 
             </div>
+
           </div>
 
           <div className="flex items-end">
 
             <button
-              onClick={loadReports}
-              disabled={loading}
+              onClick={
+                loadReports
+              }
+              disabled={
+                loading
+              }
               className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading
@@ -1406,7 +2021,23 @@ const Reports = () => {
 
       </div>
 
-      {/* EXPORT ACTIONS */}
+      {/* =====================================================
+          ERROR
+      ===================================================== */}
+
+      {error && (
+
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+
+          {error}
+
+        </div>
+
+      )}
+
+      {/* =====================================================
+          EXPORT
+      ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1417,7 +2048,8 @@ const Reports = () => {
           </h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            Save this report or prepare it for sharing.
+            Save this report locally or prepare it for
+            sharing.
           </p>
 
         </div>
@@ -1425,77 +2057,146 @@ const Reports = () => {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 
           <button
-            onClick={exportPDF}
+            onClick={
+              exportPDF
+            }
             className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <FileText size={18} />
+
+            <FileText
+              size={18}
+            />
+
             Download PDF
+
           </button>
 
           <button
-            onClick={exportExcel}
+            onClick={
+              exportExcel
+            }
             className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <FileSpreadsheet size={18} />
+
+            <FileSpreadsheet
+              size={18}
+            />
+
             Export Excel
+
           </button>
 
           <button
-            onClick={exportCSV}
+            onClick={
+              exportCSV
+            }
             className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <Download size={18} />
+
+            <Download
+              size={18}
+            />
+
             Export CSV
+
           </button>
 
           <button
-            onClick={printReport}
+            onClick={
+              printReport
+            }
             className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            <Printer size={18} />
+
+            <Printer
+              size={18}
+            />
+
             Print Report
+
           </button>
 
         </div>
 
       </div>
 
-      {/* ERROR */}
+      {/* =====================================================
+          SAVE REPORT
+      ===================================================== */}
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div className="mb-4">
+
+          <h2 className="font-semibold text-slate-900">
+            Save Report
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Store a permanent snapshot of this report in
+            MOVA.
+          </p>
+
         </div>
-      )}
 
-      {/* PROFIT CARDS */}
+        <div className="flex flex-col gap-3 md:flex-row">
+
+          <input
+            type="text"
+            value={
+              saveReportName
+            }
+            onChange={(event) =>
+              setSaveReportName(
+                event.target.value
+              )
+            }
+            placeholder="e.g. September 2026 Business Report"
+            className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500"
+          />
+
+          <button
+            onClick={
+              handleSaveReport
+            }
+            disabled={
+              savingReport ||
+              !saveReportName.trim()
+            }
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+
+            <Save
+              size={18}
+            />
+
+            {savingReport
+              ? "Saving..."
+              : "Save Report"}
+
+          </button>
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          PROFIT CARDS
+      ===================================================== */}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
-          <div className="flex items-center justify-between">
+          <p className="text-sm text-slate-500">
+            Revenue
+          </p>
 
-            <div>
-              <p className="text-sm text-slate-500">
-                Revenue
-              </p>
-
-              <p className="mt-2 text-2xl font-bold text-slate-900">
-                {formatCurrency(
-                  profitReport?.revenue
-                )}
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-slate-100 p-3">
-              <TrendingUp
-                size={22}
-                className="text-slate-700"
-              />
-            </div>
-
-          </div>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            {formatCurrency(
+              profitReport?.revenue
+            )}
+          </p>
 
         </div>
 
@@ -1543,7 +2244,9 @@ const Reports = () => {
 
       </div>
 
-      {/* SALES / PAYMENTS / EXPENSES */}
+      {/* =====================================================
+          SALES / PAYMENTS / EXPENSES
+      ===================================================== */}
 
       <div className="grid gap-6 lg:grid-cols-3">
 
@@ -1615,17 +2318,21 @@ const Reports = () => {
 
       </div>
 
-      {/* PAYMENT METHODS */}
+      {/* =====================================================
+          PAYMENT METHODS
+      ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
         <div className="mb-5 flex items-center gap-3">
 
           <div className="rounded-xl bg-slate-100 p-3">
+
             <Wallet
               size={20}
               className="text-slate-700"
             />
+
           </div>
 
           <div>
@@ -1649,40 +2356,44 @@ const Reports = () => {
             "MOBILE_MONEY",
             "CARD",
             "BANK",
-          ].map((method) => (
+          ].map(
+            (method) => (
 
-            <div
-              key={method}
-              className="rounded-xl bg-slate-50 p-4"
-            >
+              <div
+                key={method}
+                className="rounded-xl bg-slate-50 p-4"
+              >
 
-              <p className="text-sm font-medium text-slate-500">
-                {method.replace(
-                  "_",
-                  " "
-                )}
-              </p>
+                <p className="text-sm font-medium text-slate-500">
+                  {method.replace(
+                    "_",
+                    " "
+                  )}
+                </p>
 
-              <p className="mt-2 text-xl font-bold text-slate-900">
+                <p className="mt-2 text-xl font-bold text-slate-900">
 
-                {formatCurrency(
-                  paymentReport
-                    ?.breakdown?.[
-                    method
-                  ]
-                )}
+                  {formatCurrency(
+                    paymentReport
+                      ?.breakdown?.[
+                      method
+                    ]
+                  )}
 
-              </p>
+                </p>
 
-            </div>
+              </div>
 
-          ))}
+            )
+          )}
 
         </div>
 
       </div>
 
-      {/* INVENTORY */}
+      {/* =====================================================
+          INVENTORY
+      ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
@@ -1707,9 +2418,12 @@ const Reports = () => {
             </p>
 
             <p className="text-xl font-bold text-slate-900">
+
               {formatCurrency(
-                inventoryReport?.inventoryValue
+                inventoryReport
+                  ?.inventoryValue
               )}
+
             </p>
 
           </div>
@@ -1726,7 +2440,8 @@ const Reports = () => {
 
             <p className="mt-2 text-2xl font-bold text-slate-900">
               {formatNumber(
-                inventoryReport?.totalProducts
+                inventoryReport
+                  ?.totalProducts
               )}
             </p>
 
@@ -1740,7 +2455,8 @@ const Reports = () => {
 
             <p className="mt-2 text-2xl font-bold text-slate-900">
               {formatNumber(
-                inventoryReport?.lowStockCount
+                inventoryReport
+                  ?.lowStockCount
               )}
             </p>
 
@@ -1754,7 +2470,8 @@ const Reports = () => {
 
             <p className="mt-2 text-2xl font-bold text-slate-900">
               {formatNumber(
-                inventoryReport?.outOfStockCount
+                inventoryReport
+                  ?.outOfStockCount
               )}
             </p>
 
@@ -1764,17 +2481,21 @@ const Reports = () => {
 
       </div>
 
-      {/* EXPENSE BREAKDOWN */}
+      {/* =====================================================
+          EXPENSE BREAKDOWN
+      ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
         <div className="flex items-center gap-3">
 
           <div className="rounded-xl bg-slate-100 p-3">
+
             <BarChart3
               size={20}
               className="text-slate-700"
             />
+
           </div>
 
           <div>
@@ -1794,10 +2515,14 @@ const Reports = () => {
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
 
           {Object.entries(
-            expenseReport?.categoryBreakdown ||
+            expenseReport
+              ?.categoryBreakdown ||
               {}
           ).map(
-            ([category, amount]) => (
+            ([
+              category,
+              amount,
+            ]) => (
 
               <div
                 key={category}
@@ -1820,12 +2545,16 @@ const Reports = () => {
           )}
 
           {Object.keys(
-            expenseReport?.categoryBreakdown ||
+            expenseReport
+              ?.categoryBreakdown ||
               {}
           ).length === 0 && (
 
             <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
-              No expenses recorded for this period.
+
+              No expenses recorded
+              for this period.
+
             </div>
 
           )}
@@ -1833,6 +2562,566 @@ const Reports = () => {
         </div>
 
       </div>
+
+      {/* =====================================================
+          SAVED REPORTS
+      ===================================================== */}
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
+        <div className="mb-5">
+
+          <h2 className="font-semibold text-slate-900">
+            Saved Reports
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Previously saved business reports.
+          </p>
+
+        </div>
+
+        {savedReports.length ===
+        0 ? (
+
+          <div className="rounded-xl bg-slate-50 p-8 text-center">
+
+            <FileText
+              size={36}
+              className="mx-auto text-slate-400"
+            />
+
+            <p className="mt-3 text-sm font-medium text-slate-700">
+              No saved reports yet.
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Save your first report using the Save Report
+              section above.
+            </p>
+
+          </div>
+
+        ) : (
+
+          <div className="overflow-x-auto">
+
+            <table className="w-full min-w-[800px]">
+
+              <thead>
+
+                <tr className="border-b border-slate-200 text-left">
+
+                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                    Report
+                  </th>
+
+                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                    Period
+                  </th>
+
+                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                    Type
+                  </th>
+
+                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                    Created
+                  </th>
+
+                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">
+                    Actions
+                  </th>
+
+                </tr>
+
+              </thead>
+
+              <tbody>
+
+                {savedReports.map(
+                  (report) => (
+
+                    <tr
+                      key={
+                        report._id
+                      }
+                      className="border-b border-slate-100"
+                    >
+
+                      <td className="px-4 py-4">
+
+                        <p className="font-medium text-slate-900">
+                          {report.name}
+                        </p>
+
+                      </td>
+
+                      <td className="px-4 py-4 text-sm text-slate-600">
+
+                        {formatSavedDate(
+                          report.startDate
+                        )}
+
+                        {" - "}
+
+                        {formatSavedDate(
+                          report.endDate
+                        )}
+
+                      </td>
+
+                      <td className="px-4 py-4">
+
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+
+                          {
+                            report.reportType
+                          }
+
+                        </span>
+
+                      </td>
+
+                      <td className="px-4 py-4 text-sm text-slate-600">
+
+                        {formatSavedDate(
+                          report.createdAt
+                        )}
+
+                      </td>
+
+                      <td className="px-4 py-4">
+
+                        <div className="flex items-center gap-2">
+
+                          <button
+                            onClick={() =>
+                              handleViewSavedReport(
+                                report._id
+                              )
+                            }
+                            disabled={
+                              savedReportLoading
+                            }
+                            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
+                            title="View report"
+                          >
+
+                            <Eye
+                              size={
+                                17
+                              }
+                            />
+
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              handleDeleteSavedReport(
+                                report._id
+                              )
+                            }
+                            className="rounded-lg p-2 text-red-500 hover:bg-red-50"
+                            title="Delete report"
+                          >
+
+                            <Trash2
+                              size={
+                                17
+                              }
+                            />
+
+                          </button>
+
+                        </div>
+
+                      </td>
+
+                    </tr>
+
+                  )
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        )}
+
+      </div>
+
+      {/* =====================================================
+          SAVED REPORT MODAL
+      ===================================================== */}
+
+      {selectedSavedReport && (
+
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+
+              <div>
+
+                <h2 className="text-lg font-bold text-slate-900">
+                  {
+                    selectedSavedReport.name
+                  }
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+
+                  {formatSavedDate(
+                    selectedSavedReport.startDate
+                  )}
+
+                  {" - "}
+
+                  {formatSavedDate(
+                    selectedSavedReport.endDate
+                  )}
+
+                </p>
+
+              </div>
+
+              <button
+                onClick={() =>
+                  setSelectedSavedReport(
+                    null
+                  )
+                }
+                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100"
+              >
+                Close
+              </button>
+
+            </div>
+
+            <div className="space-y-6 p-6">
+
+              {/* PERFORMANCE */}
+
+              <div>
+
+                <h3 className="mb-3 font-semibold text-slate-900">
+                  Performance
+                </h3>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Revenue
+                    </p>
+
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.revenue
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Cost of Goods
+                    </p>
+
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.costOfGoods
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Gross Profit
+                    </p>
+
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.grossProfit
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Net Profit
+                    </p>
+
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.netProfit
+                      )}
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* SALES */}
+
+              <div>
+
+                <h3 className="mb-3 font-semibold text-slate-900">
+                  Sales
+                </h3>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Total Sales
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.totalSales
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Transactions
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+
+                      {formatNumber(
+                        selectedSavedReport
+                          .data
+                          ?.totalTransactions
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Items Sold
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+
+                      {formatNumber(
+                        selectedSavedReport
+                          .data
+                          ?.totalItems
+                      )}
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* PAYMENTS */}
+
+              <div>
+
+                <h3 className="mb-3 font-semibold text-slate-900">
+                  Payments
+                </h3>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Cash
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.paymentBreakdown
+                          ?.CASH
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Mobile Money
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.paymentBreakdown
+                          ?.MOBILE_MONEY
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Card
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.paymentBreakdown
+                          ?.CARD
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Bank
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatCurrency(
+                        selectedSavedReport
+                          .data
+                          ?.paymentBreakdown
+                          ?.BANK
+                      )}
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* INVENTORY */}
+
+              <div>
+
+                <h3 className="mb-3 font-semibold text-slate-900">
+                  Inventory Snapshot
+                </h3>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Products
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatNumber(
+                        selectedSavedReport
+                          .data
+                          ?.totalProducts
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Low Stock
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatNumber(
+                        selectedSavedReport
+                          .data
+                          ?.lowStock
+                      )}
+
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+
+                    <p className="text-sm text-slate-500">
+                      Out of Stock
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+
+                      {formatNumber(
+                        selectedSavedReport
+                          .data
+                          ?.outOfStock
+                      )}
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      )}
 
     </div>
   );

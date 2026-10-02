@@ -19,6 +19,7 @@ const reportSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 150,
     },
 
     reportType: {
