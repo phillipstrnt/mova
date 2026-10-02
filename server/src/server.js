@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import reportRoutes from "./routes/report.routes.js";
 
 // Routes
 import authRoutes from "./routes/auth.routes.js";
@@ -167,6 +168,11 @@ app.use(
 app.use(
   "/api/dashboard",
   dashboardRoutes
+);
+
+app.use(
+  "/api/reports",
+  reportRoutes
 );
 
 /* =========================================
