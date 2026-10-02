@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Receipt from "../../components/POS/Receipt";
+import Receipt from "../receipts/Receipts";
 
 import {
   AlertCircle,
