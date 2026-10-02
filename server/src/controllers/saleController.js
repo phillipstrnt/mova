@@ -4,6 +4,33 @@ import Sale from "../models/Sale.js";
 import Product from "../models/Product.js";
 import Customer from "../models/Customer.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
+import Payment from "../models/Payment.js";
+
+/*
+|--------------------------------------------------------------------------
+| CONSTANTS
+|--------------------------------------------------------------------------
+*/
+
+const VALID_PAYMENT_METHODS = [
+  "CASH",
+  "MOBILE_MONEY",
+  "CARD",
+  "BANK",
+];
+
+const VALID_PAYMENT_STATUSES = [
+  "PAID",
+  "PENDING",
+  "REFUNDED",
+];
+
+const VALID_SALE_STATUSES = [
+  "COMPLETED",
+  "CANCELLED",
+  "PARTIALLY_REFUNDED",
+  "REFUNDED",
+];
 
 /*
 |--------------------------------------------------------------------------
@@ -37,7 +64,10 @@ const generateReceiptNumber = () => {
 |--------------------------------------------------------------------------
 */
 
-export const createSale = async (req, res) => {
+export const createSale = async (
+  req,
+  res
+) => {
   try {
     const {
       items,
@@ -79,15 +109,8 @@ export const createSale = async (req, res) => {
     |--------------------------------------------------------------------------
     */
 
-    const validPaymentMethods = [
-      "CASH",
-      "MOBILE_MONEY",
-      "CARD",
-      "BANK",
-    ];
-
     if (
-      !validPaymentMethods.includes(
+      !VALID_PAYMENT_METHODS.includes(
         paymentMethod
       )
     ) {
@@ -108,7 +131,7 @@ export const createSale = async (req, res) => {
       Number(discount);
 
     if (
-      Number.isNaN(
+      !Number.isFinite(
         numericDiscount
       ) ||
       numericDiscount < 0
@@ -116,7 +139,7 @@ export const createSale = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Discount must be a valid positive number.",
+          "Discount must be a valid non-negative number.",
       });
     }
 
@@ -170,7 +193,7 @@ export const createSale = async (req, res) => {
     for (const item of items) {
       /*
       |--------------------------------------------------------------------------
-      | PRODUCT ID VALIDATION
+      | PRODUCT ID
       |--------------------------------------------------------------------------
       */
 
@@ -189,7 +212,7 @@ export const createSale = async (req, res) => {
 
       /*
       |--------------------------------------------------------------------------
-      | QUANTITY VALIDATION
+      | QUANTITY
       |--------------------------------------------------------------------------
       */
 
@@ -251,18 +274,24 @@ export const createSale = async (req, res) => {
 
       /*
       |--------------------------------------------------------------------------
-      | PRICE
+      | USE SERVER-SIDE SELLING PRICE
       |--------------------------------------------------------------------------
+      |
+      | We deliberately use the product's current
+      | selling price rather than trusting a price
+      | sent from the browser.
+      |
       */
 
       const unitPrice =
         Number(
-          item.unitPrice ??
-            product.sellingPrice
+          product.sellingPrice
         );
 
       if (
-        Number.isNaN(unitPrice) ||
+        !Number.isFinite(
+          unitPrice
+        ) ||
         unitPrice < 0
       ) {
         return res.status(400).json({
@@ -281,8 +310,7 @@ export const createSale = async (req, res) => {
       const itemSubtotal =
         unitPrice * quantity;
 
-      subtotal +=
-        itemSubtotal;
+      subtotal += itemSubtotal;
 
       /*
       |--------------------------------------------------------------------------
@@ -292,16 +320,23 @@ export const createSale = async (req, res) => {
 
       normalizedItems.push({
         product,
+
         productId:
           product._id,
+
         name:
           product.name,
+
         sku:
           product.sku,
+
         quantity,
+
         unitPrice,
+
         buyingPrice:
           product.buyingPrice,
+
         subtotal:
           itemSubtotal,
       });
@@ -333,6 +368,47 @@ export const createSale = async (req, res) => {
     const total =
       subtotal -
       numericDiscount;
+
+    /*
+    |--------------------------------------------------------------------------
+    | PREPARE SALE ITEMS
+    |--------------------------------------------------------------------------
+    */
+
+    const saleItems =
+      normalizedItems.map(
+        (item) => ({
+          productId:
+            item.productId,
+
+          name:
+            item.name,
+
+          sku:
+            item.sku,
+
+          quantity:
+            item.quantity,
+
+          unitPrice:
+            item.unitPrice,
+
+          buyingPrice:
+            item.buyingPrice,
+
+          subtotal:
+            item.subtotal,
+        })
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | GENERATE RECEIPT
+    |--------------------------------------------------------------------------
+    */
+
+    const receiptNumber =
+      generateReceiptNumber();
 
     /*
     |--------------------------------------------------------------------------
@@ -390,6 +466,7 @@ export const createSale = async (req, res) => {
 
         inventoryEntries.push({
           businessId,
+
           branchId,
 
           productId:
@@ -421,47 +498,6 @@ export const createSale = async (req, res) => {
         });
       }
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PREPARE SALE ITEMS
-    |--------------------------------------------------------------------------
-    */
-
-    const saleItems =
-      normalizedItems.map(
-        (item) => ({
-          productId:
-            item.productId,
-
-          name:
-            item.name,
-
-          sku:
-            item.sku,
-
-          quantity:
-            item.quantity,
-
-          unitPrice:
-            item.unitPrice,
-
-          buyingPrice:
-            item.buyingPrice,
-
-          subtotal:
-            item.subtotal,
-        })
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | GENERATE RECEIPT
-    |--------------------------------------------------------------------------
-    */
-
-    const receiptNumber =
-      generateReceiptNumber();
 
     /*
     |--------------------------------------------------------------------------
@@ -502,7 +538,10 @@ export const createSale = async (req, res) => {
         status:
           "COMPLETED",
 
-        notes,
+        notes:
+          typeof notes === "string"
+            ? notes.trim()
+            : "",
       });
 
     /*
@@ -519,16 +558,59 @@ export const createSale = async (req, res) => {
         const entry of
           inventoryEntries
       ) {
-        await InventoryTransaction.create(
-          {
-            ...entry,
+        await InventoryTransaction.create({
+          ...entry,
 
-            referenceId:
-              sale._id,
-          }
-        );
+          referenceId:
+            sale._id,
+        });
       }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE PAYMENT RECORD
+    |--------------------------------------------------------------------------
+    |
+    | Every completed POS sale automatically
+    | receives a corresponding payment record.
+    |
+    */
+
+    const payment =
+      await Payment.create({
+        businessId,
+
+        branchId,
+
+        saleId:
+          sale._id,
+
+        customerId:
+          customer
+            ? customer._id
+            : null,
+
+        receivedBy:
+          cashierId,
+
+        amount:
+          total,
+
+        paymentMethod,
+
+        reference:
+          "",
+
+        notes:
+          `Payment for receipt ${receiptNumber}`,
+
+        status:
+          "COMPLETED",
+
+        paymentDate:
+          new Date(),
+      });
 
     /*
     |--------------------------------------------------------------------------
@@ -602,6 +684,26 @@ export const createSale = async (req, res) => {
         createdAt:
           sale.createdAt,
       },
+
+      payment: {
+        id:
+          payment._id,
+
+        saleId:
+          payment.saleId,
+
+        amount:
+          payment.amount,
+
+        paymentMethod:
+          payment.paymentMethod,
+
+        status:
+          payment.status,
+
+        paymentDate:
+          payment.paymentDate,
+      },
     });
   } catch (error) {
     console.error(
@@ -611,7 +713,6 @@ export const createSale = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-
       message:
         error.message ||
         "Failed to complete sale.",
@@ -656,7 +757,10 @@ export const getSales = async (
     |--------------------------------------------------------------------------
     */
 
-    if (search.trim()) {
+    if (
+      typeof search === "string" &&
+      search.trim()
+    ) {
       filter.receiptNumber = {
         $regex:
           search.trim(),
@@ -673,6 +777,18 @@ export const getSales = async (
     */
 
     if (paymentMethod) {
+      if (
+        !VALID_PAYMENT_METHODS.includes(
+          paymentMethod
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid payment method.",
+        });
+      }
+
       filter.paymentMethod =
         paymentMethod;
     }
@@ -681,20 +797,11 @@ export const getSales = async (
     |--------------------------------------------------------------------------
     | PAYMENT STATUS
     |--------------------------------------------------------------------------
-    |
-    | This is separate from the Sale status.
-    |
     */
 
     if (paymentStatus) {
-      const validPaymentStatuses = [
-        "PAID",
-        "PENDING",
-        "REFUNDED",
-      ];
-
       if (
-        !validPaymentStatuses.includes(
+        !VALID_PAYMENT_STATUSES.includes(
           paymentStatus
         )
       ) {
@@ -716,15 +823,8 @@ export const getSales = async (
     */
 
     if (status) {
-      const validSaleStatuses = [
-        "COMPLETED",
-        "CANCELLED",
-        "PARTIALLY_REFUNDED",
-        "REFUNDED",
-      ];
-
       if (
-        !validSaleStatuses.includes(
+        !VALID_SALE_STATUSES.includes(
           status
         )
       ) {
@@ -848,20 +948,34 @@ export const getSales = async (
     |--------------------------------------------------------------------------
     */
 
+    const parsedPage =
+      Number(page);
+
+    const parsedLimit =
+      Number(limit);
+
     const pageNumber =
-      Math.max(
-        Number(page),
-        1
-      );
+      Number.isFinite(
+        parsedPage
+      )
+        ? Math.max(
+            parsedPage,
+            1
+          )
+        : 1;
 
     const limitNumber =
-      Math.min(
-        Math.max(
-          Number(limit),
-          1
-        ),
-        100
-      );
+      Number.isFinite(
+        parsedLimit
+      )
+        ? Math.min(
+            Math.max(
+              parsedLimit,
+              1
+            ),
+            100
+          )
+        : 20;
 
     const skip =
       (pageNumber - 1) *
@@ -935,7 +1049,6 @@ export const getSales = async (
 
     return res.status(500).json({
       success: false,
-
       message:
         "Failed to fetch sales.",
     });
@@ -948,92 +1061,161 @@ export const getSales = async (
 |--------------------------------------------------------------------------
 */
 
-export const getSaleById = async (
-  req,
-  res
-) => {
-  try {
-    const { id } =
-      req.params;
+export const getSaleById =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const { id } =
+        req.params;
 
-    /*
-    |--------------------------------------------------------------------------
-    | VALIDATE ID
-    |--------------------------------------------------------------------------
-    */
+      /*
+      |--------------------------------------------------------------------------
+      | VALIDATE ID
+      |--------------------------------------------------------------------------
+      */
 
-    if (
-      !mongoose.Types.ObjectId.isValid(
-        id
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          "Invalid sale ID.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | FIND SALE
-    |--------------------------------------------------------------------------
-    */
-
-    const sale =
-      await Sale.findOne({
-        _id: id,
-
-        businessId:
-          req.user.businessId,
-      })
-        .populate(
-          "cashierId",
-          "name email role"
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
         )
-        .populate(
-          "customerId",
-          "name phone email address"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid sale ID.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND SALE
+      |--------------------------------------------------------------------------
+      */
+
+      const sale =
+        await Sale.findOne({
+          _id: id,
+
+          businessId:
+            req.user.businessId,
+        })
+          .populate(
+            "cashierId",
+            "name email role"
+          )
+          .populate(
+            "customerId",
+            "name phone email address"
+          );
+
+      /*
+      |--------------------------------------------------------------------------
+      | SALE NOT FOUND
+      |--------------------------------------------------------------------------
+      */
+
+      if (!sale) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Sale not found.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FETCH PAYMENTS FOR SALE
+      |--------------------------------------------------------------------------
+      */
+
+      const payments =
+        await Payment.find({
+          businessId:
+            req.user.businessId,
+
+          saleId:
+            sale._id,
+        })
+          .populate(
+            "receivedBy",
+            "name email role"
+          )
+          .sort({
+            paymentDate:
+              -1,
+          });
+
+      /*
+      |--------------------------------------------------------------------------
+      | CALCULATE PAYMENT SUMMARY
+      |--------------------------------------------------------------------------
+      */
+
+      const completedPayments =
+        payments.filter(
+          (payment) =>
+            payment.status ===
+            "COMPLETED"
         );
 
-    /*
-    |--------------------------------------------------------------------------
-    | SALE NOT FOUND
-    |--------------------------------------------------------------------------
-    */
+      const totalPaid =
+        completedPayments.reduce(
+          (sum, payment) =>
+            sum +
+            Number(
+              payment.amount
+            ),
+          0
+        );
 
-    if (!sale) {
-      return res.status(404).json({
+      const balance =
+        Math.max(
+          sale.total -
+            totalPaid,
+          0
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | RESPONSE
+      |--------------------------------------------------------------------------
+      */
+
+      return res.json({
+        success: true,
+
+        sale,
+
+        payments,
+
+        paymentSummary: {
+          saleTotal:
+            sale.total,
+
+          totalPaid,
+
+          balance,
+
+          paymentStatus:
+            balance === 0
+              ? "PAID"
+              : totalPaid > 0
+              ? "PENDING"
+              : "PENDING",
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Get sale error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-
         message:
-          "Sale not found.",
+          "Failed to fetch sale.",
       });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE
-    |--------------------------------------------------------------------------
-    */
-
-    return res.json({
-      success: true,
-
-      sale,
-    });
-  } catch (error) {
-    console.error(
-      "Get sale error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-
-      message:
-        "Failed to fetch sale.",
-    });
-  }
-};
+  };
