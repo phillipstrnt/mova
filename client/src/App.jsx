@@ -1,228 +1,132 @@
-import {
-  Navigate,
-  Route,
-  Routes,
-} from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
-import ProtectedRoute from "./components/common/ProtectedRoute";
+// Layout
 import DashboardLayout from "./layouts/DashboardLayout";
 
-import Dashboard from "./pages/dashboard/Dashboard";
-import POS from "./pages/pos/POS";
-import Sales from "./pages/Sales/Sales";
-
-import Products from "./pages/products/Products";
-import Categories from "./pages/products/Categories";
-
-import Inventory from "./pages/inventory/Inventory";
-import Customers from "./pages/customers/Customers";
-
-import Suppliers from "./pages/suppliers/Suppliers";
-import Purchases from "./pages/purchases/Purchases";
-
-import Expenses from "./pages/expenses/Expenses";
-import Payments from "./pages/payments/Payments";
-
+// Auth pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 
-const PlaceholderPage = ({
-  title,
-}) => {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-8">
-      <h1 className="text-2xl font-black text-slate-900">
-        {title}
-      </h1>
+// Protected pages
+import Dashboard from "./pages/dashboard/Dashboard";
+import POS from "./pages/pos/POS";
+import Sales from "./pages/Sales/Sales";
+import Payments from "./pages/payments/Payments";
+import Products from "./pages/products/Products";
+import Categories from "./pages/categories/Categories";
+import Inventory from "./pages/inventory/Inventory";
+import Customers from "./pages/customers/Customers";
+import Suppliers from "./pages/suppliers/Suppliers";
+import Purchases from "./pages/purchases/Purchases";
+import Expenses from "./pages/expenses/Expenses";
+import Reports from "./pages/reports/Reports";
+import Settings from "./pages/settings/Settings";
 
-      <p className="mt-2 text-slate-500">
-        This MOVA module is coming next.
-      </p>
-    </div>
-  );
+// Protected route
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem("mova_token");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
 };
 
 const App = () => {
   return (
     <Routes>
-      {/* AUTH */}
+      {/* =========================
+          PUBLIC ROUTES
+      ========================== */}
 
-      <Route
-        path="/login"
-        element={<Login />}
-      />
+      <Route path="/login" element={<Login />} />
 
-      <Route
-        path="/register"
-        element={<Register />}
-      />
+      <Route path="/register" element={<Register />} />
 
       <Route
         path="/forgot-password"
-        element={
-          <ForgotPassword />
-        }
+        element={<ForgotPassword />}
       />
 
-      {/* ROOT */}
+      {/* =========================
+          PROTECTED APPLICATION
+      ========================== */}
+
+      <Route
+        path="/app"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout />
+          </ProtectedRoute>
+        }
+      >
+        {/* Dashboard */}
+        <Route index element={<Dashboard />} />
+
+        {/* POS */}
+        <Route path="pos" element={<POS />} />
+
+        {/* Sales */}
+        <Route path="sales" element={<Sales />} />
+
+        {/* Payments */}
+        <Route path="payments" element={<Payments />} />
+
+        {/* Products */}
+        <Route path="products" element={<Products />} />
+
+        {/* Categories */}
+        <Route
+          path="products/categories"
+          element={<Categories />}
+        />
+
+        {/* Inventory */}
+        <Route path="inventory" element={<Inventory />} />
+
+        {/* Customers */}
+        <Route path="customers" element={<Customers />} />
+
+        {/* Suppliers */}
+        <Route path="suppliers" element={<Suppliers />} />
+
+        {/* Purchases */}
+        <Route path="purchases" element={<Purchases />} />
+
+        {/* Expenses */}
+        <Route path="expenses" element={<Expenses />} />
+
+        {/* Reports */}
+        <Route path="reports" element={<Reports />} />
+
+        {/* Settings */}
+        <Route path="settings" element={<Settings />} />
+
+        {/* Unknown /app route */}
+        <Route
+          path="*"
+          element={<Navigate to="/app" replace />}
+        />
+      </Route>
+
+      {/* =========================
+          ROOT ROUTE
+      ========================== */}
 
       <Route
         path="/"
-        element={
-          <Navigate
-            to="/app"
-            replace
-          />
-        }
+        element={<Navigate to="/app" replace />}
       />
 
-      {/* PROTECTED APP */}
-
-      <Route
-        element={
-          <ProtectedRoute />
-        }
-      >
-        <Route
-          path="/app"
-          element={
-            <DashboardLayout />
-          }
-        >
-          {/* DASHBOARD */}
-
-          <Route
-            index
-            element={
-              <Dashboard />
-            }
-          />
-
-          {/* POS */}
-
-          <Route
-            path="pos"
-            element={
-              <POS />
-            }
-          />
-
-          {/* SALES */}
-
-          <Route
-            path="sales"
-            element={
-              <Sales />
-            }
-          />
-
-          {/* PRODUCTS */}
-
-          <Route
-            path="products"
-            element={
-              <Products />
-            }
-          />
-
-          {/* CATEGORIES */}
-
-          <Route
-            path="products/categories"
-            element={
-              <Categories />
-            }
-          />
-
-          {/* INVENTORY */}
-
-          <Route
-            path="inventory"
-            element={
-              <Inventory />
-            }
-          />
-
-          {/* CUSTOMERS */}
-
-          <Route
-            path="customers"
-            element={
-              <Customers />
-            }
-          />
-
-          {/* SUPPLIERS */}
-
-          <Route
-            path="suppliers"
-            element={
-              <Suppliers />
-            }
-          />
-
-          {/* PURCHASES */}
-
-          <Route
-            path="purchases"
-            element={
-              <Purchases />
-            }
-          />
-
-          {/* EXPENSES */}
-
-          <Route
-            path="expenses"
-            element={
-              <Expenses />
-            }
-          />
-
-          {/* PAYMENTS */}
-
-          <Route
-            path="payments"
-            element={
-              <Payments />
-            }
-          />
-
-          {/* REPORTS */}
-
-          <Route
-            path="reports"
-            element={
-              <PlaceholderPage
-                title="Reports"
-              />
-            }
-          />
-
-          {/* SETTINGS */}
-
-          <Route
-            path="settings"
-            element={
-              <PlaceholderPage
-                title="Settings"
-              />
-            }
-          />
-        </Route>
-      </Route>
-
-      {/* UNKNOWN ROUTES */}
+      {/* =========================
+          UNKNOWN ROUTES
+      ========================== */}
 
       <Route
         path="*"
-        element={
-          <Navigate
-            to="/login"
-            replace
-          />
-        }
+        element={<Navigate to="/app" replace />}
       />
     </Routes>
   );

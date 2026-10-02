@@ -1,13 +1,12 @@
 import express from "express";
+import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
-import connectDB from "./config/db.js";
-import paymentRoutes from "./routes/payment.routes.js";
-
+// Routes
 import authRoutes from "./routes/auth.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
@@ -18,144 +17,127 @@ import returnRoutes from "./routes/return.routes.js";
 import supplierRoutes from "./routes/supplier.routes.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
 import expenseRoutes from "./routes/expense.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 
 dotenv.config();
-
-connectDB();
 
 const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-/*
-|--------------------------------------------------------------------------
-| Security
-|--------------------------------------------------------------------------
-*/
+const CLIENT_URL =
+  process.env.CLIENT_URL ||
+  "http://localhost:5173";
 
-app.use(helmet());
+/* =========================================
+   SECURITY
+========================================= */
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
+
+/* =========================================
+   RATE LIMITING
+========================================= */
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-app.use(limiter);
+app.use("/api", limiter);
 
-/*
-|--------------------------------------------------------------------------
-| CORS
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   CORS
+========================================= */
 
 app.use(
   cors({
-    origin:
-      process.env.CLIENT_URL ||
-      "http://localhost:5173",
+    origin: CLIENT_URL,
     credentials: true,
   })
 );
 
-/*
-|--------------------------------------------------------------------------
-| Body Parsers
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   BODY PARSING
+========================================= */
 
-app.use(
-  express.json({
-    limit: "2mb",
-  })
-);
+app.use(express.json({ limit: "10mb" }));
 
 app.use(
   express.urlencoded({
     extended: true,
+    limit: "10mb",
   })
 );
 
 app.use(cookieParser());
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   ROOT ROUTE
+========================================= */
 
-/*
-|--------------------------------------------------------------------------
-| Authentication
-|--------------------------------------------------------------------------
-*/
+app.get("/", (req, res) => {
+  res.json({
+    message: "MOVA API is running 🚀",
+    version: "0.1.0",
+  });
+});
+
+/* =========================================
+   HEALTH CHECK
+========================================= */
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "MOVA API is healthy",
+    database:
+      mongoose.connection.readyState === 1
+        ? "connected"
+        : "disconnected",
+  });
+});
+
+/* =========================================
+   API ROUTES
+========================================= */
 
 app.use(
   "/api/auth",
   authRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| Categories
-|--------------------------------------------------------------------------
-*/
-
 app.use(
   "/api/categories",
   categoryRoutes
 );
-
-/*
-|--------------------------------------------------------------------------
-| Products
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   "/api/products",
   productRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| Sales
-|--------------------------------------------------------------------------
-*/
-
 app.use(
   "/api/sales",
   saleRoutes
 );
-
-/*
-|--------------------------------------------------------------------------
-| Inventory Transactions
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| Customers
-|--------------------------------------------------------------------------
-*/
-
 app.use(
   "/api/customers",
   customerRoutes
 );
-
-/*
-|--------------------------------------------------------------------------
-| Returns
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   "/api/returns",
@@ -163,154 +145,139 @@ app.use(
 );
 
 app.use(
-  "/api/payments",
-  paymentRoutes
-);
-
-/*
-|--------------------------------------------------------------------------
-| Suppliers
-|--------------------------------------------------------------------------
-*/
-
-app.use(
   "/api/suppliers",
   supplierRoutes
 );
-
-/*
-|--------------------------------------------------------------------------
-| Purchases
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   "/api/purchases",
   purchaseRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| Expenses
-|--------------------------------------------------------------------------
-*/
-
 app.use(
   "/api/expenses",
   expenseRoutes
 );
 
-/*
-|--------------------------------------------------------------------------
-| Root Route
-|--------------------------------------------------------------------------
-*/
+app.use(
+  "/api/payments",
+  paymentRoutes
+);
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "MOVA API is running 🚀",
-    platform: "MOVA",
-    version: "0.1.0",
+app.use(
+  "/api/dashboard",
+  dashboardRoutes
+);
+
+/* =========================================
+   API 404
+========================================= */
+
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "API route not found",
+    path: req.originalUrl,
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Health Check
-|--------------------------------------------------------------------------
-*/
-
-app.get(
-  "/api/health",
-  (req, res) => {
-    res.json({
-      success: true,
-      status: "healthy",
-      service: "MOVA API",
-      timestamp:
-        new Date().toISOString(),
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| 404 Handler
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   GENERAL 404
+========================================= */
 
 app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
+    path: req.originalUrl,
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Global Error Handler
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   ERROR HANDLER
+========================================= */
 
 app.use(
   (
-    error,
+    err,
     req,
     res,
     next
   ) => {
     console.error(
-      "Server Error:",
-      error
+      "MOVA SERVER ERROR:",
+      err
     );
 
-    res.status(
-      error.status || 500
-    ).json({
+    const statusCode =
+      err.statusCode || 500;
+
+    res.status(statusCode).json({
       success: false,
       message:
-        error.message ||
+        err.message ||
         "Internal server error",
     });
   }
 );
 
-/*
-|--------------------------------------------------------------------------
-| Start Server
-|--------------------------------------------------------------------------
-*/
+/* =========================================
+   DATABASE CONNECTION
+========================================= */
 
-app.listen(
-  PORT,
-  () => {
-    console.log("");
+const connectDatabase =
+  async () => {
+    try {
+      if (!process.env.MONGO_URI) {
+        throw new Error(
+          "MONGO_URI is missing from .env"
+        );
+      }
 
-    console.log(
-      "======================================"
+      await mongoose.connect(
+        process.env.MONGO_URI
+      );
+
+      console.log(
+        "MongoDB connected successfully"
+      );
+    } catch (error) {
+      console.error(
+        "MongoDB connection failed:"
+      );
+
+      console.error(
+        error.message
+      );
+
+      process.exit(1);
+    }
+  };
+
+/* =========================================
+   START SERVER
+========================================= */
+
+const startServer =
+  async () => {
+    await connectDatabase();
+
+    app.listen(
+      PORT,
+      () => {
+        console.log(
+          `MOVA API is running on port ${PORT}`
+        );
+
+        console.log(
+          `Client URL: ${CLIENT_URL}`
+        );
+
+        console.log(
+          `API: http://localhost:${PORT}/api`
+        );
+      }
     );
+  };
 
-    console.log(
-      "          MOVA API SERVER"
-    );
-
-    console.log(
-      "======================================"
-    );
-
-    console.log(
-      `Server: http://localhost:${PORT}`
-    );
-
-    console.log(
-      `Health: http://localhost:${PORT}/api/health`
-    );
-
-    console.log(
-      "======================================"
-    );
-
-    console.log("");
-  }
-);
+startServer();
