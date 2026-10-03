@@ -2,10 +2,6 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
-    // ==========================================
-    // BUSINESS
-    // ==========================================
-
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -13,13 +9,12 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ==========================================
-    // LEGACY / PRIMARY BRANCH
-    // ==========================================
-    // Kept for compatibility with the current
-    // MOVA system. New code should gradually
-    // use branchIds + activeBranchId.
-
+    /*
+     * Legacy single-branch field.
+     *
+     * We keep this because some existing MOVA modules
+     * may still depend on branchId.
+     */
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
@@ -27,11 +22,9 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ==========================================
-    // AUTHORIZED BRANCHES
-    // ==========================================
-    // Branches this user is allowed to access.
-
+    /*
+     * Branches this user is authorized to access.
+     */
     branchIds: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -39,21 +32,15 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
-    // ==========================================
-    // ACTIVE BRANCH
-    // ==========================================
-    // The branch currently selected by the user.
-
+    /*
+     * Branch currently being used by the user.
+     */
     activeBranchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
       default: null,
       index: true,
     },
-
-    // ==========================================
-    // USER INFORMATION
-    // ==========================================
 
     name: {
       type: String,
@@ -73,10 +60,6 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
 
-    // ==========================================
-    // ROLE
-    // ==========================================
-
     role: {
       type: String,
       enum: [
@@ -90,19 +73,11 @@ const userSchema = new mongoose.Schema(
       default: "CASHIER",
     },
 
-    // ==========================================
-    // CONTACT
-    // ==========================================
-
     phone: {
       type: String,
       trim: true,
       default: "",
     },
-
-    // ==========================================
-    // ACCOUNT STATUS
-    // ==========================================
 
     status: {
       type: String,
@@ -114,10 +89,6 @@ const userSchema = new mongoose.Schema(
       default: "ACTIVE",
     },
 
-    // ==========================================
-    // LOGIN INFORMATION
-    // ==========================================
-
     lastLoginAt: {
       type: Date,
       default: null,
@@ -128,19 +99,30 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// ==========================================
-// UNIQUE EMAIL PER BUSINESS
-// ==========================================
+/*
+|--------------------------------------------------------------------------
+| Indexes
+|--------------------------------------------------------------------------
+*/
 
+/*
+ * A user email only needs to be unique inside
+ * a particular business.
+ */
 userSchema.index(
-  {
-    businessId: 1,
-    email: 1,
-  },
-  {
-    unique: true,
-  }
+  { businessId: 1, email: 1 },
+  { unique: true }
 );
+
+userSchema.index({
+  businessId: 1,
+  branchIds: 1,
+});
+
+userSchema.index({
+  businessId: 1,
+  activeBranchId: 1,
+});
 
 const User = mongoose.model(
   "User",

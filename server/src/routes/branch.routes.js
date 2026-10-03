@@ -7,6 +7,7 @@ import {
   updateBranch,
   deleteBranch,
   getBusinessUsers,
+  switchBranch,
 } from "../controllers/branchController.js";
 
 import {
@@ -14,11 +15,28 @@ import {
   authorize,
 } from "../middleware/authMiddleware.js";
 
-const router = express.Router();
+const router =
+  express.Router();
 
 /*
 |--------------------------------------------------------------------------
-| BRANCHES
+| BRANCH SWITCHING
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+| This route must be before /:id.
+|
+*/
+
+router.post(
+  "/switch",
+  protect,
+  switchBranch
+);
+
+/*
+|--------------------------------------------------------------------------
+| BUSINESS BRANCHES
 |--------------------------------------------------------------------------
 */
 
@@ -28,12 +46,43 @@ router.get(
   getBranches
 );
 
+/*
+|--------------------------------------------------------------------------
+| BUSINESS USERS
+|--------------------------------------------------------------------------
+*/
+
 router.get(
   "/users",
   protect,
-  authorize("OWNER", "ADMIN"),
+  authorize(
+    "OWNER",
+    "ADMIN"
+  ),
   getBusinessUsers
 );
+
+/*
+|--------------------------------------------------------------------------
+| CREATE BRANCH
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/",
+  protect,
+  authorize(
+    "OWNER",
+    "ADMIN"
+  ),
+  createBranch
+);
+
+/*
+|--------------------------------------------------------------------------
+| SINGLE BRANCH
+|--------------------------------------------------------------------------
+*/
 
 router.get(
   "/:id",
@@ -41,24 +90,35 @@ router.get(
   getBranch
 );
 
-router.post(
-  "/",
-  protect,
-  authorize("OWNER", "ADMIN"),
-  createBranch
-);
+/*
+|--------------------------------------------------------------------------
+| UPDATE BRANCH
+|--------------------------------------------------------------------------
+*/
 
 router.put(
   "/:id",
   protect,
-  authorize("OWNER", "ADMIN"),
+  authorize(
+    "OWNER",
+    "ADMIN"
+  ),
   updateBranch
 );
+
+/*
+|--------------------------------------------------------------------------
+| DELETE BRANCH
+|--------------------------------------------------------------------------
+*/
 
 router.delete(
   "/:id",
   protect,
-  authorize("OWNER", "ADMIN"),
+  authorize(
+    "OWNER",
+    "ADMIN"
+  ),
   deleteBranch
 );
 
