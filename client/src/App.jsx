@@ -1,4 +1,3 @@
-
 import {
   Navigate,
   Route,
@@ -16,6 +15,13 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 
 // ==========================================
+// BUSINESS SETUP PAGES
+// ==========================================
+
+import BusinessSetup from "./pages/setup/BusinessSetup";
+import BranchSetup from "./pages/setup/BranchSetup";
+
+// ==========================================
 // APPLICATION PAGES
 // ==========================================
 
@@ -31,6 +37,25 @@ import Suppliers from "./pages/suppliers/Suppliers";
 import Purchases from "./pages/purchases/Purchases";
 import Expenses from "./pages/expenses/Expenses";
 import Reports from "./pages/reports/Reports";
+
+// ==========================================
+// PROTECTED ROUTE
+// ==========================================
+
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem("mova_token");
+
+  if (!token) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+      />
+    );
+  }
+
+  return children;
+};
 
 // ==========================================
 // TEMPORARY MODULE COMPONENT
@@ -88,28 +113,6 @@ const ModulePage = ({
 };
 
 // ==========================================
-// PROTECTED ROUTE
-// ==========================================
-
-const ProtectedRoute = ({
-  children,
-}) => {
-  const token =
-    localStorage.getItem("mova_token");
-
-  if (!token) {
-    return (
-      <Navigate
-        to="/login"
-        replace
-      />
-    );
-  }
-
-  return children;
-};
-
-// ==========================================
 // APPLICATION
 // ==========================================
 
@@ -135,6 +138,33 @@ const App = () => {
         path="/forgot-password"
         element={<ForgotPassword />}
       />
+
+
+      {/* ====================================
+          BUSINESS SETUP
+          These are protected but NOT inside
+          DashboardLayout.
+      ==================================== */}
+
+      <Route
+        path="/setup/business"
+        element={
+          <ProtectedRoute>
+            <BusinessSetup />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/setup/branch"
+        element={
+          <ProtectedRoute>
+            <BranchSetup />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Receipt setup will be added next. */}
 
 
       {/* ====================================

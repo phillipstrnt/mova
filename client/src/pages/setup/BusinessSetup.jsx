@@ -1,57 +1,156 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
   Building2,
-  Camera,
   Check,
   Globe2,
+  ImagePlus,
   Mail,
   MapPin,
   Phone,
+  Save,
+  Store,
   Upload,
   X,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
 
+const BUSINESS_TYPES = [
+  "Retail",
+  "Wholesale",
+  "Restaurant",
+  "Pharmacy",
+  "Hardware",
+  "Services",
+  "Supermarket",
+  "Boutique",
+  "Electronics",
+  "Other",
+];
+
+const CURRENCIES = [
+  {
+    value: "UGX",
+    label: "Ugandan Shilling (UGX)",
+  },
+  {
+    value: "KES",
+    label: "Kenyan Shilling (KES)",
+  },
+  {
+    value: "TZS",
+    label: "Tanzanian Shilling (TZS)",
+  },
+  {
+    value: "USD",
+    label: "US Dollar (USD)",
+  },
+];
+
+const TIMEZONES = [
+  {
+    value: "Africa/Kampala",
+    label: "Africa/Kampala (Uganda)",
+  },
+  {
+    value: "Africa/Nairobi",
+    label: "Africa/Nairobi (Kenya)",
+  },
+  {
+    value: "Africa/Dar_es_Salaam",
+    label: "Africa/Dar_es_Salaam (Tanzania)",
+  },
+  {
+    value: "UTC",
+    label: "UTC",
+  },
+];
+
+const STEPS = [
+  {
+    number: 1,
+    title: "Business",
+  },
+  {
+    number: 2,
+    title: "Branch",
+  },
+  {
+    number: 3,
+    title: "Receipt",
+  },
+];
+
 const BusinessSetup = () => {
-  const { business, setBusiness } = useAuth();
+  const navigate = useNavigate();
+
+  const {
+    business,
+    setBusiness,
+  } = useAuth();
 
   const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
-    name: business?.name || "",
-    businessType: business?.businessType || "",
-    phone: business?.phone || "",
-    email: business?.email || "",
-    address: business?.address || "",
-    country: business?.country || "Uganda",
-    currency: business?.currency || "UGX",
-    timezone: business?.timezone || "Africa/Kampala",
+    name: "",
+    businessType: "",
+    phone: "",
+    email: "",
+    address: "",
+    country: "Uganda",
+    currency: "UGX",
+    timezone: "Africa/Kampala",
+    logo: "",
   });
 
-  const [logoPreview, setLogoPreview] = useState(
-    business?.logo || ""
-  );
+  const [logoPreview, setLogoPreview] = useState("");
 
-  const [logoFile, setLogoFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  useEffect(() => {
+    if (!business) {
+      return;
+    }
+
+    setFormData({
+      name: business.name || "",
+      businessType: business.businessType || "",
+      phone: business.phone || "",
+      email: business.email || "",
+      address: business.address || "",
+      country: business.country || "Uganda",
+      currency: business.currency || "UGX",
+      timezone:
+        business.timezone || "Africa/Kampala",
+      logo: business.logo || "",
+    });
+
+    setLogoPreview(business.logo || "");
+  }, [business]);
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
-    setFormData((previous) => ({
-      ...previous,
+    setFormData((current) => ({
+      ...current,
       [name]: value,
     }));
+
+    setError("");
+    setSuccess("");
   };
 
   const handleLogoChange = (event) => {
     const file = event.target.files?.[0];
 
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     if (!file.type.startsWith("image/")) {
       setError("Please select a valid image file.");
@@ -59,283 +158,322 @@ const BusinessSetup = () => {
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError("Logo must be smaller than 5MB.");
+      setError(
+        "Business logo must be smaller than 5MB."
+      );
       return;
     }
 
-    setError("");
-    setLogoFile(file);
-
     const previewUrl = URL.createObjectURL(file);
+
     setLogoPreview(previewUrl);
+
+    /*
+     * We keep the selected file in the browser for now.
+     * Cloudinary upload will be added in the next step.
+     */
+    setFormData((current) => ({
+      ...current,
+      logo: "",
+    }));
+
+    setError("");
+    setSuccess("");
   };
 
   const removeLogo = () => {
-    setLogoFile(null);
-    setLogoPreview(business?.logo || "");
+    setLogoPreview("");
+
+    setFormData((current) => ({
+      ...current,
+      logo: "",
+    }));
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
+  const validate = () => {
+    if (!formData.name.trim()) {
+      return "Please enter your business name.";
+    }
+
+    if (!formData.businessType.trim()) {
+      return "Please select your business type.";
+    }
+
+    if (!formData.phone.trim()) {
+      return "Please enter your business phone number.";
+    }
+
+    return "";
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    setError("");
-    setSuccess("");
+    const validationError = validate();
 
-    if (!formData.name.trim()) {
-      setError("Business name is required.");
+    if (validationError) {
+      setError(validationError);
       return;
     }
-
-    if (!formData.businessType) {
-      setError("Please select your business type.");
-      return;
-    }
-
-    setSaving(true);
 
     try {
-      let logoUrl = business?.logo || "";
-
-      /*
-       * Logo upload will be connected to Cloudinary.
-       * For now, the business information is saved first.
-       */
-      if (logoFile) {
-        const uploadData = new FormData();
-
-        uploadData.append("image", logoFile);
-
-        try {
-          const uploadResponse = await api.post(
-            "/upload/image",
-            uploadData,
-            {
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
-
-          logoUrl =
-            uploadResponse.data?.url ||
-            uploadResponse.data?.imageUrl ||
-            uploadResponse.data?.data?.url ||
-            "";
-        } catch (uploadError) {
-          console.warn(
-            "Logo upload failed:",
-            uploadError?.response?.data || uploadError.message
-          );
-
-          setError(
-            "Business details can be saved, but the logo could not be uploaded yet."
-          );
-        }
-      }
+      setSaving(true);
+      setError("");
+      setSuccess("");
 
       const response = await api.put(
         "/business/profile",
         {
-          ...formData,
-          logo: logoUrl,
+          name: formData.name.trim(),
+          businessType:
+            formData.businessType.trim(),
+          phone: formData.phone.trim(),
+          email: formData.email.trim(),
+          address: formData.address.trim(),
+          country: formData.country.trim(),
+          currency: formData.currency,
+          timezone: formData.timezone,
+          logo: formData.logo,
         }
       );
 
       const updatedBusiness =
-        response.data?.business ||
-        response.data?.data ||
-        response.data;
+        response?.data?.business;
 
       if (updatedBusiness) {
+        setBusiness(updatedBusiness);
+
         localStorage.setItem(
           "mova_business",
           JSON.stringify(updatedBusiness)
         );
-
-        /*
-         * AuthContext currently exposes the business value.
-         * If setBusiness is available, update it immediately.
-         */
-        if (typeof setBusiness === "function") {
-          setBusiness(updatedBusiness);
-        }
       }
 
-      if (logoUrl) {
-        setLogoPreview(logoUrl);
-      }
+      setSuccess(
+        "Business information saved successfully."
+      );
 
-      setSuccess("Business profile saved successfully.");
-    } catch (err) {
+      setTimeout(() => {
+        navigate("/setup/branch");
+      }, 700);
+    } catch (requestError) {
       console.error(
-        "Business profile update failed:",
-        err
+        "Business setup error:",
+        requestError
       );
 
       setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Unable to save your business profile."
+        requestError?.response?.data?.message ||
+          "Failed to save business information. Please try again."
       );
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl">
+  const handleSkip = () => {
+    navigate("/app");
+  };
 
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white">
-            <Building2 size={24} />
+        <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white">
+              <Store size={22} />
+            </div>
+
+            <div>
+              <p className="text-lg font-bold text-slate-900">
+                MOVA
+              </p>
+              <p className="text-xs text-slate-500">
+                Business setup
+              </p>
+            </div>
           </div>
 
-          <p className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Business Setup
-          </p>
-
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Welcome to MOVA 👋
-          </h1>
-
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Let's set up your business profile. You can update
-            these details later from Settings.
-          </p>
+          <button
+            type="button"
+            onClick={handleSkip}
+            className="text-sm font-medium text-slate-500 hover:text-slate-900"
+          >
+            Set up later
+          </button>
         </div>
 
         {/* Progress */}
-        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
-              1
-            </div>
+        <div className="mx-auto mb-8 max-w-3xl">
+          <div className="flex items-center justify-between">
+            {STEPS.map((step, index) => (
+              <div
+                key={step.number}
+                className="flex flex-1 items-center"
+              >
+                <div className="flex flex-col items-center">
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${
+                      step.number === 1
+                        ? "bg-slate-900 text-white"
+                        : "bg-white text-slate-400 ring-1 ring-slate-200"
+                    }`}
+                  >
+                    {step.number}
+                  </div>
 
-            <div className="h-px flex-1 bg-slate-200" />
+                  <span
+                    className={`mt-2 text-xs font-medium ${
+                      step.number === 1
+                        ? "text-slate-900"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    {step.title}
+                  </span>
+                </div>
 
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-400">
-              2
-            </div>
-
-            <div className="h-px flex-1 bg-slate-200" />
-
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-400">
-              3
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-3 text-center text-xs font-medium">
-            <span className="text-slate-900">
-              Business
-            </span>
-            <span className="text-slate-400">
-              Branch
-            </span>
-            <span className="text-slate-400">
-              Receipt
-            </span>
+                {index < STEPS.length - 1 && (
+                  <div className="mx-3 mt-[-18px] h-px flex-1 bg-slate-200" />
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="grid gap-6 lg:grid-cols-3">
-
-            {/* Logo */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Business Logo
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Your logo will appear throughout MOVA.
-              </p>
-
-              <div className="mt-6 flex flex-col items-center">
-                <div className="relative">
-                  <div className="flex h-36 w-36 items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50">
-                    {logoPreview ? (
-                      <img
-                        src={logoPreview}
-                        alt="Business logo preview"
-                        className="h-full w-full object-contain"
-                      />
-                    ) : (
-                      <Building2
-                        size={48}
-                        className="text-slate-300"
-                      />
-                    )}
-                  </div>
-
-                  {logoPreview && (
-                    <button
-                      type="button"
-                      onClick={removeLogo}
-                      className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-md hover:bg-slate-100"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                </div>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={handleLogoChange}
-                  className="hidden"
+        {/* Main card */}
+        <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-200 px-6 py-6 sm:px-8">
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl bg-slate-100 p-3">
+                <Building2
+                  size={24}
+                  className="text-slate-700"
                 />
+              </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
-                  className="mt-5 flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  {logoPreview ? (
-                    <>
-                      <Camera size={17} />
-                      Change Logo
-                    </>
-                  ) : (
-                    <>
-                      <Upload size={17} />
-                      Upload Logo
-                    </>
-                  )}
-                </button>
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
+                  Set up your business
+                </h1>
 
-                <p className="mt-3 text-center text-xs text-slate-400">
-                  PNG, JPG or WebP
-                  <br />
-                  Maximum 5MB
+                <p className="mt-1 text-sm text-slate-500">
+                  Tell MOVA about your business. This
+                  information will appear throughout your
+                  POS, receipts, reports and dashboard.
                 </p>
               </div>
             </div>
+          </div>
 
-            {/* Business details */}
-            <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Business Information
-              </h2>
+          <form
+            onSubmit={handleSubmit}
+            className="p-6 sm:p-8"
+          >
+            {/* Alerts */}
+            {error && (
+              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
 
-              <p className="mt-1 text-sm text-slate-500">
-                Tell us about the business you're managing.
-              </p>
+            {success && (
+              <div className="mb-6 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                <Check size={17} />
+                {success}
+              </div>
+            )}
 
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            {/* Logo */}
+            <section className="mb-10">
+              <div className="mb-4">
+                <h2 className="font-semibold text-slate-900">
+                  Business logo
+                </h2>
 
-                {/* Business name */}
-                <div className="sm:col-span-2">
+                <p className="mt-1 text-sm text-slate-500">
+                  Your logo can appear on receipts,
+                  reports and the MOVA business interface.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50">
+                  {logoPreview ? (
+                    <img
+                      src={logoPreview}
+                      alt="Business logo preview"
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <ImagePlus
+                      size={32}
+                      className="text-slate-400"
+                    />
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fileInputRef.current?.click()
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                      <Upload size={16} />
+                      Upload logo
+                    </button>
+
+                    {logoPreview && (
+                      <button
+                        type="button"
+                        onClick={removeLogo}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <X size={16} />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    onChange={handleLogoChange}
+                    className="hidden"
+                  />
+
+                  <p className="mt-2 text-xs text-slate-400">
+                    PNG, JPG, WEBP or SVG. Maximum 5MB.
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            {/* Business identity */}
+            <section className="mb-10">
+              <div className="mb-5">
+                <h2 className="font-semibold text-slate-900">
+                  Business information
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Basic information about the business.
+                </p>
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Business Name *
+                    Business name *
                   </label>
 
                   <div className="relative">
@@ -350,51 +488,119 @@ const BusinessSetup = () => {
                       value={formData.name}
                       onChange={handleChange}
                       placeholder="e.g. Green Star Supermarket"
-                      className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                      className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                     />
                   </div>
                 </div>
 
-                {/* Business type */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Business Type *
+                    Business type *
                   </label>
 
                   <select
                     name="businessType"
                     value={formData.businessType}
                     onChange={handleChange}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
                     <option value="">
                       Select business type
                     </option>
-                    <option value="Retail">
-                      Retail
-                    </option>
-                    <option value="Wholesale">
-                      Wholesale
-                    </option>
-                    <option value="Restaurant">
-                      Restaurant
-                    </option>
-                    <option value="Pharmacy">
-                      Pharmacy
-                    </option>
-                    <option value="Hardware">
-                      Hardware
-                    </option>
-                    <option value="Services">
-                      Services
-                    </option>
-                    <option value="Other">
-                      Other
-                    </option>
+
+                    {BUSINESS_TYPES.map((type) => (
+                      <option
+                        key={type}
+                        value={type}
+                      >
+                        {type}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                {/* Country */}
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Phone number *
+                  </label>
+
+                  <div className="relative">
+                    <Phone
+                      size={18}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleChange}
+                      placeholder="+256 7XX XXX XXX"
+                      className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Business email
+                  </label>
+
+                  <div className="relative">
+                    <Mail
+                      size={18}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleChange}
+                      placeholder="business@example.com"
+                      className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Business address
+                  </label>
+
+                  <div className="relative">
+                    <MapPin
+                      size={18}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                    <input
+                      type="text"
+                      name="address"
+                      value={formData.address}
+                      onChange={handleChange}
+                      placeholder="Street, town, district"
+                      className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Regional settings */}
+            <section className="mb-10">
+              <div className="mb-5">
+                <h2 className="font-semibold text-slate-900">
+                  Regional settings
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  These settings control how prices,
+                  receipts and dates are displayed.
+                </p>
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-3">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Country
@@ -411,81 +617,11 @@ const BusinessSetup = () => {
                       name="country"
                       value={formData.country}
                       onChange={handleChange}
-                      className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                      className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                     />
                   </div>
                 </div>
 
-                {/* Phone */}
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Phone
-                  </label>
-
-                  <div className="relative">
-                    <Phone
-                      size={18}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      placeholder="0700 000 000"
-                      className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
-                    />
-                  </div>
-                </div>
-
-                {/* Email */}
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Business Email
-                  </label>
-
-                  <div className="relative">
-                    <Mail
-                      size={18}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-
-                    <input
-                      type="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleChange}
-                      placeholder="business@example.com"
-                      className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
-                    />
-                  </div>
-                </div>
-
-                {/* Address */}
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Business Address
-                  </label>
-
-                  <div className="relative">
-                    <MapPin
-                      size={18}
-                      className="absolute left-3 top-3 text-slate-400"
-                    />
-
-                    <textarea
-                      name="address"
-                      value={formData.address}
-                      onChange={handleChange}
-                      rows={3}
-                      placeholder="e.g. Mukono Town, Uganda"
-                      className="w-full resize-none rounded-lg border border-slate-300 py-3 pl-10 pr-4 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
-                    />
-                  </div>
-                </div>
-
-                {/* Currency */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Currency
@@ -495,24 +631,21 @@ const BusinessSetup = () => {
                     name="currency"
                     value={formData.currency}
                     onChange={handleChange}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
-                    <option value="UGX">
-                      UGX — Ugandan Shilling
-                    </option>
-                    <option value="KES">
-                      KES — Kenyan Shilling
-                    </option>
-                    <option value="TZS">
-                      TZS — Tanzanian Shilling
-                    </option>
-                    <option value="USD">
-                      USD — US Dollar
-                    </option>
+                    {CURRENCIES.map(
+                      (currency) => (
+                        <option
+                          key={currency.value}
+                          value={currency.value}
+                        >
+                          {currency.label}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
 
-                {/* Timezone */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Timezone
@@ -522,60 +655,48 @@ const BusinessSetup = () => {
                     name="timezone"
                     value={formData.timezone}
                     onChange={handleChange}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
-                    <option value="Africa/Kampala">
-                      Africa/Kampala
-                    </option>
-                    <option value="Africa/Nairobi">
-                      Africa/Nairobi
-                    </option>
-                    <option value="Africa/Dar_es_Salaam">
-                      Africa/Dar es Salaam
-                    </option>
-                    <option value="UTC">
-                      UTC
-                    </option>
+                    {TIMEZONES.map(
+                      (timezone) => (
+                        <option
+                          key={timezone.value}
+                          value={timezone.value}
+                        >
+                          {timezone.label}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
               </div>
+            </section>
+
+            {/* Footer */}
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-400">
+                You can change these settings later from
+                Business Settings.
+              </p>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Save size={17} />
+
+                {saving
+                  ? "Saving..."
+                  : "Save & Continue"}
+
+                {!saving && (
+                  <ArrowRight size={17} />
+                )}
+              </button>
             </div>
-          </div>
-
-          {/* Messages */}
-          {error && (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="mt-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              <Check size={18} />
-              {success}
-            </div>
-          )}
-
-          {/* Bottom actions */}
-          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-            <button
-              type="button"
-              className="rounded-lg px-5 py-3 text-sm font-semibold text-slate-500 hover:bg-slate-100"
-            >
-              Set up later
-            </button>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-slate-900 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving
-                ? "Saving..."
-                : "Save & Continue →"}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
