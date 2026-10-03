@@ -1,5 +1,11 @@
 import mongoose from "mongoose";
 
+/*
+|--------------------------------------------------------------------------
+| SALE ITEM SCHEMA
+|--------------------------------------------------------------------------
+*/
+
 const saleItemSchema = new mongoose.Schema(
   {
     productId: {
@@ -49,8 +55,20 @@ const saleItemSchema = new mongoose.Schema(
   }
 );
 
+/*
+|--------------------------------------------------------------------------
+| SALE SCHEMA
+|--------------------------------------------------------------------------
+*/
+
 const saleSchema = new mongoose.Schema(
   {
+    /*
+    |--------------------------------------------------------------------------
+    | BUSINESS
+    |--------------------------------------------------------------------------
+    */
+
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -58,12 +76,27 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | BRANCH
+    |--------------------------------------------------------------------------
+    |
+    | Every sale belongs to a specific branch.
+    |
+    */
+
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
-      default: null,
+      required: true,
       index: true,
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | CASHIER
+    |--------------------------------------------------------------------------
+    */
 
     cashierId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -72,6 +105,12 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER
+    |--------------------------------------------------------------------------
+    */
+
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
@@ -79,24 +118,46 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | RECEIPT
+    |--------------------------------------------------------------------------
+    */
+
     receiptNumber: {
       type: String,
       required: true,
       unique: true,
       index: true,
+      trim: true,
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | ITEMS
+    |--------------------------------------------------------------------------
+    */
 
     items: {
       type: [saleItemSchema],
+
       required: true,
+
       validate: {
         validator: (items) =>
+          Array.isArray(items) &&
           items.length > 0,
 
         message:
           "A sale must contain at least one item.",
       },
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | TOTALS
+    |--------------------------------------------------------------------------
+    */
 
     subtotal: {
       type: Number,
@@ -116,37 +177,61 @@ const saleSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT
+    |--------------------------------------------------------------------------
+    */
+
     paymentMethod: {
       type: String,
+
       enum: [
         "CASH",
         "MOBILE_MONEY",
         "CARD",
         "BANK",
       ],
+
       required: true,
     },
 
     paymentStatus: {
       type: String,
+
       enum: [
         "PAID",
         "PENDING",
         "REFUNDED",
       ],
+
       default: "PAID",
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | SALE STATUS
+    |--------------------------------------------------------------------------
+    */
+
     status: {
       type: String,
+
       enum: [
         "COMPLETED",
         "CANCELLED",
         "PARTIALLY_REFUNDED",
         "REFUNDED",
       ],
+
       default: "COMPLETED",
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTES
+    |--------------------------------------------------------------------------
+    */
 
     notes: {
       type: String,
@@ -154,43 +239,73 @@ const saleSchema = new mongoose.Schema(
       default: "",
     },
   },
+
   {
     timestamps: true,
   }
 );
 
 /*
- * Business + date
+|--------------------------------------------------------------------------
+| INDEXES
+|--------------------------------------------------------------------------
+|
+| These indexes are important because MOVA will frequently ask:
+|
+| "Show me sales for THIS business and THIS branch."
+|
+*/
+
+/*
+ * Business + branch + date
  */
 saleSchema.index({
   businessId: 1,
+  branchId: 1,
   createdAt: -1,
 });
 
 /*
- * Business + payment method
+ * Business + branch + payment method
  */
 saleSchema.index({
   businessId: 1,
+  branchId: 1,
   paymentMethod: 1,
 });
 
 /*
- * Business + cashier
+ * Business + branch + cashier
  */
 saleSchema.index({
   businessId: 1,
+  branchId: 1,
   cashierId: 1,
 });
 
 /*
- * Business + customer + date
+ * Business + branch + customer + date
  */
 saleSchema.index({
   businessId: 1,
+  branchId: 1,
   customerId: 1,
   createdAt: -1,
 });
+
+/*
+ * Business + receipt
+ */
+saleSchema.index({
+  businessId: 1,
+  receiptNumber: 1,
+});
+
+/*
+|--------------------------------------------------------------------------
+| MODEL
+|--------------------------------------------------------------------------
+*/
 
 const Sale = mongoose.model(
   "Sale",

@@ -1,105 +1,218 @@
+
 import mongoose from "mongoose";
 
 import InventoryTransaction from "../models/InventoryTransaction.js";
 import Product from "../models/Product.js";
+import ProductBranchStock from "../models/ProductBranchStock.js";
+import Branch from "../models/Branch.js";
 
-export const getInventoryTransactions = async (
-  req,
-  res,
-  next
+/* ============================================================
+   HELPERS
+============================================================ */
+
+const getActiveBranchId = (
+  req
 ) => {
-  try {
-    const {
-      productId,
-      type,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 20,
-    } = req.query;
+  return (
+    req.user?.activeBranchId?._id ||
+    req.user?.activeBranchId ||
+    req.user?.branchId ||
+    req.branchId ||
+    null
+  );
+};
 
-    const query = {
-      businessId: req.user.businessId,
-    };
+const validateActiveBranch =
+  async (req) => {
+    const businessId =
+      req.user.businessId;
 
-    if (productId) {
-      query.productId = productId;
+    const branchId =
+      getActiveBranchId(req);
+
+    if (!branchId) {
+      return null;
     }
 
-    if (type) {
-      query.type = type;
-    }
+    return Branch.findOne({
+      _id: branchId,
+      businessId,
+      isActive: true,
+    });
+  };
 
-    if (startDate || endDate) {
-      query.createdAt = {};
+/* ============================================================
+   GET INVENTORY TRANSACTIONS
+============================================================ */
 
-      if (startDate) {
-        query.createdAt.$gte = new Date(
-          `${startDate}T00:00:00`
-        );
+export const getInventoryTransactions =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        productId,
+        type,
+        startDate,
+        endDate,
+        page = 1,
+        limit = 20,
+      } = req.query;
+
+      const businessId =
+        req.user.businessId;
+
+      const branchId =
+        getActiveBranchId(req);
+
+      if (!branchId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No active branch is selected.",
+        });
       }
 
-      if (endDate) {
-        query.createdAt.$lte = new Date(
-          `${endDate}T23:59:59`
-        );
+      const query = {
+        businessId,
+        branchId,
+      };
+
+      if (productId) {
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            productId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid product ID.",
+          });
+        }
+
+        query.productId =
+          productId;
       }
-    }
 
-    const pageNumber = Math.max(
-      Number(page),
-      1
-    );
+      if (type) {
+        query.type =
+          type;
+      }
 
-    const limitNumber = Math.min(
-      Math.max(Number(limit), 1),
-      100
-    );
+      if (
+        startDate ||
+        endDate
+      ) {
+        query.createdAt =
+          {};
 
-    const skip =
-      (pageNumber - 1) * limitNumber;
+        if (startDate) {
+          query.createdAt.$gte =
+            new Date(
+              `${startDate}T00:00:00`
+            );
+        }
 
-    const [transactions, total] =
-      await Promise.all([
-        InventoryTransaction.find(query)
+        if (endDate) {
+          query.createdAt.$lte =
+            new Date(
+              `${endDate}T23:59:59`
+            );
+        }
+      }
+
+      const pageNumber =
+        Math.max(
+          Number(page),
+          1
+        );
+
+      const limitNumber =
+        Math.min(
+          Math.max(
+            Number(limit),
+            1
+          ),
+          100
+        );
+
+      const skip =
+        (pageNumber - 1) *
+        limitNumber;
+
+      const [
+        transactions,
+        total,
+      ] = await Promise.all([
+        InventoryTransaction.find(
+          query
+        )
           .populate(
             "productId",
-            "name sku stockQuantity"
+            "name sku"
           )
           .populate(
             "userId",
             "name email role"
           )
-          .sort({ createdAt: -1 })
+          .populate(
+            "branchId",
+            "name code"
+          )
+          .sort({
+            createdAt: -1,
+          })
           .skip(skip)
-          .limit(limitNumber),
+          .limit(
+            limitNumber
+          )
+          .lean(),
 
         InventoryTransaction.countDocuments(
           query
         ),
       ]);
 
-    return res.json({
-      success: true,
-      transactions,
-      pagination: {
-        page: pageNumber,
-        limit: limitNumber,
-        total,
-        pages: Math.ceil(
-          total / limitNumber
-        ),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+      return res.json({
+        success: true,
+        activeBranchId:
+          branchId,
+        transactions,
+        pagination: {
+          page:
+            pageNumber,
+          limit:
+            limitNumber,
+          total,
+          pages:
+            Math.ceil(
+              total /
+                limitNumber
+            ),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+/* ============================================================
+   GET PRODUCT INVENTORY TRANSACTIONS
+============================================================ */
 
 export const getProductInventoryTransactions =
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
-      const { productId } = req.params;
+      const {
+        productId,
+      } = req.params;
 
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -108,36 +221,138 @@ export const getProductInventoryTransactions =
       ) {
         return res.status(400).json({
           success: false,
-          message: "Invalid product ID.",
+          message:
+            "Invalid product ID.",
         });
       }
 
-      const product = await Product.findOne({
-        _id: productId,
-        businessId: req.user.businessId,
-      });
+      const businessId =
+        req.user.businessId;
+
+      const branchId =
+        getActiveBranchId(req);
+
+      if (!branchId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No active branch is selected.",
+        });
+      }
+
+      const product =
+        await Product.findOne({
+          _id: productId,
+          businessId,
+        });
 
       if (!product) {
         return res.status(404).json({
           success: false,
-          message: "Product not found.",
+          message:
+            "Product not found.",
         });
       }
 
+      const branch =
+        await Branch.findOne({
+          _id: branchId,
+          businessId,
+          isActive: true,
+        });
+
+      if (!branch) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Active branch not found.",
+        });
+      }
+
+      let branchStock =
+        await ProductBranchStock.findOne(
+          {
+            businessId,
+            productId,
+            branchId,
+          }
+        ).lean();
+
+      /*
+       * Backward-compatible migration:
+       *
+       * If this product has never received a
+       * branch stock record, initialize the
+       * currently active branch using the
+       * old product stock value.
+       *
+       * This should mainly affect existing
+       * products created before multi-branch
+       * stock was introduced.
+       */
+
+      if (!branchStock) {
+        branchStock =
+          await ProductBranchStock.create(
+            {
+              businessId,
+              productId,
+              branchId,
+              stockQuantity:
+                product.stockQuantity ||
+                0,
+              minimumStock:
+                product.minimumStock ||
+                0,
+              lastStockUpdate:
+                new Date(),
+            }
+          );
+
+        branchStock =
+          branchStock.toObject();
+      }
+
       const transactions =
-        await InventoryTransaction.find({
-          businessId: req.user.businessId,
-          productId,
-        })
+        await InventoryTransaction.find(
+          {
+            businessId,
+            branchId,
+            productId,
+          }
+        )
           .populate(
             "userId",
             "name email role"
           )
-          .sort({ createdAt: -1 });
+          .populate(
+            "branchId",
+            "name code"
+          )
+          .sort({
+            createdAt: -1,
+          })
+          .lean();
+
+      const productResponse =
+        product.toObject();
+
+      productResponse.stockQuantity =
+        branchStock.stockQuantity;
+
+      productResponse.branchStock =
+        branchStock.stockQuantity;
+
+      productResponse.branchId =
+        branchId;
 
       return res.json({
         success: true,
-        product,
+        activeBranchId:
+          branchId,
+        product:
+          productResponse,
+        branchStock,
         transactions,
       });
     } catch (error) {
@@ -145,278 +360,436 @@ export const getProductInventoryTransactions =
     }
   };
 
-/*
- * ========================================================
- * ADJUST INVENTORY
- * ========================================================
- *
- * This endpoint is used when a user manually changes
- * product stock.
- *
- * Examples:
- *
- * Add 20 units:
- * ADJUSTMENT_IN
- *
- * Remove 5 units:
- * ADJUSTMENT_OUT
- *
- * Damaged 3 units:
- * DAMAGE
- *
- * Lost 2 units:
- * LOSS
- */
+/* ============================================================
+   ADJUST INVENTORY
+============================================================ */
 
-export const adjustInventory = async (
-  req,
-  res,
-  next
-) => {
-  try {
-    const {
-      productId,
-      quantity,
-      type,
-      reason = "",
-      notes = "",
-    } = req.body;
-
-    /*
-     * ----------------------------------------------------
-     * 1. VALIDATE PRODUCT ID
-     * ----------------------------------------------------
-     */
-
-    if (
-      !productId ||
-      !mongoose.Types.ObjectId.isValid(
-        productId
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid product ID is required.",
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 2. VALIDATE QUANTITY
-     * ----------------------------------------------------
-     */
-
-    const adjustmentQuantity = Number(
-      quantity
-    );
-
-    if (
-      !Number.isInteger(
-        adjustmentQuantity
-      ) ||
-      adjustmentQuantity <= 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Quantity must be a whole number greater than zero.",
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 3. VALIDATE TRANSACTION TYPE
-     * ----------------------------------------------------
-     */
-
-    const allowedTypes = [
-      "STOCK_RECEIVED",
-      "ADJUSTMENT_IN",
-      "ADJUSTMENT_OUT",
-      "DAMAGE",
-      "LOSS",
-    ];
-
-    if (!allowedTypes.includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid inventory adjustment type.",
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 4. FIND PRODUCT
-     * ----------------------------------------------------
-     */
-
-    const product = await Product.findOne({
-      _id: productId,
-      businessId: req.user.businessId,
-      isActive: true,
-    });
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found.",
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 5. DETERMINE WHETHER STOCK GOES UP OR DOWN
-     * ----------------------------------------------------
-     */
-
-    const stockIncreasingTypes = [
-      "STOCK_RECEIVED",
-      "ADJUSTMENT_IN",
-    ];
-
-    const increasesStock =
-      stockIncreasingTypes.includes(type);
-
-    const stockBefore =
-      Number(product.stockQuantity);
-
-    let stockAfter;
-
-    if (increasesStock) {
-      stockAfter =
-        stockBefore + adjustmentQuantity;
-    } else {
-      stockAfter =
-        stockBefore - adjustmentQuantity;
-    }
-
-    /*
-     * Stock can never become negative.
-     */
-
-    if (stockAfter < 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot remove ${adjustmentQuantity} units. Current stock is ${stockBefore}.`,
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 6. UPDATE PRODUCT STOCK
-     * ----------------------------------------------------
-     */
-
-    const updatedProduct =
-      await Product.findOneAndUpdate(
-        {
-          _id: productId,
-          businessId: req.user.businessId,
-          isActive: true,
-
-          /*
-           * Extra protection against stock changing
-           * between reading and updating.
-           */
-          stockQuantity: stockBefore,
-        },
-        {
-          $set: {
-            stockQuantity: stockAfter,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-
-    if (!updatedProduct) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "Inventory changed before this adjustment could be completed. Please try again.",
-      });
-    }
-
-    /*
-     * ----------------------------------------------------
-     * 7. CREATE INVENTORY LEDGER ENTRY
-     * ----------------------------------------------------
-     */
-
-    let transaction;
-
+export const adjustInventory =
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
-      transaction =
-        await InventoryTransaction.create({
-          businessId:
-            req.user.businessId,
+      const {
+        productId,
+        quantity,
+        type,
+        reason = "",
+        notes = "",
+      } = req.body;
 
-          branchId:
-            req.user.branchId || null,
+      const businessId =
+        req.user.businessId;
 
-          productId:
-            updatedProduct._id,
+      const branchId =
+        getActiveBranchId(req);
 
-          userId:
-            req.user._id,
-
-          type,
-
-          quantity:
-            adjustmentQuantity,
-
-          stockBefore,
-
-          stockAfter,
-
-          reason,
-
-          referenceType:
-            "ADJUSTMENT",
-
-          referenceId: null,
-
-          notes,
-        });
-    } catch (transactionError) {
       /*
-       * ------------------------------------------------
-       * ROLLBACK PRODUCT STOCK
-       * ------------------------------------------------
+       * ======================================================
+       * 1. VALIDATE BRANCH
+       * ======================================================
+       */
+
+      if (!branchId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No active branch is selected. Please select a branch before adjusting inventory.",
+        });
+      }
+
+      const branch =
+        await validateActiveBranch(
+          req
+        );
+
+      if (!branch) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "The selected branch is invalid or inactive.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 2. VALIDATE PRODUCT ID
+       * ======================================================
+       */
+
+      if (
+        !productId ||
+        !mongoose.Types.ObjectId.isValid(
+          productId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Valid product ID is required.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 3. VALIDATE QUANTITY
+       * ======================================================
+       */
+
+      const adjustmentQuantity =
+        Number(quantity);
+
+      if (
+        !Number.isInteger(
+          adjustmentQuantity
+        ) ||
+        adjustmentQuantity <=
+          0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Quantity must be a whole number greater than zero.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 4. VALIDATE TRANSACTION TYPE
+       * ======================================================
+       */
+
+      const allowedTypes = [
+        "STOCK_RECEIVED",
+        "ADJUSTMENT_IN",
+        "ADJUSTMENT_OUT",
+        "DAMAGE",
+        "LOSS",
+      ];
+
+      if (
+        !allowedTypes.includes(
+          type
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid inventory adjustment type.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 5. FIND PRODUCT
+       * ======================================================
+       */
+
+      const product =
+        await Product.findOne({
+          _id: productId,
+          businessId,
+          isActive: true,
+        });
+
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Product not found.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 6. GET OR CREATE BRANCH STOCK
+       * ======================================================
+       */
+
+      let branchStock =
+        await ProductBranchStock.findOne(
+          {
+            businessId,
+            productId,
+            branchId,
+          }
+        );
+
+      /*
+       * Existing products created before
+       * branch stock existed are migrated
+       * when first operated on.
+       */
+
+      if (!branchStock) {
+        branchStock =
+          await ProductBranchStock.create(
+            {
+              businessId,
+              productId,
+              branchId,
+              stockQuantity:
+                product.stockQuantity ||
+                0,
+              minimumStock:
+                product.minimumStock ||
+                0,
+              lastStockUpdate:
+                new Date(),
+            }
+          );
+      }
+
+      /*
+       * ======================================================
+       * 7. DETERMINE STOCK DIRECTION
+       * ======================================================
+       */
+
+      const stockIncreasingTypes = [
+        "STOCK_RECEIVED",
+        "ADJUSTMENT_IN",
+      ];
+
+      const increasesStock =
+        stockIncreasingTypes.includes(
+          type
+        );
+
+      const stockBefore =
+        Number(
+          branchStock.stockQuantity
+        );
+
+      let stockAfter;
+
+      if (increasesStock) {
+        stockAfter =
+          stockBefore +
+          adjustmentQuantity;
+      } else {
+        stockAfter =
+          stockBefore -
+          adjustmentQuantity;
+      }
+
+      /*
+       * ======================================================
+       * 8. PREVENT NEGATIVE STOCK
+       * ======================================================
+       */
+
+      if (
+        stockAfter < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot remove ${adjustmentQuantity} units. Current stock in ${branch.name} is ${stockBefore}.`,
+        });
+      }
+
+      /*
+       * ======================================================
+       * 9. UPDATE BRANCH STOCK SAFELY
+       * ======================================================
+       *
+       * The stockBefore condition prevents two simultaneous
+       * operations from overwriting each other.
+       */
+
+      const updatedBranchStock =
+        await ProductBranchStock.findOneAndUpdate(
+          {
+            _id:
+              branchStock._id,
+            businessId,
+            productId,
+            branchId,
+            stockQuantity:
+              stockBefore,
+          },
+          {
+            $set: {
+              stockQuantity:
+                stockAfter,
+              lastStockUpdate:
+                new Date(),
+            },
+          },
+          {
+            new: true,
+          }
+        );
+
+      if (
+        !updatedBranchStock
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Inventory changed before this adjustment could be completed. Please try again.",
+        });
+      }
+
+      /*
+       * ======================================================
+       * 10. CREATE LEDGER ENTRY
+       * ======================================================
+       */
+
+      let transaction;
+
+      try {
+        transaction =
+          await InventoryTransaction.create(
+            {
+              businessId,
+
+              branchId,
+
+              productId:
+                product._id,
+
+              userId:
+                req.user._id,
+
+              type,
+
+              quantity:
+                adjustmentQuantity,
+
+              stockBefore,
+
+              stockAfter,
+
+              reason:
+                reason.trim(),
+
+              referenceType:
+                "ADJUSTMENT",
+
+              referenceId:
+                null,
+
+              notes:
+                notes.trim(),
+            }
+          );
+      } catch (
+        transactionError
+      ) {
+        /*
+         * Roll branch stock back if the ledger
+         * entry fails.
+         */
+
+        await ProductBranchStock.updateOne(
+          {
+            _id:
+              branchStock._id,
+            businessId,
+            productId,
+            branchId,
+            stockQuantity:
+              stockAfter,
+          },
+          {
+            $set: {
+              stockQuantity:
+                stockBefore,
+              lastStockUpdate:
+                new Date(),
+            },
+          }
+        );
+
+        throw transactionError;
+      }
+
+      /*
+       * ======================================================
+       * 11. TEMPORARY LEGACY SYNCHRONIZATION
+       * ======================================================
+       *
+       * Existing MOVA frontend/POS code may still read
+       * Product.stockQuantity.
+       *
+       * We keep it synchronized with the currently active
+       * branch for now.
+       *
+       * The POS/Sales refactor will remove this dependency.
        */
 
       await Product.updateOne(
         {
-          _id: productId,
-          businessId: req.user.businessId,
-          stockQuantity: stockAfter,
+          _id:
+            product._id,
+          businessId,
         },
         {
           $set: {
-            stockQuantity: stockBefore,
+            stockQuantity:
+              stockAfter,
           },
         }
       );
 
-      throw transactionError;
+      /*
+       * ======================================================
+       * 12. RESPONSE
+       * ======================================================
+       */
+
+      const updatedProduct =
+        await Product.findById(
+          product._id
+        ).populate(
+          "categoryId",
+          "name"
+        );
+
+      const productResponse =
+        updatedProduct.toObject();
+
+      productResponse.stockQuantity =
+        stockAfter;
+
+      productResponse.branchStock =
+        stockAfter;
+
+      productResponse.branchId =
+        branchId;
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Inventory adjusted successfully.",
+
+        product:
+          productResponse,
+
+        branchStock:
+          updatedBranchStock,
+
+        transaction,
+
+        branch: {
+          _id:
+            branch._id,
+          name:
+            branch.name,
+          code:
+            branch.code,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Adjust inventory error:",
+        error
+      );
+
+      next(error);
     }
-
-    return res.status(200).json({
-      success: true,
-      message:
-        "Inventory adjusted successfully.",
-
-      product: updatedProduct,
-
-      transaction,
-    });
-  } catch (error) {
-    console.error(
-      "Adjust inventory error:",
-      error
-    );
-
-    next(error);
-  }
-};
+  };

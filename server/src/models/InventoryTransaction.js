@@ -1,104 +1,188 @@
+
 import mongoose from "mongoose";
 
-const inventoryTransactionSchema = new mongoose.Schema(
-  {
-    businessId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Business",
-      required: true,
-      index: true,
-    },
+const inventoryTransactionSchema =
+  new mongoose.Schema(
+    {
+      /*
+       * =====================================================
+       * BUSINESS
+       * =====================================================
+       */
 
-    branchId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Branch",
-      default: null,
-      index: true,
-    },
+      businessId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Business",
+        required: true,
+        index: true,
+      },
 
-    productId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Product",
-      required: true,
-      index: true,
-    },
+      /*
+       * =====================================================
+       * BRANCH
+       * =====================================================
+       *
+       * Every new inventory movement belongs to
+       * a specific branch.
+       */
 
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+      branchId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Branch",
+        required: true,
+        index: true,
+      },
 
-    type: {
-      type: String,
-      enum: [
-        "OPENING_STOCK",
-        "STOCK_RECEIVED",
-        "SALE",
-        "RETURN",
-        "ADJUSTMENT_IN",
-        "ADJUSTMENT_OUT",
-        "DAMAGE",
-        "LOSS",
-        "TRANSFER_IN",
-        "TRANSFER_OUT",
-      ],
-      required: true,
-    },
+      /*
+       * =====================================================
+       * PRODUCT
+       * =====================================================
+       */
 
-    quantity: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+      productId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: true,
+        index: true,
+      },
 
-    stockBefore: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+      /*
+       * =====================================================
+       * USER
+       * =====================================================
+       */
 
-    stockAfter: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+        index: true,
+      },
 
-    reason: {
-      type: String,
-      trim: true,
-      default: "",
-    },
+      /*
+       * =====================================================
+       * TRANSACTION TYPE
+       * =====================================================
+       */
 
-    referenceType: {
-      type: String,
-      enum: [
-        "SALE",
-        "PURCHASE",
-        "RETURN",
-        "ADJUSTMENT",
-        "TRANSFER",
-        "OTHER",
-      ],
-      default: "OTHER",
-    },
+      type: {
+        type: String,
+        enum: [
+          "OPENING_STOCK",
+          "STOCK_RECEIVED",
+          "SALE",
+          "RETURN",
+          "ADJUSTMENT_IN",
+          "ADJUSTMENT_OUT",
+          "DAMAGE",
+          "LOSS",
+          "TRANSFER_IN",
+          "TRANSFER_OUT",
+        ],
+        required: true,
+      },
 
-    referenceId: {
-      type: mongoose.Schema.Types.ObjectId,
-      default: null,
-    },
+      /*
+       * =====================================================
+       * QUANTITY
+       * =====================================================
+       */
 
-    notes: {
-      type: String,
-      trim: true,
-      default: "",
+      quantity: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+
+      stockBefore: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+
+      stockAfter: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+
+      /*
+       * =====================================================
+       * DESCRIPTION
+       * =====================================================
+       */
+
+      reason: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      notes: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      /*
+       * =====================================================
+       * REFERENCE
+       * =====================================================
+       */
+
+      referenceType: {
+        type: String,
+        enum: [
+          "SALE",
+          "PURCHASE",
+          "RETURN",
+          "ADJUSTMENT",
+          "TRANSFER",
+          "OTHER",
+        ],
+        default: "OTHER",
+      },
+
+      referenceId: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
     },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
+
+/*
+ * =========================================================
+ * INVENTORY HISTORY INDEX
+ * =========================================================
+ */
+
+inventoryTransactionSchema.index({
+  businessId: 1,
+  branchId: 1,
+  productId: 1,
+  createdAt: -1,
+});
+
+/*
+ * =========================================================
+ * BRANCH INVENTORY HISTORY
+ * =========================================================
+ */
+
+inventoryTransactionSchema.index({
+  businessId: 1,
+  branchId: 1,
+  createdAt: -1,
+});
+
+/*
+ * =========================================================
+ * PRODUCT HISTORY
+ * =========================================================
+ */
 
 inventoryTransactionSchema.index({
   businessId: 1,
@@ -106,14 +190,10 @@ inventoryTransactionSchema.index({
   createdAt: -1,
 });
 
-inventoryTransactionSchema.index({
-  businessId: 1,
-  createdAt: -1,
-});
-
-const InventoryTransaction = mongoose.model(
-  "InventoryTransaction",
-  inventoryTransactionSchema
-);
+const InventoryTransaction =
+  mongoose.model(
+    "InventoryTransaction",
+    inventoryTransactionSchema
+  );
 
 export default InventoryTransaction;

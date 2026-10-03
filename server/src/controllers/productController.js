@@ -1,9 +1,29 @@
+
 import mongoose from "mongoose";
 
 import Product from "../models/Product.js";
 import Category from "../models/Category.js";
+import ProductBranchStock from "../models/ProductBranchStock.js";
+import Branch from "../models/Branch.js";
 
-const createProduct = async (req, res) => {
+const getActiveBranchId = (req) => {
+  return (
+    req.user?.activeBranchId?._id ||
+    req.user?.activeBranchId ||
+    req.user?.branchId ||
+    req.branchId ||
+    null
+  );
+};
+
+/* ============================================================
+   CREATE PRODUCT
+============================================================ */
+
+const createProduct = async (
+  req,
+  res
+) => {
   try {
     const {
       name,
@@ -20,50 +40,138 @@ const createProduct = async (req, res) => {
       trackStock = true,
     } = req.body;
 
-    if (!name || !name.trim()) {
+    const businessId =
+      req.user.businessId;
+
+    const branchId =
+      getActiveBranchId(req);
+
+    /*
+     * ========================================================
+     * VALIDATE ACTIVE BRANCH
+     * ========================================================
+     */
+
+    if (!branchId) {
       return res.status(400).json({
         success: false,
-        message: "Product name is required",
+        message:
+          "No active branch is selected. Please select a branch before creating a product.",
       });
     }
 
-    if (!sku || !sku.trim()) {
+    const branch =
+      await Branch.findOne({
+        _id: branchId,
+        businessId,
+        isActive: true,
+      });
+
+    if (!branch) {
       return res.status(400).json({
         success: false,
-        message: "SKU is required",
+        message:
+          "The selected branch is invalid or inactive.",
       });
     }
+
+    /*
+     * ========================================================
+     * VALIDATE NAME
+     * ========================================================
+     */
 
     if (
-      buyingPrice === undefined ||
+      !name ||
+      !name.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Product name is required",
+      });
+    }
+
+    /*
+     * ========================================================
+     * VALIDATE SKU
+     * ========================================================
+     */
+
+    if (
+      !sku ||
+      !sku.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "SKU is required",
+      });
+    }
+
+    /*
+     * ========================================================
+     * VALIDATE PRICES
+     * ========================================================
+     */
+
+    if (
+      buyingPrice ===
+        undefined ||
       buyingPrice === null ||
-      Number.isNaN(Number(buyingPrice))
+      Number.isNaN(
+        Number(buyingPrice)
+      )
     ) {
       return res.status(400).json({
         success: false,
-        message: "A valid buying price is required",
+        message:
+          "A valid buying price is required",
       });
     }
 
     if (
-      sellingPrice === undefined ||
+      sellingPrice ===
+        undefined ||
       sellingPrice === null ||
-      Number.isNaN(Number(sellingPrice))
+      Number.isNaN(
+        Number(sellingPrice)
+      )
     ) {
       return res.status(400).json({
         success: false,
-        message: "A valid selling price is required",
+        message:
+          "A valid selling price is required",
       });
     }
 
-    if (Number(buyingPrice) < 0 || Number(sellingPrice) < 0) {
+    const numericBuyingPrice =
+      Number(buyingPrice);
+
+    const numericSellingPrice =
+      Number(sellingPrice);
+
+    const numericStock =
+      Number(stockQuantity);
+
+    const numericMinimumStock =
+      Number(minimumStock);
+
+    if (
+      numericBuyingPrice < 0 ||
+      numericSellingPrice < 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Prices cannot be negative",
+        message:
+          "Prices cannot be negative",
       });
     }
 
-    if (Number(sellingPrice) < Number(buyingPrice)) {
+    if (
+      numericSellingPrice <
+      numericBuyingPrice
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -71,105 +179,237 @@ const createProduct = async (req, res) => {
       });
     }
 
-    if (Number(stockQuantity) < 0) {
+    if (
+      Number.isNaN(
+        numericStock
+      ) ||
+      numericStock < 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Stock quantity cannot be negative",
+        message:
+          "Stock quantity cannot be negative",
       });
     }
 
-    if (Number(minimumStock) < 0) {
+    if (
+      Number.isNaN(
+        numericMinimumStock
+      ) ||
+      numericMinimumStock < 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Minimum stock cannot be negative",
+        message:
+          "Minimum stock cannot be negative",
       });
     }
+
+    /*
+     * ========================================================
+     * VALIDATE CATEGORY
+     * ========================================================
+     */
 
     if (categoryId) {
-      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          categoryId
+        )
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Invalid category ID",
+          message:
+            "Invalid category ID",
         });
       }
 
-      const category = await Category.findOne({
-        _id: categoryId,
-        businessId: req.user.businessId,
-        isActive: true,
-      });
+      const category =
+        await Category.findOne({
+          _id: categoryId,
+          businessId,
+          isActive: true,
+        });
 
       if (!category) {
         return res.status(400).json({
           success: false,
-          message: "Selected category was not found",
+          message:
+            "Selected category was not found",
         });
       }
     }
 
-    const normalizedSku = sku.trim().toUpperCase();
+    /*
+     * ========================================================
+     * NORMALIZE SKU
+     * ========================================================
+     */
 
-    const existingSku = await Product.findOne({
-      businessId: req.user.businessId,
-      sku: normalizedSku,
-    });
+    const normalizedSku =
+      sku
+        .trim()
+        .toUpperCase();
+
+    const existingSku =
+      await Product.findOne({
+        businessId,
+        sku: normalizedSku,
+      });
 
     if (existingSku) {
       return res.status(409).json({
         success: false,
-        message: "A product with this SKU already exists",
+        message:
+          "A product with this SKU already exists",
       });
     }
 
-    if (barcode.trim()) {
-      const existingBarcode = await Product.findOne({
-        businessId: req.user.businessId,
-        barcode: barcode.trim(),
-      });
+    /*
+     * ========================================================
+     * VALIDATE BARCODE
+     * ========================================================
+     */
+
+    const normalizedBarcode =
+      barcode?.trim() || "";
+
+    if (normalizedBarcode) {
+      const existingBarcode =
+        await Product.findOne({
+          businessId,
+          barcode:
+            normalizedBarcode,
+        });
 
       if (existingBarcode) {
         return res.status(409).json({
           success: false,
-          message: "A product with this barcode already exists",
+          message:
+            "A product with this barcode already exists",
         });
       }
     }
 
-    const product = await Product.create({
-      businessId: req.user.businessId,
-      categoryId: categoryId || null,
-      name: name.trim(),
-      sku: normalizedSku,
-      barcode: barcode.trim(),
-      description: description.trim(),
-      buyingPrice: Number(buyingPrice),
-      sellingPrice: Number(sellingPrice),
-      stockQuantity: Number(stockQuantity),
-      minimumStock: Number(minimumStock),
-      image: image.trim(),
-      unit: unit.trim() || "piece",
-      trackStock: Boolean(trackStock),
-    });
+    /*
+     * ========================================================
+     * CREATE PRODUCT MASTER
+     * ========================================================
+     */
 
-    const populatedProduct = await Product.findById(product._id)
-      .populate("categoryId", "name");
+    const product =
+      await Product.create({
+        businessId,
+        categoryId:
+          categoryId || null,
+        name: name.trim(),
+        sku: normalizedSku,
+        barcode:
+          normalizedBarcode,
+        description:
+          description.trim(),
+        buyingPrice:
+          numericBuyingPrice,
+        sellingPrice:
+          numericSellingPrice,
+
+        /*
+         * Retained for backward compatibility.
+         * Branch-aware stock is stored separately.
+         */
+        stockQuantity:
+          numericStock,
+
+        minimumStock:
+          numericMinimumStock,
+
+        image:
+          image?.trim() || "",
+
+        unit:
+          unit?.trim() ||
+          "piece",
+
+        trackStock:
+          Boolean(trackStock),
+      });
+
+    /*
+     * ========================================================
+     * CREATE BRANCH STOCK
+     * ========================================================
+     */
+
+    const branchStock =
+      await ProductBranchStock.create({
+        businessId,
+        productId:
+          product._id,
+        branchId,
+        stockQuantity:
+          numericStock,
+        minimumStock:
+          numericMinimumStock,
+        lastStockUpdate:
+          new Date(),
+      });
+
+    /*
+     * ========================================================
+     * RETURN PRODUCT
+     * ========================================================
+     */
+
+    const populatedProduct =
+      await Product.findById(
+        product._id
+      ).populate(
+        "categoryId",
+        "name"
+      );
+
+    const productResponse =
+      populatedProduct.toObject();
+
+    productResponse.stockQuantity =
+      branchStock.stockQuantity;
+
+    productResponse.branchStock =
+      branchStock.stockQuantity;
+
+    productResponse.branchId =
+      branchId;
 
     return res.status(201).json({
       success: true,
-      message: "Product created successfully",
-      product: populatedProduct,
+      message:
+        "Product created successfully",
+      product:
+        productResponse,
+      branchStock,
     });
   } catch (error) {
-    console.error("Create product error:", error);
+    console.error(
+      "Create product error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to create product",
+      message:
+        "Failed to create product",
     });
   }
 };
 
-const getProducts = async (req, res) => {
+/* ============================================================
+   GET PRODUCTS
+============================================================ */
+
+const getProducts = async (
+  req,
+  res
+) => {
   try {
     const {
       search = "",
@@ -180,29 +420,52 @@ const getProducts = async (req, res) => {
       limit = 20,
     } = req.query;
 
+    const businessId =
+      req.user.businessId;
+
+    const branchId =
+      getActiveBranchId(req);
+
     const filter = {
-      businessId: req.user.businessId,
+      businessId,
     };
 
     if (search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex =
+        new RegExp(
+          search.trim(),
+          "i"
+        );
 
       filter.$or = [
-        { name: searchRegex },
-        { sku: searchRegex },
-        { barcode: searchRegex },
+        {
+          name: searchRegex,
+        },
+        {
+          sku: searchRegex,
+        },
+        {
+          barcode:
+            searchRegex,
+        },
       ];
     }
 
     if (categoryId) {
-      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          categoryId
+        )
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Invalid category ID",
+          message:
+            "Invalid category ID",
         });
       }
 
-      filter.categoryId = categoryId;
+      filter.categoryId =
+        categoryId;
     }
 
     if (status === "active") {
@@ -213,349 +476,900 @@ const getProducts = async (req, res) => {
       filter.isActive = false;
     }
 
-    if (lowStock === "true") {
-      filter.$expr = {
-        $lte: ["$stockQuantity", "$minimumStock"],
-      };
-    }
+    const currentPage =
+      Math.max(
+        Number(page) || 1,
+        1
+      );
 
-    const currentPage = Math.max(Number(page) || 1, 1);
+    const pageSize =
+      Math.min(
+        Math.max(
+          Number(limit) || 20,
+          1
+        ),
+        100
+      );
 
-    const pageSize = Math.min(
-      Math.max(Number(limit) || 20, 1),
-      100
-    );
+    const skip =
+      (currentPage - 1) *
+      pageSize;
 
-    const skip = (currentPage - 1) * pageSize;
+    /*
+     * ========================================================
+     * GET PRODUCTS
+     * ========================================================
+     */
 
-    const [products, total] = await Promise.all([
-      Product.find(filter)
-        .populate("categoryId", "name")
-        .sort({ createdAt: -1 })
+    let products =
+      await Product.find(filter)
+        .populate(
+          "categoryId",
+          "name"
+        )
+        .sort({
+          createdAt: -1,
+        })
         .skip(skip)
         .limit(pageSize)
-        .lean(),
+        .lean();
 
-      Product.countDocuments(filter),
-    ]);
+    /*
+     * ========================================================
+     * ATTACH ACTIVE BRANCH STOCK
+     * ========================================================
+     */
+
+    if (branchId) {
+      const productIds =
+        products.map(
+          (product) =>
+            product._id
+        );
+
+      const branchStocks =
+        await ProductBranchStock.find(
+          {
+            businessId,
+            branchId,
+            productId: {
+              $in:
+                productIds,
+            },
+          }
+        ).lean();
+
+      const stockMap =
+        new Map();
+
+      branchStocks.forEach(
+        (stock) => {
+          stockMap.set(
+            stock.productId.toString(),
+            stock
+          );
+        }
+      );
+
+      products =
+        products.map(
+          (product) => {
+            const stock =
+              stockMap.get(
+                product._id.toString()
+              );
+
+            const branchQuantity =
+              stock
+                ? stock.stockQuantity
+                : 0;
+
+            const branchMinimum =
+              stock
+                ? stock.minimumStock
+                : product.minimumStock;
+
+            return {
+              ...product,
+
+              /*
+               * Keep stockQuantity in the API response
+               * so the existing frontend continues working.
+               */
+              stockQuantity:
+                branchQuantity,
+
+              branchStock:
+                branchQuantity,
+
+              minimumStock:
+                branchMinimum,
+
+              branchId,
+            };
+          }
+        );
+
+      /*
+       * Low stock must use branch stock,
+       * not the legacy Product.stockQuantity.
+       */
+
+      if (
+        lowStock === "true"
+      ) {
+        products =
+          products.filter(
+            (product) =>
+              product.stockQuantity <=
+              product.minimumStock
+          );
+      }
+    }
+
+    const total =
+      await Product.countDocuments(
+        filter
+      );
 
     return res.status(200).json({
       success: true,
       products,
+      activeBranchId:
+        branchId,
       pagination: {
-        page: currentPage,
-        limit: pageSize,
+        page:
+          currentPage,
+        limit:
+          pageSize,
         total,
-        pages: Math.ceil(total / pageSize),
+        pages:
+          Math.ceil(
+            total /
+              pageSize
+          ),
       },
     });
   } catch (error) {
-    console.error("Get products error:", error);
+    console.error(
+      "Get products error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to retrieve products",
+      message:
+        "Failed to retrieve products",
     });
   }
 };
 
-const getProductById = async (req, res) => {
-  try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      businessId: req.user.businessId,
-    }).populate("categoryId", "name");
+/* ============================================================
+   GET PRODUCT BY ID
+============================================================ */
 
-    if (!product) {
-      return res.status(404).json({
+const getProductById =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const businessId =
+        req.user.businessId;
+
+      const branchId =
+        getActiveBranchId(req);
+
+      const product =
+        await Product.findOne({
+          _id:
+            req.params.id,
+          businessId,
+        }).populate(
+          "categoryId",
+          "name"
+        );
+
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Product not found",
+        });
+      }
+
+      let branchStock =
+        null;
+
+      if (branchId) {
+        branchStock =
+          await ProductBranchStock.findOne(
+            {
+              businessId,
+              productId:
+                product._id,
+              branchId,
+            }
+          ).lean();
+      }
+
+      const responseProduct =
+        product.toObject();
+
+      responseProduct.stockQuantity =
+        branchStock
+          ? branchStock.stockQuantity
+          : 0;
+
+      responseProduct.branchStock =
+        branchStock
+          ? branchStock.stockQuantity
+          : 0;
+
+      responseProduct.branchId =
+        branchId;
+
+      responseProduct.branchMinimumStock =
+        branchStock
+          ? branchStock.minimumStock
+          : product.minimumStock;
+
+      return res.status(200).json({
+        success: true,
+        product:
+          responseProduct,
+        branchStock,
+      });
+    } catch (error) {
+      console.error(
+        "Get product error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        message: "Product not found",
+        message:
+          "Failed to retrieve product",
       });
     }
+  };
 
-    return res.status(200).json({
-      success: true,
-      product,
-    });
-  } catch (error) {
-    console.error("Get product error:", error);
+/* ============================================================
+   UPDATE PRODUCT
+============================================================ */
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve product",
-    });
-  }
-};
+const updateProduct =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const businessId =
+        req.user.businessId;
 
-const updateProduct = async (req, res) => {
-  try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      businessId: req.user.businessId,
-    });
+      const branchId =
+        getActiveBranchId(req);
 
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-    }
+      const product =
+        await Product.findOne({
+          _id:
+            req.params.id,
+          businessId,
+        });
 
-    const {
-      name,
-      sku,
-      barcode,
-      description,
-      categoryId,
-      buyingPrice,
-      sellingPrice,
-      stockQuantity,
-      minimumStock,
-      image,
-      unit,
-      trackStock,
-    } = req.body;
-
-    if (name !== undefined) {
-      if (!name.trim()) {
-        return res.status(400).json({
+      if (!product) {
+        return res.status(404).json({
           success: false,
-          message: "Product name cannot be empty",
+          message:
+            "Product not found",
         });
       }
 
-      product.name = name.trim();
-    }
+      const {
+        name,
+        sku,
+        barcode,
+        description,
+        categoryId,
+        buyingPrice,
+        sellingPrice,
+        stockQuantity,
+        minimumStock,
+        image,
+        unit,
+        trackStock,
+      } = req.body;
 
-    if (sku !== undefined) {
-      const normalizedSku = sku.trim().toUpperCase();
+      /*
+       * ======================================================
+       * NAME
+       * ======================================================
+       */
 
-      if (!normalizedSku) {
-        return res.status(400).json({
-          success: false,
-          message: "SKU cannot be empty",
-        });
+      if (
+        name !== undefined
+      ) {
+        if (
+          !name.trim()
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Product name cannot be empty",
+          });
+        }
+
+        product.name =
+          name.trim();
       }
 
-      const duplicate = await Product.findOne({
-        businessId: req.user.businessId,
-        sku: normalizedSku,
-        _id: { $ne: product._id },
-      });
+      /*
+       * ======================================================
+       * SKU
+       * ======================================================
+       */
 
-      if (duplicate) {
-        return res.status(409).json({
-          success: false,
-          message: "A product with this SKU already exists",
-        });
-      }
+      if (
+        sku !== undefined
+      ) {
+        const normalizedSku =
+          sku
+            .trim()
+            .toUpperCase();
 
-      product.sku = normalizedSku;
-    }
+        if (
+          !normalizedSku
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "SKU cannot be empty",
+          });
+        }
 
-    if (barcode !== undefined) {
-      const trimmedBarcode = barcode.trim();
-
-      if (trimmedBarcode) {
-        const duplicate = await Product.findOne({
-          businessId: req.user.businessId,
-          barcode: trimmedBarcode,
-          _id: { $ne: product._id },
-        });
+        const duplicate =
+          await Product.findOne({
+            businessId,
+            sku:
+              normalizedSku,
+            _id: {
+              $ne:
+                product._id,
+            },
+          });
 
         if (duplicate) {
           return res.status(409).json({
             success: false,
             message:
-              "A product with this barcode already exists",
+              "A product with this SKU already exists",
           });
+        }
+
+        product.sku =
+          normalizedSku;
+      }
+
+      /*
+       * ======================================================
+       * BARCODE
+       * ======================================================
+       */
+
+      if (
+        barcode !== undefined
+      ) {
+        const trimmedBarcode =
+          barcode.trim();
+
+        if (
+          trimmedBarcode
+        ) {
+          const duplicate =
+            await Product.findOne({
+              businessId,
+              barcode:
+                trimmedBarcode,
+              _id: {
+                $ne:
+                  product._id,
+              },
+            });
+
+          if (duplicate) {
+            return res.status(409).json({
+              success: false,
+              message:
+                "A product with this barcode already exists",
+            });
+          }
+        }
+
+        product.barcode =
+          trimmedBarcode;
+      }
+
+      /*
+       * ======================================================
+       * DESCRIPTION
+       * ======================================================
+       */
+
+      if (
+        description !==
+        undefined
+      ) {
+        product.description =
+          description.trim();
+      }
+
+      /*
+       * ======================================================
+       * CATEGORY
+       * ======================================================
+       */
+
+      if (
+        categoryId !==
+        undefined
+      ) {
+        if (
+          categoryId ===
+            null ||
+          categoryId ===
+            ""
+        ) {
+          product.categoryId =
+            null;
+        } else {
+          if (
+            !mongoose.Types.ObjectId.isValid(
+              categoryId
+            )
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Invalid category ID",
+            });
+          }
+
+          const category =
+            await Category.findOne({
+              _id:
+                categoryId,
+              businessId,
+              isActive:
+                true,
+            });
+
+          if (!category) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Selected category was not found",
+            });
+          }
+
+          product.categoryId =
+            categoryId;
         }
       }
 
-      product.barcode = trimmedBarcode;
-    }
+      /*
+       * ======================================================
+       * BUYING PRICE
+       * ======================================================
+       */
 
-    if (description !== undefined) {
-      product.description = description.trim();
-    }
+      if (
+        buyingPrice !==
+        undefined
+      ) {
+        const value =
+          Number(
+            buyingPrice
+          );
 
-    if (categoryId !== undefined) {
-      if (categoryId === null || categoryId === "") {
-        product.categoryId = null;
-      } else {
-        if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        if (
+          Number.isNaN(
+            value
+          ) ||
+          value < 0
+        ) {
           return res.status(400).json({
             success: false,
-            message: "Invalid category ID",
+            message:
+              "Buying price cannot be negative",
           });
         }
 
-        const category = await Category.findOne({
-          _id: categoryId,
-          businessId: req.user.businessId,
-          isActive: true,
-        });
+        product.buyingPrice =
+          value;
+      }
 
-        if (!category) {
+      /*
+       * ======================================================
+       * SELLING PRICE
+       * ======================================================
+       */
+
+      if (
+        sellingPrice !==
+        undefined
+      ) {
+        const value =
+          Number(
+            sellingPrice
+          );
+
+        if (
+          Number.isNaN(
+            value
+          ) ||
+          value < 0
+        ) {
           return res.status(400).json({
             success: false,
-            message: "Selected category was not found",
+            message:
+              "Selling price cannot be negative",
           });
         }
 
-        product.categoryId = categoryId;
+        product.sellingPrice =
+          value;
       }
-    }
 
-    if (buyingPrice !== undefined) {
-      if (Number(buyingPrice) < 0) {
+      if (
+        product.sellingPrice <
+        product.buyingPrice
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Buying price cannot be negative",
+          message:
+            "Selling price cannot be lower than buying price",
         });
       }
 
-      product.buyingPrice = Number(buyingPrice);
-    }
+      /*
+       * ======================================================
+       * STOCK
+       * ======================================================
+       *
+       * IMPORTANT:
+       *
+       * Stock changes are now branch-specific.
+       *
+       * Do not directly change Product.stockQuantity.
+       */
 
-    if (sellingPrice !== undefined) {
-      if (Number(sellingPrice) < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Selling price cannot be negative",
-        });
+      if (
+        stockQuantity !==
+        undefined
+      ) {
+        if (
+          !branchId
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "No active branch is selected.",
+          });
+        }
+
+        const numericStock =
+          Number(
+            stockQuantity
+          );
+
+        if (
+          Number.isNaN(
+            numericStock
+          ) ||
+          numericStock < 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Stock quantity cannot be negative",
+          });
+        }
+
+        let branchStock =
+          await ProductBranchStock.findOne(
+            {
+              businessId,
+              productId:
+                product._id,
+              branchId,
+            }
+          );
+
+        if (
+          !branchStock
+        ) {
+          branchStock =
+            await ProductBranchStock.create(
+              {
+                businessId,
+                productId:
+                  product._id,
+                branchId,
+                stockQuantity:
+                  numericStock,
+                minimumStock:
+                  product.minimumStock,
+              }
+            );
+        } else {
+          branchStock.stockQuantity =
+            numericStock;
+
+          branchStock.lastStockUpdate =
+            new Date();
+
+          await branchStock.save();
+        }
+
+        /*
+         * Keep the old field synchronized
+         * temporarily for compatibility.
+         */
+        product.stockQuantity =
+          numericStock;
       }
 
-      product.sellingPrice = Number(sellingPrice);
-    }
+      /*
+       * ======================================================
+       * MINIMUM STOCK
+       * ======================================================
+       */
 
-    if (product.sellingPrice < product.buyingPrice) {
-      return res.status(400).json({
+      if (
+        minimumStock !==
+        undefined
+      ) {
+        const numericMinimum =
+          Number(
+            minimumStock
+          );
+
+        if (
+          Number.isNaN(
+            numericMinimum
+          ) ||
+          numericMinimum < 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Minimum stock cannot be negative",
+          });
+        }
+
+        product.minimumStock =
+          numericMinimum;
+
+        /*
+         * Update the branch-specific
+         * minimum stock as well.
+         */
+        if (branchId) {
+          await ProductBranchStock.updateOne(
+            {
+              businessId,
+              productId:
+                product._id,
+              branchId,
+            },
+            {
+              $set: {
+                minimumStock:
+                  numericMinimum,
+              },
+            }
+          );
+        }
+      }
+
+      /*
+       * ======================================================
+       * OTHER FIELDS
+       * ======================================================
+       */
+
+      if (
+        image !==
+        undefined
+      ) {
+        product.image =
+          image.trim();
+      }
+
+      if (
+        unit !==
+        undefined
+      ) {
+        product.unit =
+          unit.trim() ||
+          "piece";
+      }
+
+      if (
+        trackStock !==
+        undefined
+      ) {
+        product.trackStock =
+          Boolean(
+            trackStock
+          );
+      }
+
+      await product.save();
+
+      const populatedProduct =
+        await Product.findById(
+          product._id
+        ).populate(
+          "categoryId",
+          "name"
+        );
+
+      let currentBranchStock =
+        null;
+
+      if (branchId) {
+        currentBranchStock =
+          await ProductBranchStock.findOne(
+            {
+              businessId,
+              productId:
+                product._id,
+              branchId,
+            }
+          ).lean();
+      }
+
+      const responseProduct =
+        populatedProduct.toObject();
+
+      responseProduct.stockQuantity =
+        currentBranchStock
+          ? currentBranchStock.stockQuantity
+          : 0;
+
+      responseProduct.branchStock =
+        currentBranchStock
+          ? currentBranchStock.stockQuantity
+          : 0;
+
+      responseProduct.branchId =
+        branchId;
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Product updated successfully",
+        product:
+          responseProduct,
+        branchStock:
+          currentBranchStock,
+      });
+    } catch (error) {
+      console.error(
+        "Update product error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
         message:
-          "Selling price cannot be lower than buying price",
+          "Failed to update product",
       });
     }
+  };
 
-    if (stockQuantity !== undefined) {
-      if (Number(stockQuantity) < 0) {
-        return res.status(400).json({
+/* ============================================================
+   DEACTIVATE PRODUCT
+============================================================ */
+
+const deactivateProduct =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const product =
+        await Product.findOne({
+          _id:
+            req.params.id,
+          businessId:
+            req.user.businessId,
+        });
+
+      if (!product) {
+        return res.status(404).json({
           success: false,
-          message: "Stock quantity cannot be negative",
+          message:
+            "Product not found",
         });
       }
 
-      product.stockQuantity = Number(stockQuantity);
-    }
+      product.isActive =
+        false;
 
-    if (minimumStock !== undefined) {
-      if (Number(minimumStock) < 0) {
-        return res.status(400).json({
+      await product.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Product deactivated successfully",
+        product,
+      });
+    } catch (error) {
+      console.error(
+        "Deactivate product error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to deactivate product",
+      });
+    }
+  };
+
+/* ============================================================
+   ACTIVATE PRODUCT
+============================================================ */
+
+const activateProduct =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const product =
+        await Product.findOne({
+          _id:
+            req.params.id,
+          businessId:
+            req.user.businessId,
+        });
+
+      if (!product) {
+        return res.status(404).json({
           success: false,
-          message: "Minimum stock cannot be negative",
+          message:
+            "Product not found",
         });
       }
 
-      product.minimumStock = Number(minimumStock);
-    }
+      product.isActive =
+        true;
 
-    if (image !== undefined) {
-      product.image = image.trim();
-    }
+      await product.save();
 
-    if (unit !== undefined) {
-      product.unit = unit.trim() || "piece";
-    }
+      return res.status(200).json({
+        success: true,
+        message:
+          "Product activated successfully",
+        product,
+      });
+    } catch (error) {
+      console.error(
+        "Activate product error:",
+        error
+      );
 
-    if (trackStock !== undefined) {
-      product.trackStock = Boolean(trackStock);
-    }
-
-    await product.save();
-
-    const populatedProduct = await Product.findById(product._id)
-      .populate("categoryId", "name");
-
-    return res.status(200).json({
-      success: true,
-      message: "Product updated successfully",
-      product: populatedProduct,
-    });
-  } catch (error) {
-    console.error("Update product error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update product",
-    });
-  }
-};
-
-const deactivateProduct = async (req, res) => {
-  try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      businessId: req.user.businessId,
-    });
-
-    if (!product) {
-      return res.status(404).json({
+      return res.status(500).json({
         success: false,
-        message: "Product not found",
+        message:
+          "Failed to activate product",
       });
     }
-
-    product.isActive = false;
-
-    await product.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Product deactivated successfully",
-      product,
-    });
-  } catch (error) {
-    console.error("Deactivate product error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to deactivate product",
-    });
-  }
-};
-
-const activateProduct = async (req, res) => {
-  try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      businessId: req.user.businessId,
-    });
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-    }
-
-    product.isActive = true;
-
-    await product.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Product activated successfully",
-      product,
-    });
-  } catch (error) {
-    console.error("Activate product error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to activate product",
-    });
-  }
-};
+  };
 
 export {
   createProduct,
