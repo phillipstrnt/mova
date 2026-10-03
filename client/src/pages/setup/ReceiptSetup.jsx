@@ -1,18 +1,26 @@
-
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   Check,
+  Eye,
   FileText,
-  MapPin,
-  Phone,
-  User,
+  Loader2,
+  Save,
+  Store,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
+
+const DEFAULT_SETTINGS = {
+  prefix: "MOVA",
+  footerMessage: "Thank you for shopping with us.",
+  showLogo: true,
+  showPhone: true,
+  showAddress: true,
+  showCashier: true,
+};
 
 const ReceiptSetup = () => {
   const navigate = useNavigate();
@@ -20,169 +28,203 @@ const ReceiptSetup = () => {
   const {
     business,
     branch,
-    setBusiness,
-    setBranch,
   } = useAuth();
 
-  const [form, setForm] = useState({
-    prefix: "MOVA",
-    footerMessage: "Thank you for shopping with us.",
-    showLogo: true,
-    showPhone: true,
-    showAddress: true,
-    showCashier: true,
-  });
+  const [formData, setFormData] = useState(
+    DEFAULT_SETTINGS
+  );
 
-  const [loading, setLoading] = useState(false);
-  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState("");
-
-  /*
-   * Receipt settings are kept separately from the core
-   * Business document so that receipt configuration can
-   * grow later without making Business.js unnecessarily large.
-   */
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    const loadReceiptSettings = async () => {
-      try {
-        setLoadingSettings(true);
-
-        /*
-         * This endpoint is optional at this stage.
-         *
-         * If it does not exist yet, we simply use the
-         * default receipt settings below.
-         */
-        try {
-          const response = await api.get("/business/receipt-settings");
-
-          const settings =
-            response?.data?.settings ||
-            response?.data?.receiptSettings;
-
-          if (settings) {
-            setForm((previous) => ({
-              ...previous,
-              ...settings,
-            }));
-          }
-        } catch (requestError) {
-          /*
-           * A missing endpoint should not prevent onboarding.
-           * The settings will be saved when the backend endpoint
-           * is added.
-           */
-
-          console.log(
-            "Receipt settings endpoint not available yet. Using defaults."
-          );
-        }
-      } finally {
-        setLoadingSettings(false);
-      }
-    };
-
     loadReceiptSettings();
   }, []);
 
-  const handleChange = (event) => {
-    const { name, value, type, checked } = event.target;
-
-    setForm((previous) => ({
-      ...previous,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-
-    setError("");
-
-    if (!form.prefix.trim()) {
-      setError("Receipt prefix is required.");
-      return;
-    }
-
+  const loadReceiptSettings = async () => {
     try {
       setLoading(true);
+      setError("");
 
-      /*
-       * We attempt to save receipt settings.
-       *
-       * If the backend endpoint has not been created yet,
-       * onboarding will still continue. This allows us to
-       * build the frontend flow before the final receipt
-       * configuration API is implemented.
-       */
+      const response = await api.get(
+        "/receipt-settings"
+      );
 
-      try {
-        await api.put("/business/receipt-settings", {
-          prefix: form.prefix.trim().toUpperCase(),
-          footerMessage: form.footerMessage.trim(),
-          showLogo: form.showLogo,
-          showPhone: form.showPhone,
-          showAddress: form.showAddress,
-          showCashier: form.showCashier,
+      const settings = response?.data?.settings;
+
+      if (settings) {
+        setFormData({
+          prefix:
+            settings.prefix ||
+            DEFAULT_SETTINGS.prefix,
+
+          footerMessage:
+            settings.footerMessage ??
+            DEFAULT_SETTINGS.footerMessage,
+
+          showLogo:
+            settings.showLogo ??
+            DEFAULT_SETTINGS.showLogo,
+
+          showPhone:
+            settings.showPhone ??
+            DEFAULT_SETTINGS.showPhone,
+
+          showAddress:
+            settings.showAddress ??
+            DEFAULT_SETTINGS.showAddress,
+
+          showCashier:
+            settings.showCashier ??
+            DEFAULT_SETTINGS.showCashier,
         });
-      } catch (requestError) {
-        console.log(
-          "Receipt settings could not be saved yet:",
-          requestError?.response?.data?.message ||
-            requestError?.message
-        );
       }
-
-      /*
-       * Refresh the business/branch session from localStorage
-       * if they already exist. This keeps the onboarding state
-       * intact.
-       */
-
-      if (business) {
-        setBusiness(business);
-      }
-
-      if (branch) {
-        setBranch(branch);
-      }
-
-      navigate("/app", {
-        replace: true,
-      });
-    } catch (err) {
-      console.error("Receipt setup error:", err);
+    } catch (error) {
+      console.error(
+        "Failed to load receipt settings:",
+        error
+      );
 
       setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Unable to complete receipt setup."
+        error?.response?.data?.message ||
+          "Failed to load receipt settings."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  const goBack = () => {
-    navigate("/setup/branch");
+  const updateField = (field, value) => {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }));
+
+    setSuccess("");
+    setError("");
   };
 
-  const skipSetup = () => {
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    const prefix = formData.prefix.trim();
+
+    if (!prefix) {
+      setError(
+        "Please enter a receipt prefix."
+      );
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await api.put(
+        "/receipt-settings",
+        {
+          prefix,
+          footerMessage:
+            formData.footerMessage.trim(),
+
+          showLogo: formData.showLogo,
+          showPhone: formData.showPhone,
+          showAddress: formData.showAddress,
+          showCashier: formData.showCashier,
+        }
+      );
+
+      const settings =
+        response?.data?.settings;
+
+      if (settings) {
+        setFormData({
+          prefix:
+            settings.prefix ||
+            DEFAULT_SETTINGS.prefix,
+
+          footerMessage:
+            settings.footerMessage ??
+            DEFAULT_SETTINGS.footerMessage,
+
+          showLogo:
+            settings.showLogo ??
+            DEFAULT_SETTINGS.showLogo,
+
+          showPhone:
+            settings.showPhone ??
+            DEFAULT_SETTINGS.showPhone,
+
+          showAddress:
+            settings.showAddress ??
+            DEFAULT_SETTINGS.showAddress,
+
+          showCashier:
+            settings.showCashier ??
+            DEFAULT_SETTINGS.showCashier,
+        });
+      }
+
+      setSuccess(
+        "Receipt settings saved successfully."
+      );
+    } catch (error) {
+      console.error(
+        "Failed to save receipt settings:",
+        error
+      );
+
+      setError(
+        error?.response?.data?.message ||
+          "Failed to save receipt settings."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const finishSetup = () => {
     navigate("/app", {
       replace: true,
     });
   };
 
-  if (loadingSettings) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
+  const currency = useMemo(() => {
+    return business?.currency || "UGX";
+  }, [business]);
 
-          <p className="mt-4 text-sm text-slate-500">
-            Loading receipt settings...
-          </p>
+  const businessName =
+    business?.name || "Your Business";
+
+  const branchName =
+    branch?.name || "Main Branch";
+
+  const businessPhone =
+    business?.phone || "+256 700 000 000";
+
+  const businessAddress =
+    business?.address ||
+    "Kampala, Uganda";
+
+  const receiptNumber =
+    `${formData.prefix || "MOVA"}-000124`;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4">
+          <div className="text-center">
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-slate-700" />
+
+            <p className="mt-4 text-sm text-slate-500">
+              Loading receipt settings...
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -190,486 +232,502 @@ const ReceiptSetup = () => {
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-      {/* =====================================================
-          TOP BAR
-      ===================================================== */}
-
+      {/* Header */}
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
-
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 font-black text-white">
-              M
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
+              <Store size={20} />
             </div>
 
             <div>
-              <p className="font-bold text-slate-900">
+              <h1 className="text-lg font-bold text-slate-900">
                 MOVA
-              </p>
+              </h1>
 
               <p className="text-xs text-slate-500">
-                Business setup
+                Receipt Setup
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={skipSetup}
-            className="text-sm font-medium text-slate-500 hover:text-slate-900"
-          >
-            Set up later
-          </button>
-
+          <div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex">
+            <span>Setup</span>
+            <span>/</span>
+            <span className="font-medium text-slate-900">
+              Receipt
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* =====================================================
-          MAIN
-      ===================================================== */}
-
-      <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8">
-
-        {/* Progress */}
-
-        <div className="mb-10">
-
-          <div className="flex items-center justify-center gap-2 sm:gap-4">
-
-            {/* Step 1 */}
-
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white">
-                <Check className="h-4 w-4" />
+      {/* Progress */}
+      <div className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-3 gap-3">
+            {/* Business */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white">
+                <Check size={18} />
               </div>
 
-              <span className="hidden text-sm font-medium text-slate-700 sm:block">
-                Business
-              </span>
-            </div>
+              <div className="hidden sm:block">
+                <p className="text-xs font-medium text-slate-400">
+                  Step 1
+                </p>
 
-            <div className="h-px w-8 bg-emerald-300 sm:w-16" />
-
-            {/* Step 2 */}
-
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white">
-                <Check className="h-4 w-4" />
-              </div>
-
-              <span className="hidden text-sm font-medium text-slate-700 sm:block">
-                Branch
-              </span>
-            </div>
-
-            <div className="h-px w-8 bg-slate-300 sm:w-16" />
-
-            {/* Step 3 */}
-
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
-                3
-              </div>
-
-              <span className="hidden text-sm font-semibold text-slate-900 sm:block">
-                Receipt
-              </span>
-            </div>
-
-          </div>
-
-          <div className="mt-5 text-center">
-            <p className="text-sm font-semibold text-blue-600">
-              Step 3 of 3
-            </p>
-
-            <h1 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
-              Configure your receipts
-            </h1>
-
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">
-              Choose what customers should see on printed or digital
-              receipts generated by MOVA.
-            </p>
-          </div>
-
-        </div>
-
-        {/* Error */}
-
-        {error && (
-          <div className="mx-auto mb-6 max-w-3xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
-
-          {/* =================================================
-              SETTINGS FORM
-          ================================================= */}
-
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
-          >
-
-            <div className="mb-7 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
-                <FileText className="h-5 w-5 text-blue-600" />
-              </div>
-
-              <div>
-                <h2 className="font-semibold text-slate-900">
-                  Receipt preferences
-                </h2>
-
-                <p className="text-sm text-slate-500">
-                  Customize your customer receipts.
+                <p className="text-sm font-semibold text-slate-700">
+                  Business
                 </p>
               </div>
             </div>
 
-            {/* Prefix */}
+            {/* Branch */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white">
+                <Check size={18} />
+              </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Receipt prefix
-              </label>
+              <div className="hidden sm:block">
+                <p className="text-xs font-medium text-slate-400">
+                  Step 2
+                </p>
 
-              <input
-                type="text"
-                name="prefix"
-                value={form.prefix}
-                onChange={handleChange}
-                placeholder="MOVA"
-                maxLength={10}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm uppercase outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-
-              <p className="mt-2 text-xs text-slate-500">
-                Example: MOVA-000001
-              </p>
-            </div>
-
-            {/* Footer */}
-
-            <div className="mt-6">
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                Footer message
-              </label>
-
-              <textarea
-                name="footerMessage"
-                value={form.footerMessage}
-                onChange={handleChange}
-                rows={3}
-                placeholder="Thank you for shopping with us."
-                className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-
-              <p className="mt-2 text-xs text-slate-500">
-                This message appears at the bottom of the receipt.
-              </p>
-            </div>
-
-            {/* Display options */}
-
-            <div className="mt-8">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Receipt information
-              </h3>
-
-              <div className="mt-4 space-y-3">
-
-                {/* Logo */}
-
-                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50">
-
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
-                      Show business logo
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Display your business logo at the top.
-                    </p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    name="showLogo"
-                    checked={form.showLogo}
-                    onChange={handleChange}
-                    className="h-5 w-5 rounded border-slate-300"
-                  />
-
-                </label>
-
-                {/* Phone */}
-
-                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50">
-
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
-                      Show phone number
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Display the business contact number.
-                    </p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    name="showPhone"
-                    checked={form.showPhone}
-                    onChange={handleChange}
-                    className="h-5 w-5 rounded border-slate-300"
-                  />
-
-                </label>
-
-                {/* Address */}
-
-                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50">
-
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
-                      Show address
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Display the branch address.
-                    </p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    name="showAddress"
-                    checked={form.showAddress}
-                    onChange={handleChange}
-                    className="h-5 w-5 rounded border-slate-300"
-                  />
-
-                </label>
-
-                {/* Cashier */}
-
-                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50">
-
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
-                      Show cashier
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Display the cashier who processed the sale.
-                    </p>
-                  </div>
-
-                  <input
-                    type="checkbox"
-                    name="showCashier"
-                    checked={form.showCashier}
-                    onChange={handleChange}
-                    className="h-5 w-5 rounded border-slate-300"
-                  />
-
-                </label>
-
+                <p className="text-sm font-semibold text-slate-700">
+                  Branch
+                </p>
               </div>
             </div>
 
-            {/* Navigation */}
+            {/* Receipt */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white">
+                3
+              </div>
 
-            <div className="mt-8 flex flex-col-reverse gap-3 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="hidden sm:block">
+                <p className="text-xs font-medium text-slate-400">
+                  Step 3
+                </p>
 
+                <p className="text-sm font-semibold text-slate-900">
+                  Receipt
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8">
+          <p className="mb-2 text-sm font-semibold text-slate-500">
+            FINAL SETUP STEP
+          </p>
+
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+            Configure your receipts
+          </h2>
+
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            Choose what customers should see on receipts
+            generated by MOVA.
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <Check size={17} />
+            {success}
+          </div>
+        )}
+
+        <div className="grid gap-8 lg:grid-cols-[1fr_400px]">
+          {/* Settings */}
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-6"
+          >
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-6 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                  <FileText
+                    size={20}
+                    className="text-slate-700"
+                  />
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-slate-900">
+                    Receipt information
+                  </h3>
+
+                  <p className="text-sm text-slate-500">
+                    Configure the basic receipt format.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Receipt Prefix
+                  </label>
+
+                  <input
+                    type="text"
+                    value={formData.prefix}
+                    onChange={(event) =>
+                      updateField(
+                        "prefix",
+                        event.target.value
+                      )
+                    }
+                    placeholder="MOVA"
+                    maxLength={15}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm uppercase outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                  />
+
+                  <p className="mt-2 text-xs text-slate-400">
+                    Example: MOVA-000124
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Footer Message
+                  </label>
+
+                  <textarea
+                    value={formData.footerMessage}
+                    onChange={(event) =>
+                      updateField(
+                        "footerMessage",
+                        event.target.value
+                      )
+                    }
+                    rows={3}
+                    maxLength={200}
+                    placeholder="Thank you for shopping with us."
+                    className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+                  />
+
+                  <p className="mt-2 text-xs text-slate-400">
+                    This message appears at the bottom
+                    of the receipt.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Display options */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-semibold text-slate-900">
+                Display options
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Choose the information printed on receipts.
+              </p>
+
+              <div className="mt-5 space-y-3">
+                <ToggleOption
+                  label="Show business logo"
+                  description="Display your business logo at the top."
+                  checked={formData.showLogo}
+                  onChange={(value) =>
+                    updateField(
+                      "showLogo",
+                      value
+                    )
+                  }
+                />
+
+                <ToggleOption
+                  label="Show phone number"
+                  description="Display the business phone number."
+                  checked={formData.showPhone}
+                  onChange={(value) =>
+                    updateField(
+                      "showPhone",
+                      value
+                    )
+                  }
+                />
+
+                <ToggleOption
+                  label="Show address"
+                  description="Display the business address."
+                  checked={formData.showAddress}
+                  onChange={(value) =>
+                    updateField(
+                      "showAddress",
+                      value
+                    )
+                  }
+                />
+
+                <ToggleOption
+                  label="Show cashier"
+                  description="Display the employee who processed the sale."
+                  checked={formData.showCashier}
+                  onChange={(value) =>
+                    updateField(
+                      "showCashier",
+                      value
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
               <button
                 type="button"
-                onClick={goBack}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                onClick={() =>
+                  navigate("/setup/branch")
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft size={17} />
                 Back
               </button>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? (
-                  "Finishing setup..."
+                {saving ? (
+                  <>
+                    <Loader2
+                      size={17}
+                      className="animate-spin"
+                    />
+                    Saving...
+                  </>
                 ) : (
                   <>
-                    Finish setup
-                    <ArrowRight className="h-4 w-4" />
+                    <Save size={17} />
+                    Save Receipt Settings
                   </>
                 )}
               </button>
-
             </div>
 
+            <button
+              type="button"
+              onClick={finishSetup}
+              className="w-full text-center text-sm font-medium text-slate-500 hover:text-slate-900"
+            >
+              Finish setup and go to dashboard
+            </button>
           </form>
 
-          {/* =================================================
-              RECEIPT PREVIEW
-          ================================================= */}
-
+          {/* Preview */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                Receipt preview
-              </h2>
+            <div className="sticky top-6">
+              <div className="mb-3 flex items-center gap-2">
+                <Eye
+                  size={17}
+                  className="text-slate-500"
+                />
 
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
-                Preview
-              </span>
-            </div>
+                <h3 className="text-sm font-semibold text-slate-700">
+                  Live Receipt Preview
+                </h3>
+              </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
-              <div className="mx-auto max-w-xs">
-
-                {/* Logo */}
-
-                {form.showLogo && (
-                  <div className="mb-4 flex justify-center">
-                    {business?.logo ? (
-                      <img
-                        src={business.logo}
-                        alt={business.name || "Business logo"}
-                        className="h-16 w-16 rounded-xl object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-slate-900 text-xl font-black text-white">
+              <div className="rounded-2xl border border-slate-200 bg-slate-100 p-5 shadow-sm">
+                <div className="mx-auto max-w-[330px] bg-white px-6 py-7 shadow-md">
+                  <div className="text-center">
+                    {formData.showLogo && (
+                      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-slate-900 text-lg font-bold text-white">
                         M
                       </div>
                     )}
+
+                    <h4 className="text-base font-bold uppercase text-slate-900">
+                      {businessName}
+                    </h4>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {branchName}
+                    </p>
+
+                    {formData.showPhone && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {businessPhone}
+                      </p>
+                    )}
+
+                    {formData.showAddress && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {businessAddress}
+                      </p>
+                    )}
                   </div>
-                )}
 
-                {/* Business */}
+                  <div className="my-5 border-t border-dashed border-slate-300" />
 
-                <div className="text-center">
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">
+                        Receipt
+                      </span>
 
-                  <h3 className="font-bold text-slate-900">
-                    {business?.name || "Your Business"}
-                  </h3>
-
-                  {form.showPhone && business?.phone && (
-                    <div className="mt-1 flex items-center justify-center gap-1 text-xs text-slate-500">
-                      <Phone className="h-3 w-3" />
-                      {business.phone}
-                    </div>
-                  )}
-
-                  {form.showAddress && (
-                    <div className="mt-1 flex items-center justify-center gap-1 text-center text-xs text-slate-500">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span>
-                        {branch?.address ||
-                          business?.address ||
-                          "Business address"}
+                      <span className="font-medium text-slate-800">
+                        {receiptNumber}
                       </span>
                     </div>
-                  )}
 
-                </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">
+                        Date
+                      </span>
 
-                <div className="my-5 border-t border-dashed border-slate-300" />
+                      <span className="text-slate-700">
+                        03/10/2026
+                      </span>
+                    </div>
 
-                {/* Receipt number */}
+                    {formData.showCashier && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">
+                          Cashier
+                        </span>
 
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500">
-                    Receipt
-                  </span>
-
-                  <span className="font-semibold text-slate-800">
-                    {form.prefix.toUpperCase() || "MOVA"}-000001
-                  </span>
-                </div>
-
-                <div className="mt-2 flex justify-between text-xs">
-                  <span className="text-slate-500">
-                    Date
-                  </span>
-
-                  <span className="text-slate-700">
-                    Today
-                  </span>
-                </div>
-
-                {form.showCashier && (
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">
-                      Cashier
-                    </span>
-
-                    <span className="flex items-center gap-1 text-slate-700">
-                      <User className="h-3 w-3" />
-                      Cashier
-                    </span>
+                        <span className="text-slate-700">
+                          Current User
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
 
-                <div className="my-5 border-t border-slate-200" />
+                  <div className="my-5 border-t border-dashed border-slate-300" />
 
-                {/* Items */}
+                  <div className="space-y-3 text-xs">
+                    <ReceiptItem
+                      name="Milk"
+                      quantity="2"
+                      amount="10,000"
+                    />
 
-                <div className="space-y-3 text-xs">
+                    <ReceiptItem
+                      name="Bread"
+                      quantity="1"
+                      amount="4,000"
+                    />
 
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">
-                      Sample Product × 2
-                    </span>
+                    <ReceiptItem
+                      name="Sugar"
+                      quantity="1"
+                      amount="8,000"
+                    />
+                  </div>
 
-                    <span className="font-medium text-slate-800">
-                      UGX 20,000
+                  <div className="my-5 border-t border-slate-300" />
+
+                  <div className="flex justify-between text-sm font-bold">
+                    <span>TOTAL</span>
+                    <span>
+                      22,000 {currency}
                     </span>
                   </div>
 
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">
-                      Another Product × 1
-                    </span>
-
-                    <span className="font-medium text-slate-800">
-                      UGX 10,000
-                    </span>
+                  <div className="mt-2 flex justify-between text-xs text-slate-500">
+                    <span>Payment</span>
+                    <span>CASH</span>
                   </div>
 
+                  <div className="my-5 border-t border-dashed border-slate-300" />
+
+                  <p className="text-center text-xs leading-5 text-slate-500">
+                    {formData.footerMessage ||
+                      "Thank you for shopping with us."}
+                  </p>
+
+                  <p className="mt-4 text-center text-[10px] text-slate-400">
+                    Powered by MOVA
+                  </p>
                 </div>
-
-                <div className="my-5 border-t border-dashed border-slate-300" />
-
-                <div className="flex justify-between text-sm font-bold text-slate-900">
-                  <span>
-                    TOTAL
-                  </span>
-
-                  <span>
-                    UGX 30,000
-                  </span>
-                </div>
-
-                <div className="mt-5 border-t border-dashed border-slate-300 pt-4 text-center text-xs leading-5 text-slate-500">
-                  {form.footerMessage ||
-                    "Thank you for shopping with us."}
-                </div>
-
               </div>
-
             </div>
-
           </div>
-
         </div>
-
       </main>
+    </div>
+  );
+};
+
+const ToggleOption = ({
+  label,
+  description,
+  checked,
+  onChange,
+}) => {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50">
+      <div>
+        <p className="text-sm font-medium text-slate-800">
+          {label}
+        </p>
+
+        <p className="mt-1 text-xs text-slate-500">
+          {description}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+          checked
+            ? "bg-slate-900"
+            : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition ${
+            checked
+              ? "left-6"
+              : "left-1"
+          }`}
+        />
+      </button>
+    </label>
+  );
+};
+
+const ReceiptItem = ({
+  name,
+  quantity,
+  amount,
+}) => {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="truncate font-medium text-slate-700">
+          {name}
+        </p>
+
+        <p className="text-[10px] text-slate-400">
+          {quantity} × item
+        </p>
+      </div>
+
+      <span className="font-medium text-slate-700">
+        {amount}
+      </span>
     </div>
   );
 };

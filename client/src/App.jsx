@@ -1,3 +1,4 @@
+
 import {
   Navigate,
   Route,
@@ -5,27 +6,19 @@ import {
 } from "react-router-dom";
 
 import DashboardLayout from "./layouts/DashboardLayout";
+import SetupGuard from "./components/SetupGuard";
 
-// ==========================================
-// AUTHENTICATION PAGES
-// ==========================================
-
+// AUTH
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 
-// ==========================================
-// BUSINESS SETUP PAGES
-// ==========================================
-
+// SETUP
 import BusinessSetup from "./pages/setup/BusinessSetup";
 import BranchSetup from "./pages/setup/BranchSetup";
 import ReceiptSetup from "./pages/setup/ReceiptSetup";
 
-// ==========================================
-// APPLICATION PAGES
-// ==========================================
-
+// APP
 import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
 import Sales from "./pages/sales/Sales";
@@ -39,12 +32,11 @@ import Purchases from "./pages/purchases/Purchases";
 import Expenses from "./pages/expenses/Expenses";
 import Reports from "./pages/reports/Reports";
 
-// ==========================================
-// PROTECTED ROUTE
-// ==========================================
-
-const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem("mova_token");
+const ProtectedRoute = ({
+  children,
+}) => {
+  const token =
+    localStorage.getItem("mova_token");
 
   if (!token) {
     return (
@@ -58,19 +50,12 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// ==========================================
-// TEMPORARY MODULE COMPONENT
-// ==========================================
-
 const ModulePage = ({
   title,
   description,
 }) => {
   return (
     <div className="space-y-6">
-
-      {/* Header */}
-
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
           {title}
@@ -81,12 +66,8 @@ const ModulePage = ({
         </p>
       </div>
 
-      {/* Module Card */}
-
       <div className="rounded-2xl border border-slate-200 bg-white p-10 shadow-sm">
-
         <div className="text-center">
-
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
             <span className="text-2xl font-bold text-slate-700">
               M
@@ -104,27 +85,16 @@ const ModulePage = ({
           <div className="mt-6 inline-flex rounded-full bg-slate-100 px-4 py-2 text-xs font-medium text-slate-600">
             Module under development
           </div>
-
         </div>
-
       </div>
-
     </div>
   );
 };
 
-// ==========================================
-// APPLICATION
-// ==========================================
-
 const App = () => {
   return (
     <Routes>
-
-      {/* =====================================================
-          PUBLIC ROUTES
-      ===================================================== */}
-
+      {/* AUTH */}
       <Route
         path="/login"
         element={<Login />}
@@ -140,16 +110,7 @@ const App = () => {
         element={<ForgotPassword />}
       />
 
-
-      {/* =====================================================
-          BUSINESS ONBOARDING
-
-          These routes require authentication but are
-          intentionally outside DashboardLayout.
-      ===================================================== */}
-
-      {/* Step 1 - Business Setup */}
-
+      {/* BUSINESS SETUP */}
       <Route
         path="/setup/business"
         element={
@@ -159,8 +120,7 @@ const App = () => {
         }
       />
 
-      {/* Step 2 - Branch Setup */}
-
+      {/* BRANCH SETUP */}
       <Route
         path="/setup/branch"
         element={
@@ -170,8 +130,7 @@ const App = () => {
         }
       />
 
-      {/* Step 3 - Receipt Setup */}
-
+      {/* RECEIPT SETUP */}
       <Route
         path="/setup/receipt"
         element={
@@ -181,83 +140,46 @@ const App = () => {
         }
       />
 
-
-      {/* =====================================================
-          PROTECTED APPLICATION
-      ===================================================== */}
-
+      {/* MAIN APPLICATION */}
       <Route
         path="/app"
         element={
           <ProtectedRoute>
-            <DashboardLayout />
+            <SetupGuard>
+              <DashboardLayout />
+            </SetupGuard>
           </ProtectedRoute>
         }
       >
-
-        {/* ===================================================
-            DASHBOARD
-        =================================================== */}
-
         <Route
           index
           element={<Dashboard />}
         />
-
-
-        {/* ===================================================
-            POINT OF SALE
-        =================================================== */}
 
         <Route
           path="pos"
           element={<POS />}
         />
 
-
-        {/* ===================================================
-            SALES
-        =================================================== */}
-
         <Route
           path="sales"
           element={<Sales />}
         />
-
-
-        {/* ===================================================
-            PAYMENTS
-        =================================================== */}
 
         <Route
           path="payments"
           element={<Payments />}
         />
 
-
-        {/* ===================================================
-            RECEIPTS
-        =================================================== */}
-
         <Route
           path="receipts"
           element={<Receipts />}
         />
 
-
-        {/* ===================================================
-            PRODUCTS
-        =================================================== */}
-
         <Route
           path="products"
           element={<Products />}
         />
-
-
-        {/* ===================================================
-            PRODUCT CATEGORIES
-        =================================================== */}
 
         <Route
           path="categories"
@@ -279,70 +201,35 @@ const App = () => {
           }
         />
 
-
-        {/* ===================================================
-            INVENTORY
-        =================================================== */}
-
         <Route
           path="inventory"
           element={<Inventory />}
         />
-
-
-        {/* ===================================================
-            CUSTOMERS
-        =================================================== */}
 
         <Route
           path="customers"
           element={<Customers />}
         />
 
-
-        {/* ===================================================
-            SUPPLIERS
-        =================================================== */}
-
         <Route
           path="suppliers"
           element={<Suppliers />}
         />
-
-
-        {/* ===================================================
-            PURCHASES
-        =================================================== */}
 
         <Route
           path="purchases"
           element={<Purchases />}
         />
 
-
-        {/* ===================================================
-            EXPENSES
-        =================================================== */}
-
         <Route
           path="expenses"
           element={<Expenses />}
         />
 
-
-        {/* ===================================================
-            REPORTS
-        =================================================== */}
-
         <Route
           path="reports"
           element={<Reports />}
         />
-
-
-        {/* ===================================================
-            SETTINGS
-        =================================================== */}
 
         <Route
           path="settings"
@@ -354,11 +241,6 @@ const App = () => {
           }
         />
 
-
-        {/* ===================================================
-            UNKNOWN APP ROUTES
-        =================================================== */}
-
         <Route
           path="*"
           element={
@@ -368,18 +250,9 @@ const App = () => {
             />
           }
         />
-
       </Route>
 
-
-      {/* =====================================================
-          ROOT ROUTE
-
-          IMPORTANT:
-          Opening localhost:5173 should start at LOGIN,
-          not directly at the dashboard.
-      ===================================================== */}
-
+      {/* DEFAULT */}
       <Route
         path="/"
         element={
@@ -390,13 +263,7 @@ const App = () => {
         }
       />
 
-
-      {/* =====================================================
-          UNKNOWN ROUTES
-
-          Send invalid URLs to login instead of dashboard.
-      ===================================================== */}
-
+      {/* UNKNOWN ROUTES */}
       <Route
         path="*"
         element={
@@ -406,7 +273,6 @@ const App = () => {
           />
         }
       />
-
     </Routes>
   );
 };

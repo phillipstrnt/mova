@@ -1,8 +1,10 @@
+
 import express from "express";
 
 import {
   getBusinessProfile,
   updateBusinessProfile,
+  getSetupStatus,
 } from "../controllers/businessController.js";
 
 import {
@@ -11,13 +13,6 @@ import {
 } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
-
-/*
-|--------------------------------------------------------------------------
-| BUSINESS PROFILE
-|--------------------------------------------------------------------------
-| Only authenticated OWNER/ADMIN users can modify business information.
-*/
 
 router.get(
   "/profile",
@@ -30,6 +25,12 @@ router.put(
   protect,
   authorize("OWNER", "ADMIN"),
   updateBusinessProfile
+);
+
+router.get(
+  "/setup-status",
+  protect,
+  getSetupStatus
 );
 
 export default router;

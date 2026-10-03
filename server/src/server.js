@@ -1,4 +1,3 @@
-
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -7,10 +6,12 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
-// Routes
+// ROUTES
 import authRoutes from "./routes/auth.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import branchRoutes from "./routes/branch.routes.js";
+import receiptRoutes from "./routes/receipt.routes.js";
+
 import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
 import saleRoutes from "./routes/sale.routes.js";
@@ -31,7 +32,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 const CLIENT_URL =
-  process.env.CLIENT_URL || "http://localhost:5173";
+  process.env.CLIENT_URL ||
+  "http://localhost:5173";
 
 /*
 |--------------------------------------------------------------------------
@@ -58,7 +60,8 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Too many requests. Please try again later.",
+    message:
+      "Too many requests. Please try again later.",
   },
 });
 
@@ -79,11 +82,15 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| BODY PARSERS
+| BODY PARSING
 |--------------------------------------------------------------------------
 */
 
-app.use(express.json({ limit: "10mb" }));
+app.use(
+  express.json({
+    limit: "10mb",
+  })
+);
 
 app.use(
   express.urlencoded({
@@ -95,7 +102,7 @@ app.use(cookieParser());
 
 /*
 |--------------------------------------------------------------------------
-| ROOT
+| ROOT ROUTE
 |--------------------------------------------------------------------------
 */
 
@@ -114,7 +121,8 @@ app.get("/", (req, res) => {
 */
 
 app.get("/api/health", (req, res) => {
-  const databaseState = mongoose.connection.readyState;
+  const databaseState =
+    mongoose.connection.readyState;
 
   res.json({
     success: true,
@@ -132,66 +140,144 @@ app.get("/api/health", (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-// Authentication
-app.use("/api/auth", authRoutes);
+/*
+ * Authentication
+ */
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
-// Business management
-app.use("/api/business", businessRoutes);
+/*
+ * Business
+ */
+app.use(
+  "/api/business",
+  businessRoutes
+);
 
-// Branch management
-app.use("/api/branches", branchRoutes);
+/*
+ * Branches
+ */
+app.use(
+  "/api/branches",
+  branchRoutes
+);
 
-// Categories
-app.use("/api/categories", categoryRoutes);
+/*
+ * Receipt settings
+ */
+app.use(
+  "/api/receipt-settings",
+  receiptRoutes
+);
 
-// Products
-app.use("/api/products", productRoutes);
+/*
+ * Categories
+ */
+app.use(
+  "/api/categories",
+  categoryRoutes
+);
 
-// Sales / POS
-app.use("/api/sales", saleRoutes);
+/*
+ * Products
+ */
+app.use(
+  "/api/products",
+  productRoutes
+);
 
-// Inventory
+/*
+ * Sales
+ */
+app.use(
+  "/api/sales",
+  saleRoutes
+);
+
+/*
+ * Inventory transactions
+ */
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
 
-// Customers
-app.use("/api/customers", customerRoutes);
+/*
+ * Customers
+ */
+app.use(
+  "/api/customers",
+  customerRoutes
+);
 
-// Returns
-app.use("/api/returns", returnRoutes);
+/*
+ * Returns
+ */
+app.use(
+  "/api/returns",
+  returnRoutes
+);
 
-// Suppliers
-app.use("/api/suppliers", supplierRoutes);
+/*
+ * Suppliers
+ */
+app.use(
+  "/api/suppliers",
+  supplierRoutes
+);
 
-// Purchases
-app.use("/api/purchases", purchaseRoutes);
+/*
+ * Purchases
+ */
+app.use(
+  "/api/purchases",
+  purchaseRoutes
+);
 
-// Expenses
-app.use("/api/expenses", expenseRoutes);
+/*
+ * Expenses
+ */
+app.use(
+  "/api/expenses",
+  expenseRoutes
+);
 
-// Payments
-app.use("/api/payments", paymentRoutes);
+/*
+ * Payments
+ */
+app.use(
+  "/api/payments",
+  paymentRoutes
+);
 
-// Dashboard
-app.use("/api/dashboard", dashboardRoutes);
+/*
+ * Dashboard
+ */
+app.use(
+  "/api/dashboard",
+  dashboardRoutes
+);
 
-// Reports
-app.use("/api/reports", reportRoutes);
+/*
+ * Reports
+ */
+app.use(
+  "/api/reports",
+  reportRoutes
+);
 
 /*
 |--------------------------------------------------------------------------
 | API 404 HANDLER
 |--------------------------------------------------------------------------
-|
-| Express 5 does not support the old "/api/*" syntax.
-| We therefore use normal middleware here and check the URL.
-|--------------------------------------------------------------------------
 */
 
 app.use((req, res, next) => {
-  if (req.originalUrl.startsWith("/api/")) {
+  if (
+    req.originalUrl.startsWith("/api/")
+  ) {
     return res.status(404).json({
       success: false,
       message: `API route not found: ${req.method} ${req.originalUrl}`,
@@ -220,15 +306,23 @@ app.use((req, res) => {
 |--------------------------------------------------------------------------
 */
 
-app.use((error, req, res, next) => {
-  console.error("Unhandled server error:", error);
+app.use(
+  (error, req, res, next) => {
+    console.error(
+      "Unhandled server error:",
+      error
+    );
 
-  res.status(error.status || 500).json({
-    success: false,
-    message:
-      error.message || "Internal server error",
-  });
-});
+    res.status(
+      error.status || 500
+    ).json({
+      success: false,
+      message:
+        error.message ||
+        "Internal server error",
+    });
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -244,9 +338,13 @@ const connectDatabase = async () => {
       );
     }
 
-    await mongoose.connect(process.env.MONGO_URI);
+    await mongoose.connect(
+      process.env.MONGO_URI
+    );
 
-    console.log("MongoDB connected successfully");
+    console.log(
+      "MongoDB connected successfully"
+    );
   } catch (error) {
     console.error(
       "MongoDB connection failed:",
@@ -267,11 +365,14 @@ const startServer = async () => {
   try {
     await connectDatabase();
 
-    app.listen(PORT, () => {
-      console.log(
-        `MOVA server running on http://localhost:${PORT}`
-      );
-    });
+    app.listen(
+      PORT,
+      () => {
+        console.log(
+          `MOVA server running on http://localhost:${PORT}`
+        );
+      }
+    );
   } catch (error) {
     console.error(
       "Server startup failed:",
