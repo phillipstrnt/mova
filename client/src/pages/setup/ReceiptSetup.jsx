@@ -25,17 +25,13 @@ const DEFAULT_SETTINGS = {
 const ReceiptSetup = () => {
   const navigate = useNavigate();
 
-  const {
-    business,
-    branch,
-  } = useAuth();
+  const { business, branch } = useAuth();
 
-  const [formData, setFormData] = useState(
-    DEFAULT_SETTINGS
-  );
+  const [formData, setFormData] = useState(DEFAULT_SETTINGS);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -49,9 +45,7 @@ const ReceiptSetup = () => {
       setLoading(true);
       setError("");
 
-      const response = await api.get(
-        "/receipt-settings"
-      );
+      const response = await api.get("/receipt-settings");
 
       const settings = response?.data?.settings;
 
@@ -107,6 +101,68 @@ const ReceiptSetup = () => {
     setError("");
   };
 
+  /*
+   * Verify that all three setup steps have
+   * successfully completed.
+   */
+  const verifySetupCompletion = async () => {
+    try {
+      const response = await api.get(
+        "/business/setup-status"
+      );
+
+      const data = response?.data;
+
+      return data?.setupComplete === true;
+    } catch (error) {
+      console.error(
+        "Failed to verify setup completion:",
+        error
+      );
+
+      return false;
+    }
+  };
+
+  /*
+   * Navigate to the dashboard after confirming
+   * that setup has actually been completed.
+   */
+  const finishSetup = async () => {
+    if (finishing) return;
+
+    try {
+      setFinishing(true);
+      setError("");
+
+      const complete =
+        await verifySetupCompletion();
+
+      if (!complete) {
+        setError(
+          "Your setup is not complete yet. Please make sure your business, branch, and receipt settings have been saved."
+        );
+
+        return;
+      }
+
+      navigate("/app", {
+        replace: true,
+      });
+    } catch (error) {
+      console.error(
+        "Finish setup error:",
+        error
+      );
+
+      setError(
+        "Unable to complete setup. Please try again."
+      );
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
@@ -129,6 +185,7 @@ const ReceiptSetup = () => {
         "/receipt-settings",
         {
           prefix,
+
           footerMessage:
             formData.footerMessage.trim(),
 
@@ -171,8 +228,17 @@ const ReceiptSetup = () => {
       }
 
       setSuccess(
-        "Receipt settings saved successfully."
+        "Receipt settings saved successfully. Completing your MOVA setup..."
       );
+
+      /*
+       * Give the user a moment to see the
+       * successful save message, then verify
+       * setup and navigate.
+       */
+      setTimeout(async () => {
+        await finishSetup();
+      }, 700);
     } catch (error) {
       console.error(
         "Failed to save receipt settings:",
@@ -186,12 +252,6 @@ const ReceiptSetup = () => {
     } finally {
       setSaving(false);
     }
-  };
-
-  const finishSetup = () => {
-    navigate("/app", {
-      replace: true,
-    });
   };
 
   const currency = useMemo(() => {
@@ -254,6 +314,7 @@ const ReceiptSetup = () => {
           <div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex">
             <span>Setup</span>
             <span>/</span>
+
             <span className="font-medium text-slate-900">
               Receipt
             </span>
@@ -344,6 +405,7 @@ const ReceiptSetup = () => {
         {success && (
           <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             <Check size={17} />
+
             {success}
           </div>
         )}
@@ -494,15 +556,17 @@ const ReceiptSetup = () => {
                 onClick={() =>
                   navigate("/setup/branch")
                 }
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                disabled={saving || finishing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <ArrowLeft size={17} />
+
                 Back
               </button>
 
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || finishing}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? (
@@ -511,12 +575,14 @@ const ReceiptSetup = () => {
                       size={17}
                       className="animate-spin"
                     />
+
                     Saving...
                   </>
                 ) : (
                   <>
                     <Save size={17} />
-                    Save Receipt Settings
+
+                    Save & Finish Setup
                   </>
                 )}
               </button>
@@ -525,9 +591,19 @@ const ReceiptSetup = () => {
             <button
               type="button"
               onClick={finishSetup}
-              className="w-full text-center text-sm font-medium text-slate-500 hover:text-slate-900"
+              disabled={saving || finishing}
+              className="flex w-full items-center justify-center gap-2 text-center text-sm font-medium text-slate-500 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Finish setup and go to dashboard
+              {finishing && (
+                <Loader2
+                  size={15}
+                  className="animate-spin"
+                />
+              )}
+
+              {finishing
+                ? "Opening dashboard..."
+                : "Finish setup and go to dashboard"}
             </button>
           </form>
 
@@ -637,6 +713,7 @@ const ReceiptSetup = () => {
 
                   <div className="flex justify-between text-sm font-bold">
                     <span>TOTAL</span>
+
                     <span>
                       22,000 {currency}
                     </span>
@@ -644,6 +721,7 @@ const ReceiptSetup = () => {
 
                   <div className="mt-2 flex justify-between text-xs text-slate-500">
                     <span>Payment</span>
+
                     <span>CASH</span>
                   </div>
 

@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Check,
   Edit3,
+  FolderPlus,
   Package,
   Plus,
   RefreshCw,
@@ -28,6 +29,11 @@ const emptyForm = {
   minimumStock: "",
   unit: "piece",
   trackStock: true,
+};
+
+const emptyCategoryForm = {
+  name: "",
+  description: "",
 };
 
 const currency = new Intl.NumberFormat("en-UG", {
@@ -55,18 +61,36 @@ const Products = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingCategory, setSavingCategory] =
+    useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [categoryError, setCategoryError] =
+    useState("");
+  const [categorySuccess, setCategorySuccess] =
+    useState("");
 
-  const [showModal, setShowModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] =
+    useState("");
+  const [statusFilter, setStatusFilter] =
+    useState("active");
+
+  const [showModal, setShowModal] =
+    useState(false);
+
+  const [showCategoryModal, setShowCategoryModal] =
+    useState(false);
+
+  const [editingProduct, setEditingProduct] =
+    useState(null);
 
   const [form, setForm] = useState(emptyForm);
+
+  const [categoryForm, setCategoryForm] =
+    useState(emptyCategoryForm);
 
   const canManageProducts = [
     "OWNER",
@@ -76,6 +100,10 @@ const Products = () => {
   ].includes(
     String(user?.role || "").toUpperCase()
   );
+
+  // ==========================================================
+  // FETCH PRODUCTS
+  // ==========================================================
 
   const fetchProducts = async ({
     isRefresh = false,
@@ -95,8 +123,10 @@ const Products = () => {
       const response = await api.get("/products", {
         params: {
           search: search.trim() || undefined,
+
           categoryId:
             categoryFilter || undefined,
+
           isActive:
             statusFilter === "all"
               ? undefined
@@ -134,6 +164,10 @@ const Products = () => {
     }
   };
 
+  // ==========================================================
+  // FETCH CATEGORIES
+  // ==========================================================
+
   const fetchCategories = async () => {
     try {
       const response = await api.get(
@@ -155,6 +189,12 @@ const Products = () => {
         "Failed to load categories:",
         err
       );
+
+      setCategoryError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Failed to load categories."
+      );
     }
   };
 
@@ -174,13 +214,20 @@ const Products = () => {
     statusFilter,
   ]);
 
+  // ==========================================================
+  // PRODUCT MODAL
+  // ==========================================================
+
   const openAddModal = () => {
     setEditingProduct(null);
+
     setForm({
       ...emptyForm,
     });
+
     setError("");
     setSuccess("");
+
     setShowModal(true);
   };
 
@@ -189,32 +236,45 @@ const Products = () => {
 
     setForm({
       name: product?.name || "",
+
       sku: product?.sku || "",
-      barcode: product?.barcode || "",
+
+      barcode:
+        product?.barcode || "",
+
       description:
         product?.description || "",
+
       categoryId:
         product?.categoryId?._id ||
         product?.categoryId?.id ||
         product?.categoryId ||
         "",
+
       buyingPrice:
         product?.buyingPrice ?? "",
+
       sellingPrice:
         product?.sellingPrice ?? "",
+
       stockQuantity:
         product?.stockQuantity ??
         product?.stock ??
         "",
+
       minimumStock:
         product?.minimumStock ?? "",
-      unit: product?.unit || "piece",
+
+      unit:
+        product?.unit || "piece",
+
       trackStock:
         product?.trackStock ?? true,
     });
 
     setError("");
     setSuccess("");
+
     setShowModal(true);
   };
 
@@ -222,12 +282,189 @@ const Products = () => {
     if (saving) return;
 
     setShowModal(false);
+
     setEditingProduct(null);
+
     setForm({
       ...emptyForm,
     });
+
     setError("");
   };
+
+  // ==========================================================
+  // CATEGORY MODAL
+  // ==========================================================
+
+  const openCategoryModal = () => {
+    setCategoryForm({
+      ...emptyCategoryForm,
+    });
+
+    setCategoryError("");
+    setCategorySuccess("");
+
+    setShowCategoryModal(true);
+  };
+
+  const closeCategoryModal = () => {
+    if (savingCategory) return;
+
+    setShowCategoryModal(false);
+
+    setCategoryForm({
+      ...emptyCategoryForm,
+    });
+
+    setCategoryError("");
+  };
+
+  const handleCategoryChange = (
+    event
+  ) => {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setCategoryForm(
+      (previous) => ({
+        ...previous,
+        [name]: value,
+      })
+    );
+  };
+
+  // ==========================================================
+  // CREATE CATEGORY
+  // ==========================================================
+
+  const handleCreateCategory = async (
+    event
+  ) => {
+    event.preventDefault();
+
+    setCategoryError("");
+    setCategorySuccess("");
+
+    const name =
+      categoryForm.name.trim();
+
+    const description =
+      categoryForm.description.trim();
+
+    if (!name) {
+      setCategoryError(
+        "Category name is required."
+      );
+
+      return;
+    }
+
+    // Prevent obvious duplicate categories
+    const duplicate =
+      categories.some(
+        (category) =>
+          String(
+            category?.name || ""
+          )
+            .trim()
+            .toLowerCase() ===
+          name.toLowerCase()
+      );
+
+    if (duplicate) {
+      setCategoryError(
+        "A category with this name already exists."
+      );
+
+      return;
+    }
+
+    try {
+      setSavingCategory(true);
+
+      const response =
+        await api.post(
+          "/categories",
+          {
+            name,
+            description,
+          }
+        );
+
+      const createdCategory =
+        response?.data?.category ||
+        response?.data?.data;
+
+      // --------------------------------------------------------
+      // REFRESH CATEGORY LIST
+      // --------------------------------------------------------
+
+      await fetchCategories();
+
+      // --------------------------------------------------------
+      // IF API RETURNS CREATED CATEGORY,
+      // AUTOMATICALLY SELECT IT IN PRODUCT FORM
+      // --------------------------------------------------------
+
+      if (createdCategory) {
+        const newCategoryId =
+          createdCategory._id ||
+          createdCategory.id;
+
+        if (newCategoryId) {
+          setForm(
+            (previous) => ({
+              ...previous,
+              categoryId:
+                newCategoryId,
+            })
+          );
+        }
+      }
+
+      setCategorySuccess(
+        "Category created successfully."
+      );
+
+      setSuccess(
+        `Category "${name}" created successfully.`
+      );
+
+      // --------------------------------------------------------
+      // CLOSE CATEGORY MODAL AFTER SHORT DELAY
+      // --------------------------------------------------------
+
+      setTimeout(() => {
+        setShowCategoryModal(false);
+
+        setCategoryForm({
+          ...emptyCategoryForm,
+        });
+
+        setCategorySuccess("");
+      }, 700);
+    } catch (err) {
+      console.error(
+        "Failed to create category:",
+        err
+      );
+
+      setCategoryError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to create category."
+      );
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
+  // ==========================================================
+  // PRODUCT FORM
+  // ==========================================================
 
   const handleChange = (event) => {
     const {
@@ -239,6 +476,7 @@ const Products = () => {
 
     setForm((previous) => ({
       ...previous,
+
       [name]:
         type === "checkbox"
           ? checked
@@ -246,37 +484,51 @@ const Products = () => {
     }));
   };
 
-  const handleSubmit = async (event) => {
+  // ==========================================================
+  // SAVE PRODUCT
+  // ==========================================================
+
+  const handleSubmit = async (
+    event
+  ) => {
     event.preventDefault();
 
     setError("");
     setSuccess("");
 
-    const name = form.name.trim();
-    const sku = form.sku
-      .trim()
-      .toUpperCase();
+    const name =
+      form.name.trim();
 
-    const buyingPrice = Number(
-      form.buyingPrice
-    );
+    const sku =
+      form.sku
+        .trim()
+        .toUpperCase();
 
-    const sellingPrice = Number(
-      form.sellingPrice
-    );
+    const buyingPrice =
+      Number(
+        form.buyingPrice
+      );
 
-    const stockQuantity = Number(
-      form.stockQuantity || 0
-    );
+    const sellingPrice =
+      Number(
+        form.sellingPrice
+      );
 
-    const minimumStock = Number(
-      form.minimumStock || 0
-    );
+    const stockQuantity =
+      Number(
+        form.stockQuantity || 0
+      );
+
+    const minimumStock =
+      Number(
+        form.minimumStock || 0
+      );
 
     if (!name) {
       setError(
         "Product name is required."
       );
+
       return;
     }
 
@@ -284,57 +536,72 @@ const Products = () => {
       setError(
         "SKU/product code is required."
       );
+
       return;
     }
 
     if (
       form.buyingPrice === "" ||
-      !Number.isFinite(buyingPrice) ||
+      !Number.isFinite(
+        buyingPrice
+      ) ||
       buyingPrice < 0
     ) {
       setError(
         "Enter a valid buying price."
       );
+
       return;
     }
 
     if (
       form.sellingPrice === "" ||
-      !Number.isFinite(sellingPrice) ||
+      !Number.isFinite(
+        sellingPrice
+      ) ||
       sellingPrice < 0
     ) {
       setError(
         "Enter a valid selling price."
       );
+
       return;
     }
 
     if (
-      !Number.isFinite(stockQuantity) ||
+      !Number.isFinite(
+        stockQuantity
+      ) ||
       stockQuantity < 0
     ) {
       setError(
         "Stock quantity cannot be negative."
       );
+
       return;
     }
 
     if (
-      !Number.isFinite(minimumStock) ||
+      !Number.isFinite(
+        minimumStock
+      ) ||
       minimumStock < 0
     ) {
       setError(
         "Minimum stock cannot be negative."
       );
+
       return;
     }
 
     if (
-      sellingPrice < buyingPrice
+      sellingPrice <
+      buyingPrice
     ) {
-      const confirmed = window.confirm(
-        "The selling price is lower than the buying price. This means the product will be sold at a loss. Do you want to continue?"
-      );
+      const confirmed =
+        window.confirm(
+          "The selling price is lower than the buying price. This means the product will be sold at a loss. Do you want to continue?"
+        );
 
       if (!confirmed) {
         return;
@@ -343,21 +610,34 @@ const Products = () => {
 
     const payload = {
       name,
+
       sku,
+
       barcode:
         form.barcode.trim(),
+
       description:
         form.description.trim(),
+
       categoryId:
         form.categoryId || null,
+
       buyingPrice,
+
       sellingPrice,
+
       stockQuantity,
+
       minimumStock,
+
       unit:
-        form.unit.trim() || "piece",
+        form.unit.trim() ||
+        "piece",
+
       trackStock:
-        Boolean(form.trackStock),
+        Boolean(
+          form.trackStock
+        ),
     };
 
     try {
@@ -389,10 +669,13 @@ const Products = () => {
 
       setTimeout(() => {
         setShowModal(false);
+
         setEditingProduct(null);
+
         setForm({
           ...emptyForm,
         });
+
         setSuccess("");
       }, 700);
     } catch (err) {
@@ -402,8 +685,10 @@ const Products = () => {
       );
 
       const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
+        err?.response?.data
+          ?.message ||
+        err?.response?.data
+          ?.error ||
         err?.message ||
         "Failed to save product.";
 
@@ -413,60 +698,73 @@ const Products = () => {
     }
   };
 
-  const toggleProductStatus = async (
-    product
-  ) => {
-    if (!product?._id) {
-      setError(
-        "This product does not have a valid ID."
-      );
-      return;
-    }
+  // ==========================================================
+  // TOGGLE PRODUCT STATUS
+  // ==========================================================
 
-    try {
-      setError("");
-      setSuccess("");
+  const toggleProductStatus =
+    async (product) => {
+      if (!product?._id) {
+        setError(
+          "This product does not have a valid ID."
+        );
 
-      const action = product.isActive
-        ? "deactivate"
-        : "activate";
+        return;
+      }
 
-      await api.patch(
-        `/products/${product._id}/${action}`
-      );
-
-      setSuccess(
-        product.isActive
-          ? "Product deactivated successfully."
-          : "Product activated successfully."
-      );
-
-      await fetchProducts({
-        silent: true,
-      });
-
-      setTimeout(() => {
+      try {
+        setError("");
         setSuccess("");
-      }, 2000);
-    } catch (err) {
-      console.error(
-        "Failed to update product status:",
-        err
-      );
 
-      setError(
-        err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message ||
-          "Failed to update product status."
-      );
-    }
-  };
+        const action =
+          product.isActive
+            ? "deactivate"
+            : "activate";
+
+        await api.patch(
+          `/products/${product._id}/${action}`
+        );
+
+        setSuccess(
+          product.isActive
+            ? "Product deactivated successfully."
+            : "Product activated successfully."
+        );
+
+        await fetchProducts({
+          silent: true,
+        });
+
+        setTimeout(() => {
+          setSuccess("");
+        }, 2000);
+      } catch (err) {
+        console.error(
+          "Failed to update product status:",
+          err
+        );
+
+        setError(
+          err?.response?.data
+            ?.message ||
+            err?.response?.data
+              ?.error ||
+            err?.message ||
+            "Failed to update product status."
+        );
+      }
+    };
+
+  // ==========================================================
+  // CATEGORY NAME
+  // ==========================================================
 
   const getCategoryName = (
     product
   ) => {
-    if (product?.categoryId?.name) {
+    if (
+      product?.categoryId?.name
+    ) {
       return product.categoryId.name;
     }
 
@@ -478,7 +776,8 @@ const Products = () => {
     const category =
       categories.find(
         (item) =>
-          item?._id === categoryId ||
+          item?._id ===
+            categoryId ||
           item?.id === categoryId
       );
 
@@ -487,6 +786,10 @@ const Products = () => {
       "Uncategorized"
     );
   };
+
+  // ==========================================================
+  // STOCK
+  // ==========================================================
 
   const getProductStock = (
     product
@@ -505,6 +808,10 @@ const Products = () => {
       product?.minimumStock ?? 0
     );
   };
+
+  // ==========================================================
+  // STATISTICS
+  // ==========================================================
 
   const statistics = useMemo(() => {
     const activeProducts =
@@ -535,7 +842,10 @@ const Products = () => {
 
     const totalStockValue =
       activeProducts.reduce(
-        (total, product) => {
+        (
+          total,
+          product
+        ) => {
           const buyingPrice =
             Number(
               product?.buyingPrice ||
@@ -549,7 +859,8 @@ const Products = () => {
 
           return (
             total +
-            buyingPrice * stock
+            buyingPrice *
+              stock
           );
         },
         0
@@ -557,7 +868,10 @@ const Products = () => {
 
     const potentialSalesValue =
       activeProducts.reduce(
-        (total, product) => {
+        (
+          total,
+          product
+        ) => {
           const sellingPrice =
             Number(
               product?.sellingPrice ||
@@ -571,27 +885,40 @@ const Products = () => {
 
           return (
             total +
-            sellingPrice * stock
+            sellingPrice *
+              stock
           );
         },
         0
       );
 
     return {
-      total: products.length,
+      total:
+        products.length,
+
       active:
         activeProducts.length,
+
       lowStock:
         lowStock.length,
+
       stockValue:
         totalStockValue,
+
       potentialSalesValue,
     };
   }, [products]);
 
+  // ==========================================================
+  // UI
+  // ==========================================================
+
   return (
     <div className="space-y-6">
-      {/* HEADER */}
+      {/* =====================================================
+          HEADER
+      ====================================================== */}
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-3">
@@ -611,13 +938,17 @@ const Products = () => {
           </div>
 
           <p className="max-w-2xl text-sm leading-6 text-slate-500">
-            Manage your products, pricing,
-            stock levels, categories and
-            availability from one place.
+            Manage your products,
+            pricing, stock levels,
+            categories and
+            availability from one
+            place.
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        {/* ACTION BUTTONS */}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <button
             type="button"
             onClick={() =>
@@ -643,21 +974,45 @@ const Products = () => {
           </button>
 
           {canManageProducts && (
-            <button
-              type="button"
-              onClick={
-                openAddModal
-              }
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              Add Product
-            </button>
+            <>
+              {/* ADD CATEGORY */}
+
+              <button
+                type="button"
+                onClick={
+                  openCategoryModal
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100"
+              >
+                <FolderPlus
+                  size={18}
+                />
+
+                Add Category
+              </button>
+
+              {/* ADD PRODUCT */}
+
+              <button
+                type="button"
+                onClick={
+                  openAddModal
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
+              >
+                <Plus size={18} />
+
+                Add Product
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {/* ALERTS */}
+      {/* =====================================================
+          ALERTS
+      ====================================================== */}
+
       {error && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <AlertCircle
@@ -672,11 +1027,134 @@ const Products = () => {
       {success && (
         <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
           <Check size={18} />
+
           {success}
         </div>
       )}
 
-      {/* STATISTICS */}
+      {/* =====================================================
+          CATEGORY SUMMARY
+      ====================================================== */}
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-blue-600">
+              Categories
+            </p>
+
+            <h2 className="mt-1 text-lg font-black text-slate-900">
+              Product Categories
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Organize products into
+              categories for easier
+              management and reporting.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">
+              {formatNumber(
+                categories.length
+              )}{" "}
+              categor
+              {categories.length === 1
+                ? "y"
+                : "ies"}
+            </span>
+
+            {canManageProducts && (
+              <button
+                type="button"
+                onClick={
+                  openCategoryModal
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700"
+              >
+                <Plus size={17} />
+
+                New Category
+              </button>
+            )}
+          </div>
+        </div>
+
+        {categoryError && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            {categoryError}
+          </div>
+        )}
+
+        {categories.length > 0 ? (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {categories.map(
+              (category) => (
+                <button
+                  type="button"
+                  key={
+                    category._id ||
+                    category.id
+                  }
+                  onClick={() =>
+                    setCategoryFilter(
+                      category._id ||
+                        category.id
+                    )
+                  }
+                  className={`rounded-xl border px-4 py-2 text-sm font-bold transition ${
+                    categoryFilter ===
+                    (category._id ||
+                      category.id)
+                      ? "border-blue-300 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  }`}
+                >
+                  {category.name}
+                </button>
+              )
+            )}
+
+            {categoryFilter && (
+              <button
+                type="button"
+                onClick={() =>
+                  setCategoryFilter("")
+                }
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50"
+              >
+                Clear category
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
+            <p className="text-sm font-semibold text-slate-600">
+              No categories have been
+              created yet.
+            </p>
+
+            {canManageProducts && (
+              <button
+                type="button"
+                onClick={
+                  openCategoryModal
+                }
+                className="mt-3 text-sm font-bold text-blue-600 hover:text-blue-700"
+              >
+                Create your first
+                category
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================
+          STATISTICS
+      ====================================================== */}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Products"
@@ -713,7 +1191,10 @@ const Products = () => {
         />
       </div>
 
-      {/* EXTRA INVENTORY VALUE */}
+      {/* =====================================================
+          POTENTIAL SALES VALUE
+      ====================================================== */}
+
       <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -729,7 +1210,8 @@ const Products = () => {
 
             <p className="mt-1 text-xs text-blue-600">
               Estimated value of current
-              tracked stock at selling prices.
+              tracked stock at selling
+              prices.
             </p>
           </div>
 
@@ -742,7 +1224,10 @@ const Products = () => {
         </div>
       </div>
 
-      {/* FILTERS */}
+      {/* =====================================================
+          FILTERS
+      ====================================================== */}
+
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_180px]">
           <div className="relative">
@@ -815,7 +1300,10 @@ const Products = () => {
         </div>
       </div>
 
-      {/* PRODUCTS TABLE */}
+      {/* =====================================================
+          PRODUCTS TABLE
+      ====================================================== */}
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -871,9 +1359,9 @@ const Products = () => {
             </h3>
 
             <p className="mt-1 max-w-md text-sm text-slate-500">
-              Add your first product or
-              change the search/filter
-              options.
+              Add your first product
+              or change the
+              search/filter options.
             </p>
 
             {canManageProducts && (
@@ -885,6 +1373,7 @@ const Products = () => {
                 className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
               >
                 <Plus size={17} />
+
                 Add Product
               </button>
             )}
@@ -1155,11 +1644,13 @@ const Products = () => {
         )}
       </div>
 
-      {/* ADD / EDIT MODAL */}
+      {/* =====================================================
+          ADD / EDIT PRODUCT MODAL
+      ====================================================== */}
+
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-            {/* MODAL HEADER */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-5">
               <div>
                 <h2 className="text-xl font-black text-slate-950">
@@ -1185,7 +1676,6 @@ const Products = () => {
               </button>
             </div>
 
-            {/* FORM */}
             <form
               onSubmit={handleSubmit}
               className="space-y-6 p-6"
@@ -1202,7 +1692,6 @@ const Products = () => {
               )}
 
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                {/* NAME */}
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Product name *
@@ -1220,7 +1709,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* SKU */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     SKU / Product Code *
@@ -1238,7 +1726,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* BARCODE */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Barcode
@@ -1256,10 +1743,29 @@ const Products = () => {
                 </div>
 
                 {/* CATEGORY */}
+
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-slate-700">
-                    Category
-                  </label>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-sm font-bold text-slate-700">
+                      Category
+                    </label>
+
+                    {canManageProducts && (
+                      <button
+                        type="button"
+                        onClick={
+                          openCategoryModal
+                        }
+                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"
+                      >
+                        <Plus
+                          size={14}
+                        />
+
+                        New
+                      </button>
+                    )}
+                  </div>
 
                   <select
                     name="categoryId"
@@ -1299,12 +1805,13 @@ const Products = () => {
                     0 && (
                     <p className="mt-2 text-xs text-amber-600">
                       No categories are
-                      available yet.
+                      available yet. Click
+                      "New" above to create
+                      one.
                     </p>
                   )}
                 </div>
 
-                {/* UNIT */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Unit
@@ -1321,7 +1828,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* BUYING PRICE */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Buying price *
@@ -1344,7 +1850,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* SELLING PRICE */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Selling price *
@@ -1367,7 +1872,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* STOCK */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Current stock
@@ -1389,7 +1893,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* MINIMUM STOCK */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Minimum stock
@@ -1411,7 +1914,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* DESCRIPTION */}
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Description
@@ -1431,7 +1933,6 @@ const Products = () => {
                   />
                 </div>
 
-                {/* TRACK STOCK */}
                 <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
                   <input
                     name="trackStock"
@@ -1447,7 +1948,8 @@ const Products = () => {
 
                   <div>
                     <p className="text-sm font-bold text-slate-800">
-                      Track inventory for this product
+                      Track inventory for
+                      this product
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
@@ -1459,7 +1961,6 @@ const Products = () => {
                 </label>
               </div>
 
-              {/* FORM ACTIONS */}
               <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
@@ -1488,9 +1989,177 @@ const Products = () => {
           </div>
         </div>
       )}
+
+      {/* =====================================================
+          CATEGORY MODAL
+      ====================================================== */}
+
+      {showCategoryModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+            {/* HEADER */}
+
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                  <FolderPlus
+                    size={21}
+                  />
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-black text-slate-950">
+                    Add Category
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Create a category for
+                    organizing your products.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  closeCategoryModal
+                }
+                disabled={
+                  savingCategory
+                }
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* FORM */}
+
+            <form
+              onSubmit={
+                handleCreateCategory
+              }
+              className="space-y-5 p-6"
+            >
+              {categoryError && (
+                <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <AlertCircle
+                    size={18}
+                    className="mt-0.5 shrink-0"
+                  />
+
+                  <span>
+                    {categoryError}
+                  </span>
+                </div>
+              )}
+
+              {categorySuccess && (
+                <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
+                  <Check
+                    size={18}
+                  />
+
+                  {categorySuccess}
+                </div>
+              )}
+
+              {/* NAME */}
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Category name *
+                </label>
+
+                <input
+                  type="text"
+                  name="name"
+                  value={
+                    categoryForm.name
+                  }
+                  onChange={
+                    handleCategoryChange
+                  }
+                  placeholder="e.g. Beverages"
+                  required
+                  autoFocus
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              {/* DESCRIPTION */}
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Description
+                </label>
+
+                <textarea
+                  name="description"
+                  value={
+                    categoryForm.description
+                  }
+                  onChange={
+                    handleCategoryChange
+                  }
+                  rows="3"
+                  placeholder="e.g. Soft drinks, juices and bottled water"
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              {/* ACTIONS */}
+
+              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={
+                    closeCategoryModal
+                  }
+                  disabled={
+                    savingCategory
+                  }
+                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={
+                    savingCategory
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingCategory ? (
+                    <>
+                      <RefreshCw
+                        size={17}
+                        className="animate-spin"
+                      />
+
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={17} />
+
+                      Create Category
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+// ============================================================
+// STAT CARD
+// ============================================================
 
 const StatCard = ({
   label,

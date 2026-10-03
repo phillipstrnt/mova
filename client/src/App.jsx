@@ -17,6 +17,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import BusinessSetup from "./pages/setup/BusinessSetup";
 import BranchSetup from "./pages/setup/BranchSetup";
 import ReceiptSetup from "./pages/setup/ReceiptSetup";
+import Categories from "./pages/products/Categories";
 
 // APP
 import Dashboard from "./pages/dashboard/Dashboard";
@@ -201,6 +202,10 @@ const App = () => {
           }
         />
 
+        <Route
+          path="products/categories"
+          element={<Categories />}
+        />
         <Route
           path="inventory"
           element={<Inventory />}

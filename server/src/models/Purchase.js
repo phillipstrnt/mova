@@ -2,12 +2,19 @@ import mongoose from "mongoose";
 
 const purchaseItemSchema = new mongoose.Schema(
   {
+    // ==========================================
+    // PRODUCT
+    // ==========================================
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
       required: true,
+      index: true,
     },
 
+    // ==========================================
+    // PRODUCT SNAPSHOT
+    // ==========================================
     name: {
       type: String,
       required: true,
@@ -18,20 +25,30 @@ const purchaseItemSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      uppercase: true,
     },
 
+    // ==========================================
+    // QUANTITY
+    // ==========================================
     quantity: {
       type: Number,
       required: true,
       min: 1,
     },
 
+    // ==========================================
+    // BUYING PRICE
+    // ==========================================
     buyingPrice: {
       type: Number,
       required: true,
       min: 0,
     },
 
+    // ==========================================
+    // ITEM SUBTOTAL
+    // ==========================================
     subtotal: {
       type: Number,
       required: true,
@@ -45,6 +62,9 @@ const purchaseItemSchema = new mongoose.Schema(
 
 const purchaseSchema = new mongoose.Schema(
   {
+    // ==========================================
+    // BUSINESS
+    // ==========================================
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -52,6 +72,9 @@ const purchaseSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ==========================================
+    // BRANCH
+    // ==========================================
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
@@ -59,6 +82,9 @@ const purchaseSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ==========================================
+    // SUPPLIER
+    // ==========================================
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
@@ -66,6 +92,9 @@ const purchaseSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ==========================================
+    // USER WHO CREATED PURCHASE
+    // ==========================================
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -73,30 +102,44 @@ const purchaseSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ==========================================
+    // PURCHASE NUMBER
+    // ==========================================
     purchaseNumber: {
       type: String,
       required: true,
       unique: true,
+      trim: true,
       index: true,
     },
 
+    // ==========================================
+    // SUPPLIER INVOICE NUMBER
+    // ==========================================
     invoiceNumber: {
       type: String,
       trim: true,
       default: "",
     },
 
+    // ==========================================
+    // PURCHASE ITEMS
+    // ==========================================
     items: {
       type: [purchaseItemSchema],
       required: true,
       validate: {
         validator: (items) =>
+          Array.isArray(items) &&
           items.length > 0,
         message:
           "A purchase must contain at least one item.",
       },
     },
 
+    // ==========================================
+    // FINANCIAL TOTALS
+    // ==========================================
     subtotal: {
       type: Number,
       required: true,
@@ -115,6 +158,9 @@ const purchaseSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // ==========================================
+    // PAYMENT METHOD
+    // ==========================================
     paymentMethod: {
       type: String,
       enum: [
@@ -127,6 +173,9 @@ const purchaseSchema = new mongoose.Schema(
       required: true,
     },
 
+    // ==========================================
+    // PAYMENT STATUS
+    // ==========================================
     paymentStatus: {
       type: String,
       enum: [
@@ -137,6 +186,9 @@ const purchaseSchema = new mongoose.Schema(
       default: "PAID",
     },
 
+    // ==========================================
+    // PURCHASE STATUS
+    // ==========================================
     status: {
       type: String,
       enum: [
@@ -144,8 +196,12 @@ const purchaseSchema = new mongoose.Schema(
         "CANCELLED",
       ],
       default: "RECEIVED",
+      index: true,
     },
 
+    // ==========================================
+    // NOTES
+    // ==========================================
     notes: {
       type: String,
       trim: true,
@@ -157,14 +213,62 @@ const purchaseSchema = new mongoose.Schema(
   }
 );
 
+// ==========================================
+// BUSINESS PURCHASE HISTORY
+// ==========================================
+
 purchaseSchema.index({
   businessId: 1,
   createdAt: -1,
 });
 
+// ==========================================
+// BRANCH PURCHASE HISTORY
+// ==========================================
+
+purchaseSchema.index({
+  businessId: 1,
+  branchId: 1,
+  createdAt: -1,
+});
+
+// ==========================================
+// SUPPLIER PURCHASE HISTORY
+// ==========================================
+
 purchaseSchema.index({
   businessId: 1,
   supplierId: 1,
+  createdAt: -1,
+});
+
+// ==========================================
+// STATUS FILTERING
+// ==========================================
+
+purchaseSchema.index({
+  businessId: 1,
+  status: 1,
+  createdAt: -1,
+});
+
+// ==========================================
+// PAYMENT STATUS FILTERING
+// ==========================================
+
+purchaseSchema.index({
+  businessId: 1,
+  paymentStatus: 1,
+  createdAt: -1,
+});
+
+// ==========================================
+// USER ACTIVITY
+// ==========================================
+
+purchaseSchema.index({
+  businessId: 1,
+  userId: 1,
   createdAt: -1,
 });
 

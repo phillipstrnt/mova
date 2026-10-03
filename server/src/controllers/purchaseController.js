@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 import Purchase from "../models/Purchase.js";
 import Supplier from "../models/Supplier.js";
 import Product from "../models/Product.js";
+import ProductBranchStock from "../models/ProductBranchStock.js";
+import Branch from "../models/Branch.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
-
 
 // ============================================================
 // HELPER: GENERATE PURCHASE NUMBER
@@ -42,6 +43,243 @@ const generatePurchaseNumber = () => {
   return `PUR-${year}${month}${day}-${hours}${minutes}${seconds}-${random}`;
 };
 
+// ============================================================
+// HELPER: RESOLVE ACTIVE BRANCH
+// ============================================================
+
+const resolvePurchaseBranch = async (req) => {
+  const businessId = req.user?.businessId;
+
+  if (!businessId) {
+    const error = new Error(
+      "Business information is missing from your account."
+    );
+
+    error.status = 400;
+
+    throw error;
+  }
+
+  // ----------------------------------------------------------
+  // FIRST: CHECK ACTIVE BRANCH
+  // ----------------------------------------------------------
+
+  const requestedBranchId =
+    req.body?.branchId ||
+    req.query?.branchId ||
+    req.user?.activeBranchId ||
+    req.user?.branchId;
+
+  // ----------------------------------------------------------
+  // IF A BRANCH WAS PROVIDED, VALIDATE IT
+  // ----------------------------------------------------------
+
+  if (requestedBranchId) {
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        requestedBranchId
+      )
+    ) {
+      const error = new Error(
+        "Invalid branch ID."
+      );
+
+      error.status = 400;
+
+      throw error;
+    }
+
+    const branch =
+      await Branch.findOne({
+        _id: requestedBranchId,
+        businessId,
+        isActive: true,
+      });
+
+    if (!branch) {
+      const error = new Error(
+        "Selected branch was not found or is inactive."
+      );
+
+      error.status = 404;
+
+      throw error;
+    }
+
+    // --------------------------------------------------------
+    // CHECK USER BRANCH ACCESS
+    // --------------------------------------------------------
+
+    const isOwnerOrAdmin =
+      ["OWNER", "ADMIN"].includes(
+        req.user.role
+      );
+
+    const authorizedBranches = (
+      req.user.branchIds || []
+    ).map((id) => String(id));
+
+    const hasAccess =
+      isOwnerOrAdmin ||
+      authorizedBranches.includes(
+        String(branch._id)
+      );
+
+    // --------------------------------------------------------
+    // LEGACY FALLBACK
+    // --------------------------------------------------------
+    //
+    // Existing demo users may have branchId but
+    // branchIds may not yet be populated.
+    //
+    // Allow their assigned branch.
+    //
+
+    const assignedBranch =
+      req.user.branchId
+        ? String(req.user.branchId) ===
+          String(branch._id)
+        : false;
+
+    if (
+      !hasAccess &&
+      !assignedBranch
+    ) {
+      const error = new Error(
+        "You do not have access to this branch."
+      );
+
+      error.status = 403;
+
+      throw error;
+    }
+
+    return branch;
+  }
+
+  // ----------------------------------------------------------
+  // NO BRANCH SELECTED
+  // ----------------------------------------------------------
+  //
+  // Since your demo currently has one branch,
+  // automatically use the only active branch.
+  //
+
+  const activeBranches =
+    await Branch.find({
+      businessId,
+      isActive: true,
+    }).sort({
+      createdAt: 1,
+    });
+
+  if (activeBranches.length === 0) {
+    const error = new Error(
+      "No active branch exists for this business. Please complete branch setup."
+    );
+
+    error.status = 400;
+
+    throw error;
+  }
+
+  if (activeBranches.length === 1) {
+    return activeBranches[0];
+  }
+
+  // ----------------------------------------------------------
+  // MULTIPLE BRANCHES BUT NO ACTIVE BRANCH SELECTED
+  // ----------------------------------------------------------
+
+  const error = new Error(
+    "Please select a branch before creating a purchase."
+  );
+
+  error.status = 400;
+
+  throw error;
+};
+
+// ============================================================
+// HELPER: GET OR CREATE BRANCH STOCK
+// ============================================================
+
+const getOrCreateBranchStock = async ({
+  businessId,
+  branchId,
+  product,
+}) => {
+  let stock =
+    await ProductBranchStock.findOne({
+      businessId,
+      branchId,
+      productId: product._id,
+    });
+
+  if (stock) {
+    return stock;
+  }
+
+  // ----------------------------------------------------------
+  // DETERMINE LEGACY STOCK
+  // ----------------------------------------------------------
+  //
+  // Because the demo currently has one active branch,
+  // existing Product.stockQuantity can safely be migrated
+  // to the Main Branch.
+  //
+
+  const activeBranchCount =
+    await Branch.countDocuments({
+      businessId,
+      isActive: true,
+    });
+
+  const legacyStock =
+    activeBranchCount === 1
+      ? Number(product.stockQuantity || 0)
+      : 0;
+
+  const legacyMinimumStock =
+    activeBranchCount === 1
+      ? Number(product.minimumStock || 0)
+      : 0;
+
+  try {
+    stock =
+      await ProductBranchStock.create({
+        businessId,
+        branchId,
+        productId: product._id,
+        stockQuantity:
+          legacyStock,
+        minimumStock:
+          legacyMinimumStock,
+        isActive: true,
+      });
+
+    return stock;
+  } catch (error) {
+    // --------------------------------------------------------
+    // HANDLE RACE CONDITION
+    // --------------------------------------------------------
+
+    if (error.code === 11000) {
+      const existingStock =
+        await ProductBranchStock.findOne({
+          businessId,
+          branchId,
+          productId: product._id,
+        });
+
+      if (existingStock) {
+        return existingStock;
+      }
+    }
+
+    throw error;
+  }
+};
 
 // ============================================================
 // GET ALL PURCHASES
@@ -50,7 +288,8 @@ const generatePurchaseNumber = () => {
 
 const getPurchases = async (req, res) => {
   try {
-    const businessId = req.user?.businessId;
+    const businessId =
+      req.user?.businessId;
 
     if (!businessId) {
       return res.status(400).json({
@@ -65,6 +304,7 @@ const getPurchases = async (req, res) => {
       supplierId = "",
       status = "",
       paymentStatus = "",
+      branchId = "",
       page = 1,
       limit = 20,
     } = req.query;
@@ -74,14 +314,46 @@ const getPurchases = async (req, res) => {
     };
 
     // --------------------------------------------------------
+    // BRANCH FILTER
+    // --------------------------------------------------------
+
+    if (branchId) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          branchId
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid branch ID.",
+        });
+      }
+
+      filter.branchId = branchId;
+    } else {
+      // Automatically use user's active branch
+      // for normal branch users.
+
+      const activeBranchId =
+        req.user?.activeBranchId ||
+        req.user?.branchId;
+
+      if (activeBranchId) {
+        filter.branchId =
+          activeBranchId;
+      }
+    }
+
+    // --------------------------------------------------------
     // SEARCH
     // --------------------------------------------------------
 
     if (search.trim()) {
-      const searchRegex = new RegExp(
-        search.trim(),
-        "i"
-      );
+      const searchRegex =
+        new RegExp(
+          search.trim(),
+          "i"
+        );
 
       const matchingSuppliers =
         await Supplier.find({
@@ -101,15 +373,18 @@ const getPurchases = async (req, res) => {
 
       const supplierIds =
         matchingSuppliers.map(
-          (supplier) => supplier._id
+          (supplier) =>
+            supplier._id
         );
 
       filter.$or = [
         {
-          purchaseNumber: searchRegex,
+          purchaseNumber:
+            searchRegex,
         },
         {
-          invoiceNumber: searchRegex,
+          invoiceNumber:
+            searchRegex,
         },
       ];
 
@@ -134,11 +409,13 @@ const getPurchases = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: "Invalid supplier ID.",
+          message:
+            "Invalid supplier ID.",
         });
       }
 
-      filter.supplierId = supplierId;
+      filter.supplierId =
+        supplierId;
     }
 
     // --------------------------------------------------------
@@ -192,6 +469,10 @@ const getPurchases = async (req, res) => {
           "userId",
           "name email"
         )
+        .populate(
+          "branchId",
+          "name code address"
+        )
         .sort({
           createdAt: -1,
         })
@@ -230,7 +511,6 @@ const getPurchases = async (req, res) => {
   }
 };
 
-
 // ============================================================
 // GET SINGLE PURCHASE
 // GET /api/purchases/:id
@@ -251,7 +531,8 @@ const getPurchaseById = async (
     ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid purchase ID.",
+        message:
+          "Invalid purchase ID.",
       });
     }
 
@@ -268,12 +549,17 @@ const getPurchaseById = async (
           "userId",
           "name email"
         )
+        .populate(
+          "branchId",
+          "name code address"
+        )
         .lean();
 
     if (!purchase) {
       return res.status(404).json({
         success: false,
-        message: "Purchase not found.",
+        message:
+          "Purchase not found.",
       });
     }
 
@@ -295,7 +581,6 @@ const getPurchaseById = async (
   }
 };
 
-
 // ============================================================
 // CREATE PURCHASE
 // POST /api/purchases
@@ -305,15 +590,12 @@ const createPurchase = async (
   req,
   res
 ) => {
-  const updatedProducts = [];
+  const updatedBranchStocks = [];
   const createdInventoryTransactions = [];
 
   try {
     const businessId =
       req.user?.businessId;
-
-    const branchId =
-      req.user?.branchId || null;
 
     const userId =
       req.user?._id;
@@ -325,6 +607,18 @@ const createPurchase = async (
           "Business or user information is missing.",
       });
     }
+
+    // --------------------------------------------------------
+    // RESOLVE BRANCH
+    // --------------------------------------------------------
+
+    const branch =
+      await resolvePurchaseBranch(
+        req
+      );
+
+    const branchId =
+      branch._id;
 
     const {
       supplierId,
@@ -450,7 +744,7 @@ const createPurchase = async (
     }
 
     // --------------------------------------------------------
-    // PREPARE PURCHASE ITEMS
+    // PREPARE ITEMS
     // --------------------------------------------------------
 
     const normalizedItems = [];
@@ -575,8 +869,11 @@ const createPurchase = async (
     const purchase =
       await Purchase.create({
         businessId,
+
         branchId,
+
         supplierId,
+
         userId,
 
         purchaseNumber:
@@ -613,7 +910,7 @@ const createPurchase = async (
       });
 
     // --------------------------------------------------------
-    // UPDATE STOCK
+    // UPDATE BRANCH STOCK
     // --------------------------------------------------------
 
     try {
@@ -632,107 +929,145 @@ const createPurchase = async (
           );
         }
 
+        // ----------------------------------------------------
+        // NON-STOCK PRODUCTS
+        // ----------------------------------------------------
+
+        if (!product.trackStock) {
+          product.buyingPrice =
+            item.buyingPrice;
+
+          await product.save();
+
+          continue;
+        }
+
+        // ----------------------------------------------------
+        // GET BRANCH STOCK
+        // ----------------------------------------------------
+
+        const branchStock =
+          await getOrCreateBranchStock({
+            businessId,
+            branchId,
+            product,
+          });
+
         const stockBefore =
           Number(
-            product.stockQuantity || 0
+            branchStock.stockQuantity ||
+              0
           );
 
         const stockAfter =
-          product.trackStock
-            ? stockBefore +
-              item.quantity
-            : stockBefore;
+          stockBefore +
+          item.quantity;
 
-        // Update buying price even if
-        // stock tracking is disabled.
+        // ----------------------------------------------------
+        // UPDATE BRANCH STOCK
+        // ----------------------------------------------------
+
+        branchStock.stockQuantity =
+          stockAfter;
+
+        branchStock.isActive =
+          true;
+
+        await branchStock.save();
+
+        // ----------------------------------------------------
+        // UPDATE PRODUCT BUYING PRICE
+        // ----------------------------------------------------
+
         product.buyingPrice =
           item.buyingPrice;
 
-        if (product.trackStock) {
-          product.stockQuantity =
-            stockAfter;
-        }
-
         await product.save();
 
-        updatedProducts.push({
+        updatedBranchStocks.push({
+          stockId:
+            branchStock._id,
+
           productId:
             product._id,
+
           stockBefore,
+
           stockAfter,
-          buyingPrice:
-            product.buyingPrice,
+
           quantity:
             item.quantity,
-          trackStock:
-            product.trackStock,
+
+          buyingPrice:
+            product.buyingPrice,
         });
 
         // ----------------------------------------------------
         // INVENTORY TRANSACTION
         // ----------------------------------------------------
 
-        if (product.trackStock) {
-          const inventoryTransaction =
-            await InventoryTransaction.create(
-              {
-                businessId,
+        const inventoryTransaction =
+          await InventoryTransaction.create(
+            {
+              businessId,
 
-                branchId,
+              branchId,
 
-                productId:
-                  product._id,
+              productId:
+                product._id,
 
-                userId,
+              userId,
 
-                type:
-                  "STOCK_RECEIVED",
+              type:
+                "STOCK_RECEIVED",
 
-                quantity:
-                  item.quantity,
+              quantity:
+                item.quantity,
 
-                stockBefore,
+              stockBefore,
 
-                stockAfter,
+              stockAfter,
 
-                reason:
-                  `Purchase ${purchase.purchaseNumber}`,
+              reason:
+                `Purchase ${purchase.purchaseNumber}`,
 
-                referenceType:
-                  "PURCHASE",
+              referenceType:
+                "PURCHASE",
 
-                referenceId:
-                  purchase._id,
+              referenceId:
+                purchase._id,
 
-                notes:
-                  `Stock received from ${supplier.name}`,
-              }
-            );
-
-          createdInventoryTransactions.push(
-            inventoryTransaction._id
+              notes:
+                `Stock received from ${supplier.name}`,
+            }
           );
-        }
+
+        createdInventoryTransactions.push(
+          inventoryTransaction._id
+        );
       }
     } catch (stockError) {
       console.error(
-        "Purchase stock update error:",
+        "Purchase branch stock update error:",
         stockError
       );
 
       // ------------------------------------------------------
-      // ROLLBACK PRODUCT STOCK
+      // ROLLBACK BRANCH STOCK
       // ------------------------------------------------------
 
       for (
         const updated of
-        updatedProducts.reverse()
+        [...updatedBranchStocks].reverse()
       ) {
-        await Product.findOneAndUpdate(
+        await ProductBranchStock.findOneAndUpdate(
           {
             _id:
-              updated.productId,
+              updated.stockId,
+
             businessId,
+
+            branchId,
           },
           {
             $set: {
@@ -773,7 +1108,7 @@ const createPurchase = async (
     }
 
     // --------------------------------------------------------
-    // RETURN CREATED PURCHASE
+    // RETURN PURCHASE
     // --------------------------------------------------------
 
     const populatedPurchase =
@@ -788,12 +1123,18 @@ const createPurchase = async (
           "userId",
           "name email"
         )
+        .populate(
+          "branchId",
+          "name code address"
+        )
         .lean();
 
     return res.status(201).json({
       success: true,
+
       message:
-        "Purchase created and stock received successfully.",
+        `Purchase received successfully at ${branch.name}.`,
+
       purchase:
         populatedPurchase,
     });
@@ -803,7 +1144,9 @@ const createPurchase = async (
       error
     );
 
-    return res.status(500).json({
+    return res.status(
+      error.status || 500
+    ).json({
       success: false,
       message:
         error.message ||
@@ -811,7 +1154,6 @@ const createPurchase = async (
     });
   }
 };
-
 
 // ============================================================
 // CANCEL PURCHASE
@@ -822,8 +1164,8 @@ const cancelPurchase = async (
   req,
   res
 ) => {
-  const reversedProducts = [];
-  const deletedTransactions = [];
+  const reversedStocks = [];
+  const createdTransactions = [];
 
   try {
     const businessId =
@@ -866,8 +1208,35 @@ const cancelPurchase = async (
       });
     }
 
+    if (!purchase.branchId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This purchase has no branch assigned and cannot be safely reversed.",
+      });
+    }
+
     // --------------------------------------------------------
-    // REVERSE STOCK
+    // VERIFY BRANCH
+    // --------------------------------------------------------
+
+    const branch =
+      await Branch.findOne({
+        _id: purchase.branchId,
+        businessId,
+        isActive: true,
+      });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "The purchase branch was not found or is inactive.",
+      });
+    }
+
+    // --------------------------------------------------------
+    // REVERSE BRANCH STOCK
     // --------------------------------------------------------
 
     try {
@@ -891,9 +1260,31 @@ const cancelPurchase = async (
           continue;
         }
 
+        // ----------------------------------------------------
+        // FIND BRANCH STOCK
+        // ----------------------------------------------------
+
+        const branchStock =
+          await ProductBranchStock.findOne(
+            {
+              businessId,
+              branchId:
+                purchase.branchId,
+              productId:
+                item.productId,
+            }
+          );
+
+        if (!branchStock) {
+          throw new Error(
+            `Branch stock for ${item.name} could not be found.`
+          );
+        }
+
         const stockBefore =
           Number(
-            product.stockQuantity || 0
+            branchStock.stockQuantity ||
+              0
           );
 
         if (
@@ -901,7 +1292,7 @@ const cancelPurchase = async (
           item.quantity
         ) {
           throw new Error(
-            `Cannot cancel purchase because ${product.name} only has ${stockBefore} units in stock, but ${item.quantity} units need to be removed.`
+            `Cannot cancel purchase because ${product.name} only has ${stockBefore} units at ${branch.name}, but ${item.quantity} units need to be removed.`
           );
         }
 
@@ -909,22 +1300,25 @@ const cancelPurchase = async (
           stockBefore -
           item.quantity;
 
-        product.stockQuantity =
+        branchStock.stockQuantity =
           stockAfter;
 
-        await product.save();
+        await branchStock.save();
 
-        reversedProducts.push({
-          productId:
-            product._id,
+        reversedStocks.push({
+          stockId:
+            branchStock._id,
+
           stockBefore,
+
           stockAfter,
+
           quantity:
             item.quantity,
         });
 
         // ----------------------------------------------------
-        // RECORD REVERSAL TRANSACTION
+        // RECORD REVERSAL
         // ----------------------------------------------------
 
         const transaction =
@@ -965,7 +1359,7 @@ const cancelPurchase = async (
             }
           );
 
-        deletedTransactions.push(
+        createdTransactions.push(
           transaction._id
         );
       }
@@ -976,18 +1370,22 @@ const cancelPurchase = async (
       );
 
       // ------------------------------------------------------
-      // ROLLBACK STOCK REVERSALS
+      // ROLLBACK STOCK
       // ------------------------------------------------------
 
       for (
         const reversed of
-        reversedProducts.reverse()
+        [...reversedStocks].reverse()
       ) {
-        await Product.findOneAndUpdate(
+        await ProductBranchStock.findOneAndUpdate(
           {
             _id:
-              reversed.productId,
+              reversed.stockId,
+
             businessId,
+
+            branchId:
+              purchase.branchId,
           },
           {
             $set: {
@@ -999,18 +1397,18 @@ const cancelPurchase = async (
       }
 
       // ------------------------------------------------------
-      // REMOVE REVERSAL TRANSACTIONS
+      // REMOVE TRANSACTIONS
       // ------------------------------------------------------
 
       if (
-        deletedTransactions
+        createdTransactions
           .length > 0
       ) {
         await InventoryTransaction.deleteMany(
           {
             _id: {
               $in:
-                deletedTransactions,
+                createdTransactions,
             },
           }
         );
@@ -1020,7 +1418,7 @@ const cancelPurchase = async (
     }
 
     // --------------------------------------------------------
-    // UPDATE PURCHASE STATUS
+    // UPDATE PURCHASE
     // --------------------------------------------------------
 
     purchase.status =
@@ -1030,8 +1428,10 @@ const cancelPurchase = async (
 
     return res.status(200).json({
       success: true,
+
       message:
-        "Purchase cancelled and stock reversed successfully.",
+        `Purchase cancelled and stock reversed at ${branch.name}.`,
+
       purchase,
     });
   } catch (error) {
@@ -1040,7 +1440,9 @@ const cancelPurchase = async (
       error
     );
 
-    return res.status(500).json({
+    return res.status(
+      error.status || 500
+    ).json({
       success: false,
       message:
         error.message ||
@@ -1048,7 +1450,6 @@ const cancelPurchase = async (
     });
   }
 };
-
 
 // ============================================================
 // EXPORT

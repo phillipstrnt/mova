@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import {
-  AlertCircle,
-  Check,
+  Archive,
+  CheckCircle2,
   Edit3,
   FolderOpen,
+  Package,
   Plus,
-  Power,
+  RefreshCw,
+  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -13,25 +16,25 @@ import {
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
-const emptyForm = {
-  name: "",
-  description: "",
-};
-
 const Categories = () => {
   const { user } = useAuth();
 
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
 
   const [showModal, setShowModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
 
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+  });
+
+  const [saving, setSaving] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -40,48 +43,94 @@ const Categories = () => {
     "OWNER",
     "ADMIN",
     "MANAGER",
-  ].includes(user?.role);
+  ].includes(String(user?.role || "").toUpperCase());
 
-  const fetchCategories = async () => {
+  const fetchCategories = async (showRefresh = false) => {
     try {
-      setLoading(true);
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
       setError("");
 
       const response = await api.get("/categories", {
         params: {
-          isActive:
-            statusFilter === "all"
-              ? undefined
-              : statusFilter === "active",
+          includeInactive: "true",
         },
       });
 
-      setCategories(response.data.categories || []);
+      const returnedCategories =
+        response?.data?.categories || [];
+
+      setCategories(
+        Array.isArray(returnedCategories)
+          ? returnedCategories
+          : []
+      );
     } catch (err) {
-      console.error("Failed to load categories:", err);
+      console.error("Failed to fetch categories:", err);
 
       setError(
-        err.response?.data?.message ||
+        err?.response?.data?.message ||
+          err?.message ||
           "Failed to load categories."
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchCategories();
-  }, [statusFilter]);
+  }, []);
 
-  const filteredCategories = categories.filter((category) =>
-    `${category.name} ${category.description || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
+  const filteredCategories = useMemo(() => {
+    const searchTerm = search.trim().toLowerCase();
+
+    return categories.filter((category) => {
+      const matchesSearch =
+        !searchTerm ||
+        category.name
+          ?.toLowerCase()
+          .includes(searchTerm) ||
+        category.description
+          ?.toLowerCase()
+          .includes(searchTerm);
+
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "ACTIVE" && category.isActive) ||
+        (statusFilter === "INACTIVE" && !category.isActive);
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [categories, search, statusFilter]);
+
+  const activeCount = categories.filter(
+    (category) => category.isActive
+  ).length;
+
+  const inactiveCount = categories.filter(
+    (category) => !category.isActive
+  ).length;
+
+  const totalProducts = categories.reduce(
+    (total, category) =>
+      total + Number(category.productCount || 0),
+    0
   );
 
-  const openAddModal = () => {
+  const openCreateModal = () => {
     setEditingCategory(null);
-    setForm(emptyForm);
+
+    setForm({
+      name: "",
+      description: "",
+    });
+
     setError("");
     setSuccess("");
     setShowModal(true);
@@ -105,7 +154,13 @@ const Categories = () => {
 
     setShowModal(false);
     setEditingCategory(null);
-    setForm(emptyForm);
+
+    setForm({
+      name: "",
+      description: "",
+    });
+
+    setError("");
   };
 
   const handleChange = (event) => {
@@ -120,31 +175,34 @@ const Categories = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    setError("");
-    setSuccess("");
+    const name = form.name.trim();
+    const description = form.description.trim();
 
-    if (!form.name.trim()) {
+    if (!name) {
       setError("Category name is required.");
       return;
     }
 
     try {
       setSaving(true);
-
-      const payload = {
-        name: form.name.trim(),
-        description: form.description.trim(),
-      };
+      setError("");
+      setSuccess("");
 
       if (editingCategory) {
         await api.patch(
           `/categories/${editingCategory._id}`,
-          payload
+          {
+            name,
+            description,
+          }
         );
 
         setSuccess("Category updated successfully.");
       } else {
-        await api.post("/categories", payload);
+        await api.post("/categories", {
+          name,
+          description,
+        });
 
         setSuccess("Category created successfully.");
       }
@@ -152,14 +210,22 @@ const Categories = () => {
       await fetchCategories();
 
       setTimeout(() => {
-        closeModal();
+        setShowModal(false);
+        setEditingCategory(null);
+
+        setForm({
+          name: "",
+          description: "",
+        });
+
         setSuccess("");
-      }, 700);
+      }, 600);
     } catch (err) {
-      console.error("Failed to save category:", err);
+      console.error("Category save error:", err);
 
       setError(
-        err.response?.data?.message ||
+        err?.response?.data?.message ||
+          err?.message ||
           "Failed to save category."
       );
     } finally {
@@ -167,101 +233,217 @@ const Categories = () => {
     }
   };
 
-  const toggleCategoryStatus = async (category) => {
+  const handleStatusChange = async (category) => {
+    const action = category.isActive
+      ? "deactivate"
+      : "activate";
+
+    const confirmationMessage = category.isActive
+      ? `Deactivate "${category.name}"? Products already assigned to this category will remain unchanged.`
+      : `Activate "${category.name}" again?`;
+
+    const confirmed = window.confirm(
+      confirmationMessage
+    );
+
+    if (!confirmed) return;
+
     try {
       setError("");
       setSuccess("");
-
-      const action = category.isActive
-        ? "deactivate"
-        : "activate";
 
       await api.patch(
         `/categories/${category._id}/${action}`
       );
 
-      setSuccess(
-        category.isActive
-          ? "Category deactivated."
-          : "Category activated."
-      );
-
       await fetchCategories();
 
-      setTimeout(() => setSuccess(""), 2000);
+      setSuccess(
+        category.isActive
+          ? "Category deactivated successfully."
+          : "Category activated successfully."
+      );
+
+      setTimeout(() => {
+        setSuccess("");
+      }, 2500);
     } catch (err) {
       console.error(
-        "Failed to update category status:",
+        "Category status update error:",
         err
       );
 
       setError(
-        err.response?.data?.message ||
-          "Failed to update category status."
+        err?.response?.data?.message ||
+          err?.message ||
+          `Failed to ${action} category.`
       );
     }
   };
 
+  const formatDate = (date) => {
+    if (!date) return "—";
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "—";
+    }
+
+    return parsedDate.toLocaleDateString("en-UG", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-full bg-slate-50 p-4 sm:p-6 lg:p-8">
+      {/* HEADER */}
+
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
               <FolderOpen size={22} />
             </div>
 
             <div>
-              <p className="text-sm font-bold uppercase tracking-wider text-blue-600">
-                Product Management
-              </p>
-
-              <h1 className="text-3xl font-black tracking-tight text-slate-950">
+              <h1 className="text-2xl font-black tracking-tight text-slate-950">
                 Categories
               </h1>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Organize your products into manageable
+                categories.
+              </p>
             </div>
           </div>
-
-          <p className="max-w-2xl text-sm leading-6 text-slate-500">
-            Organize your products into categories so they
-            are easier to manage, search, and report on.
-          </p>
         </div>
 
-        {canManageCategories && (
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={openAddModal}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
+            type="button"
+            onClick={() => fetchCategories(true)}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Plus size={18} />
-            Add Category
+            <RefreshCw
+              size={17}
+              className={
+                refreshing ? "animate-spin" : ""
+              }
+            />
+
+            Refresh
           </button>
-        )}
+
+          {canManageCategories && (
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+
+              Add Category
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Alerts */}
+      {/* ALERTS */}
+
       {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          <X size={18} className="mt-0.5 shrink-0" />
+
           <span>{error}</span>
+
+          <button
+            type="button"
+            onClick={() => setError("")}
+            className="ml-auto text-red-500 hover:text-red-700"
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
       {success && (
-        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
-          <Check size={18} />
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+          <CheckCircle2 size={18} />
+
           {success}
         </div>
       )}
 
-      {/* Filters */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
-          <div className="relative">
+      {/* SUMMARY CARDS */}
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                Total Categories
+              </p>
+
+              <p className="mt-2 text-2xl font-black text-slate-950">
+                {categories.length}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <FolderOpen size={21} />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                Active
+              </p>
+
+              <p className="mt-2 text-2xl font-black text-emerald-600">
+                {activeCount}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <CheckCircle2 size={21} />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                Products Assigned
+              </p>
+
+              <p className="mt-2 text-2xl font-black text-slate-950">
+                {totalProducts}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+              <Package size={21} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TOOLBAR */}
+
+      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-md">
             <Search
               size={18}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
             />
 
             <input
@@ -271,217 +453,341 @@ const Categories = () => {
                 setSearch(event.target.value)
               }
               placeholder="Search categories..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
             />
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value)
-            }
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-          >
-            <option value="active">Active</option>
-            <option value="all">All categories</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStatusFilter("ACTIVE")}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                statusFilter === "ACTIVE"
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Active
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("INACTIVE")}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                statusFilter === "INACTIVE"
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Inactive
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter("ALL")}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                statusFilter === "ALL"
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              All
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Category list */}
+      {/* TABLE */}
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="font-black text-slate-900">
-            Product Categories
-          </h2>
-
-          <p className="mt-1 text-sm text-slate-500">
-            {filteredCategories.length} categor
-            {filteredCategories.length === 1 ? "y" : "ies"}
-          </p>
-        </div>
-
         {loading ? (
-          <div className="flex min-h-60 items-center justify-center">
-            <div className="text-center">
-              <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+          <div className="flex min-h-[320px] items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <RefreshCw
+                size={28}
+                className="animate-spin text-blue-600"
+              />
 
-              <p className="mt-3 text-sm font-medium text-slate-500">
+              <p className="text-sm font-semibold text-slate-500">
                 Loading categories...
               </p>
             </div>
           </div>
         ) : filteredCategories.length === 0 ? (
-          <div className="flex min-h-60 flex-col items-center justify-center px-6 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <FolderOpen size={25} />
+          <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <FolderOpen size={30} />
             </div>
 
-            <h3 className="mt-4 font-bold text-slate-900">
-              No categories found
+            <h3 className="mt-4 text-lg font-black text-slate-900">
+              {search
+                ? "No categories found"
+                : "No categories yet"}
             </h3>
 
-            <p className="mt-1 max-w-md text-sm text-slate-500">
-              Create a category to organize your products.
+            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
+              {search
+                ? "Try changing your search or filter."
+                : "Create your first product category to start organizing your inventory."}
             </p>
 
-            {canManageCategories && (
+            {!search && canManageCategories && (
               <button
-                onClick={openAddModal}
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+                type="button"
+                onClick={openCreateModal}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700"
               >
                 <Plus size={17} />
-                Add Category
+
+                Create Category
               </button>
             )}
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {filteredCategories.map((category) => (
-              <div
-                key={category._id}
-                className="flex flex-col gap-4 p-5 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                    <FolderOpen size={21} />
-                  </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-5 py-4 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Category
+                  </th>
 
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-bold text-slate-900">
-                        {category.name}
-                      </h3>
+                  <th className="px-5 py-4 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Products
+                  </th>
 
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-                          category.isActive
-                            ? "bg-green-50 text-green-700"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {category.isActive
-                          ? "Active"
-                          : "Inactive"}
-                      </span>
-                    </div>
+                  <th className="px-5 py-4 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Status
+                  </th>
 
-                    <p className="mt-1 text-sm text-slate-500">
-                      {category.description ||
-                        "No description provided."}
-                    </p>
-                  </div>
-                </div>
+                  <th className="px-5 py-4 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Created
+                  </th>
 
-                {canManageCategories && (
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      onClick={() =>
-                        openEditModal(category)
-                      }
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                  <th className="px-5 py-4 text-right text-[11px] font-black uppercase tracking-wider text-slate-400">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredCategories.map(
+                  (category) => (
+                    <tr
+                      key={category._id}
+                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70"
                     >
-                      <Edit3 size={16} />
-                      Edit
-                    </button>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                            <FolderOpen size={19} />
+                          </div>
 
-                    <button
-                      onClick={() =>
-                        toggleCategoryStatus(category)
-                      }
-                      className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold ${
-                        category.isActive
-                          ? "border-red-200 text-red-600 hover:bg-red-50"
-                          : "border-green-200 text-green-600 hover:bg-green-50"
-                      }`}
-                    >
-                      <Power size={16} />
+                          <div>
+                            <p className="font-bold text-slate-900">
+                              {category.name}
+                            </p>
 
-                      {category.isActive
-                        ? "Deactivate"
-                        : "Activate"}
-                    </button>
-                  </div>
+                            {category.description ? (
+                              <p className="mt-0.5 max-w-md truncate text-xs text-slate-400">
+                                {category.description}
+                              </p>
+                            ) : (
+                              <p className="mt-0.5 text-xs text-slate-400">
+                                No description
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <Package
+                            size={16}
+                            className="text-slate-400"
+                          />
+
+                          <span className="text-sm font-bold text-slate-700">
+                            {Number(
+                              category.productCount || 0
+                            ).toLocaleString()}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {category.isActive ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+
+                            Inactive
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-5 py-4 text-sm font-medium text-slate-500">
+                        {formatDate(
+                          category.createdAt
+                        )}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {canManageCategories && (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openEditModal(
+                                  category
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            >
+                              <Edit3 size={14} />
+
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleStatusChange(
+                                  category
+                                )
+                              }
+                              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition ${
+                                category.isActive
+                                  ? "border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                                  : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              }`}
+                            >
+                              {category.isActive ? (
+                                <>
+                                  <Archive
+                                    size={14}
+                                  />
+
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <RotateCcw
+                                    size={14}
+                                  />
+
+                                  Activate
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
                 )}
-              </div>
-            ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* Modal */}
+      {/* CREATE / EDIT MODAL */}
+
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            {/* MODAL HEADER */}
+
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
               <div>
-                <h2 className="text-xl font-black text-slate-950">
+                <h2 className="text-lg font-black text-slate-950">
                   {editingCategory
                     ? "Edit Category"
-                    : "Add Category"}
+                    : "Create Category"}
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-xs text-slate-400">
                   {editingCategory
                     ? "Update the category information."
-                    : "Create a category for your products."}
+                    : "Create a category for organizing your products."}
                 </p>
               </div>
 
               <button
+                type="button"
                 onClick={closeModal}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                disabled={saving}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
               >
-                <X size={20} />
+                <X size={19} />
               </button>
             </div>
 
+            {/* FORM */}
+
             <form
               onSubmit={handleSubmit}
-              className="space-y-5 p-6"
+              className="p-6"
             >
               {error && (
-                <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                  <AlertCircle size={18} />
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                   {error}
                 </div>
               )}
 
-              <div>
-                <label className="mb-2 block text-sm font-bold text-slate-700">
-                  Category name *
-                </label>
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    Category Name
+                    <span className="ml-1 text-red-500">
+                      *
+                    </span>
+                  </label>
 
-                <input
-                  name="name"
-                  value={form.name}
-                  onChange={handleChange}
-                  placeholder="e.g. Groceries"
-                  autoFocus
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-                />
+                  <input
+                    type="text"
+                    name="name"
+                    value={form.name}
+                    onChange={handleChange}
+                    placeholder="e.g. Beverages"
+                    autoFocus
+                    disabled={saving}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    Description
+                  </label>
+
+                  <textarea
+                    name="description"
+                    value={form.description}
+                    onChange={handleChange}
+                    placeholder="Describe the products that belong to this category..."
+                    rows={4}
+                    disabled={saving}
+                    className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-bold text-slate-700">
-                  Description
-                </label>
+              {/* ACTIONS */}
 
-                <textarea
-                  name="description"
-                  value={form.description}
-                  onChange={handleChange}
-                  rows="4"
-                  placeholder="e.g. Food and grocery products"
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-                />
-              </div>
-
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
+              <div className="mt-7 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                  disabled={saving}
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -489,13 +795,26 @@ const Categories = () => {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-w-[130px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {saving
-                    ? "Saving..."
-                    : editingCategory
-                      ? "Update Category"
-                      : "Create Category"}
+                  {saving ? (
+                    <>
+                      <RefreshCw
+                        size={16}
+                        className="animate-spin"
+                      />
+
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} />
+
+                      {editingCategory
+                        ? "Save Changes"
+                        : "Create Category"}
+                    </>
+                  )}
                 </button>
               </div>
             </form>

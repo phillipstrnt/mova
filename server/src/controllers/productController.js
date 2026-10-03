@@ -1,670 +1,1049 @@
-
 import mongoose from "mongoose";
 
 import Product from "../models/Product.js";
-import Category from "../models/Category.js";
 import ProductBranchStock from "../models/ProductBranchStock.js";
+import Category from "../models/Category.js";
 import Branch from "../models/Branch.js";
 
-const getActiveBranchId = (req) => {
-  return (
-    req.user?.activeBranchId?._id ||
-    req.user?.activeBranchId ||
-    req.user?.branchId ||
-    req.branchId ||
-    null
-  );
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+/*
+ * Resolve the branch currently selected by the authenticated user.
+ *
+ * We never trust a branchId sent directly from the frontend.
+ */
+const resolveActiveBranch = async (req) => {
+  const businessId =
+    req.user.businessId;
+
+  const activeBranchId =
+    req.user.activeBranchId ||
+    req.user.branchId;
+
+  if (!activeBranchId) {
+    return null;
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      activeBranchId
+    )
+  ) {
+    return null;
+  }
+
+  const branch =
+    await Branch.findOne({
+      _id: activeBranchId,
+      businessId,
+      isActive: true,
+    });
+
+  if (!branch) {
+    return null;
+  }
+
+  /*
+   * OWNER and ADMIN can work across
+   * business branches.
+   */
+  if (
+    req.user.role === "OWNER" ||
+    req.user.role === "ADMIN"
+  ) {
+    return branch;
+  }
+
+  /*
+   * Other users must explicitly have
+   * the branch assigned to them.
+   */
+  const assignedBranches =
+    Array.isArray(
+      req.user.branchIds
+    )
+      ? req.user.branchIds.map(
+          (id) => String(id)
+        )
+      : [];
+
+  if (
+    !assignedBranches.includes(
+      String(branch._id)
+    )
+  ) {
+    return null;
+  }
+
+  return branch;
 };
 
-/* ============================================================
-   CREATE PRODUCT
-============================================================ */
+/*
+|--------------------------------------------------------------------------
+| GET / CREATE BRANCH STOCK
+|--------------------------------------------------------------------------
+|
+| Older products may not yet have a ProductBranchStock record.
+|
+| We don't duplicate legacy stock across multiple branches.
+|
+*/
 
-const createProduct = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      name,
-      sku,
-      barcode = "",
-      description = "",
-      categoryId = null,
-      buyingPrice,
-      sellingPrice,
-      stockQuantity = 0,
-      minimumStock = 0,
-      image = "",
-      unit = "piece",
-      trackStock = true,
-    } = req.body;
-
-    const businessId =
-      req.user.businessId;
-
-    const branchId =
-      getActiveBranchId(req);
-
-    /*
-     * ========================================================
-     * VALIDATE ACTIVE BRANCH
-     * ========================================================
-     */
-
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "No active branch is selected. Please select a branch before creating a product.",
-      });
-    }
-
-    const branch =
-      await Branch.findOne({
-        _id: branchId,
-        businessId,
-        isActive: true,
-      });
-
-    if (!branch) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "The selected branch is invalid or inactive.",
-      });
-    }
-
-    /*
-     * ========================================================
-     * VALIDATE NAME
-     * ========================================================
-     */
-
-    if (
-      !name ||
-      !name.trim()
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Product name is required",
-      });
-    }
-
-    /*
-     * ========================================================
-     * VALIDATE SKU
-     * ========================================================
-     */
-
-    if (
-      !sku ||
-      !sku.trim()
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "SKU is required",
-      });
-    }
-
-    /*
-     * ========================================================
-     * VALIDATE PRICES
-     * ========================================================
-     */
-
-    if (
-      buyingPrice ===
-        undefined ||
-      buyingPrice === null ||
-      Number.isNaN(
-        Number(buyingPrice)
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "A valid buying price is required",
-      });
-    }
-
-    if (
-      sellingPrice ===
-        undefined ||
-      sellingPrice === null ||
-      Number.isNaN(
-        Number(sellingPrice)
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "A valid selling price is required",
-      });
-    }
-
-    const numericBuyingPrice =
-      Number(buyingPrice);
-
-    const numericSellingPrice =
-      Number(sellingPrice);
-
-    const numericStock =
-      Number(stockQuantity);
-
-    const numericMinimumStock =
-      Number(minimumStock);
-
-    if (
-      numericBuyingPrice < 0 ||
-      numericSellingPrice < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Prices cannot be negative",
-      });
-    }
-
-    if (
-      numericSellingPrice <
-      numericBuyingPrice
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Selling price cannot be lower than buying price",
-      });
-    }
-
-    if (
-      Number.isNaN(
-        numericStock
-      ) ||
-      numericStock < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Stock quantity cannot be negative",
-      });
-    }
-
-    if (
-      Number.isNaN(
-        numericMinimumStock
-      ) ||
-      numericMinimumStock < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Minimum stock cannot be negative",
-      });
-    }
-
-    /*
-     * ========================================================
-     * VALIDATE CATEGORY
-     * ========================================================
-     */
-
-    if (categoryId) {
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          categoryId
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid category ID",
-        });
-      }
-
-      const category =
-        await Category.findOne({
-          _id: categoryId,
-          businessId,
-          isActive: true,
-        });
-
-      if (!category) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Selected category was not found",
-        });
-      }
-    }
-
-    /*
-     * ========================================================
-     * NORMALIZE SKU
-     * ========================================================
-     */
-
-    const normalizedSku =
-      sku
-        .trim()
-        .toUpperCase();
-
-    const existingSku =
-      await Product.findOne({
-        businessId,
-        sku: normalizedSku,
-      });
-
-    if (existingSku) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "A product with this SKU already exists",
-      });
-    }
-
-    /*
-     * ========================================================
-     * VALIDATE BARCODE
-     * ========================================================
-     */
-
-    const normalizedBarcode =
-      barcode?.trim() || "";
-
-    if (normalizedBarcode) {
-      const existingBarcode =
-        await Product.findOne({
-          businessId,
-          barcode:
-            normalizedBarcode,
-        });
-
-      if (existingBarcode) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "A product with this barcode already exists",
-        });
-      }
-    }
-
-    /*
-     * ========================================================
-     * CREATE PRODUCT MASTER
-     * ========================================================
-     */
-
-    const product =
-      await Product.create({
-        businessId,
-        categoryId:
-          categoryId || null,
-        name: name.trim(),
-        sku: normalizedSku,
-        barcode:
-          normalizedBarcode,
-        description:
-          description.trim(),
-        buyingPrice:
-          numericBuyingPrice,
-        sellingPrice:
-          numericSellingPrice,
-
-        /*
-         * Retained for backward compatibility.
-         * Branch-aware stock is stored separately.
-         */
-        stockQuantity:
-          numericStock,
-
-        minimumStock:
-          numericMinimumStock,
-
-        image:
-          image?.trim() || "",
-
-        unit:
-          unit?.trim() ||
-          "piece",
-
-        trackStock:
-          Boolean(trackStock),
-      });
-
-    /*
-     * ========================================================
-     * CREATE BRANCH STOCK
-     * ========================================================
-     */
-
-    const branchStock =
-      await ProductBranchStock.create({
-        businessId,
-        productId:
-          product._id,
-        branchId,
-        stockQuantity:
-          numericStock,
-        minimumStock:
-          numericMinimumStock,
-        lastStockUpdate:
-          new Date(),
-      });
-
-    /*
-     * ========================================================
-     * RETURN PRODUCT
-     * ========================================================
-     */
-
-    const populatedProduct =
-      await Product.findById(
-        product._id
-      ).populate(
-        "categoryId",
-        "name"
-      );
-
-    const productResponse =
-      populatedProduct.toObject();
-
-    productResponse.stockQuantity =
-      branchStock.stockQuantity;
-
-    productResponse.branchStock =
-      branchStock.stockQuantity;
-
-    productResponse.branchId =
-      branchId;
-
-    return res.status(201).json({
-      success: true,
-      message:
-        "Product created successfully",
-      product:
-        productResponse,
-      branchStock,
+const getOrCreateBranchStock = async ({
+  businessId,
+  branchId,
+  product,
+}) => {
+  let branchStock =
+    await ProductBranchStock.findOne({
+      businessId,
+      branchId,
+      productId: product._id,
+      isActive: true,
     });
-  } catch (error) {
-    console.error(
-      "Create product error:",
-      error
+
+  if (branchStock) {
+    return branchStock;
+  }
+
+  /*
+   * Check how many active branches exist.
+   */
+  const activeBranchCount =
+    await Branch.countDocuments({
+      businessId,
+      isActive: true,
+    });
+
+  /*
+   * If this is a single-branch business,
+   * legacy product stock can safely become
+   * the branch stock.
+   */
+  const initialStock =
+    activeBranchCount === 1
+      ? Number(
+          product.stockQuantity || 0
+        )
+      : 0;
+
+  const initialMinimumStock =
+    Number(
+      product.minimumStock || 0
     );
 
-    return res.status(500).json({
-      success: false,
-      message:
-        "Failed to create product",
-    });
-  }
-};
-
-/* ============================================================
-   GET PRODUCTS
-============================================================ */
-
-const getProducts = async (
-  req,
-  res
-) => {
   try {
-    const {
-      search = "",
-      categoryId,
-      status = "active",
-      lowStock,
-      page = 1,
-      limit = 20,
-    } = req.query;
-
-    const businessId =
-      req.user.businessId;
-
-    const branchId =
-      getActiveBranchId(req);
-
-    const filter = {
-      businessId,
-    };
-
-    if (search.trim()) {
-      const searchRegex =
-        new RegExp(
-          search.trim(),
-          "i"
-        );
-
-      filter.$or = [
+    branchStock =
+      await ProductBranchStock.create(
         {
-          name: searchRegex,
-        },
-        {
-          sku: searchRegex,
-        },
-        {
-          barcode:
-            searchRegex,
-        },
-      ];
-    }
+          businessId,
 
-    if (categoryId) {
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          categoryId
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid category ID",
-        });
-      }
+          branchId,
 
-      filter.categoryId =
-        categoryId;
-    }
+          productId:
+            product._id,
 
-    if (status === "active") {
-      filter.isActive = true;
-    }
+          stockQuantity:
+            initialStock,
 
-    if (status === "inactive") {
-      filter.isActive = false;
-    }
+          minimumStock:
+            initialMinimumStock,
 
-    const currentPage =
-      Math.max(
-        Number(page) || 1,
-        1
-      );
-
-    const pageSize =
-      Math.min(
-        Math.max(
-          Number(limit) || 20,
-          1
-        ),
-        100
-      );
-
-    const skip =
-      (currentPage - 1) *
-      pageSize;
-
-    /*
-     * ========================================================
-     * GET PRODUCTS
-     * ========================================================
-     */
-
-    let products =
-      await Product.find(filter)
-        .populate(
-          "categoryId",
-          "name"
-        )
-        .sort({
-          createdAt: -1,
-        })
-        .skip(skip)
-        .limit(pageSize)
-        .lean();
-
-    /*
-     * ========================================================
-     * ATTACH ACTIVE BRANCH STOCK
-     * ========================================================
-     */
-
-    if (branchId) {
-      const productIds =
-        products.map(
-          (product) =>
-            product._id
-        );
-
-      const branchStocks =
-        await ProductBranchStock.find(
-          {
-            businessId,
-            branchId,
-            productId: {
-              $in:
-                productIds,
-            },
-          }
-        ).lean();
-
-      const stockMap =
-        new Map();
-
-      branchStocks.forEach(
-        (stock) => {
-          stockMap.set(
-            stock.productId.toString(),
-            stock
-          );
+          isActive: true,
         }
       );
 
-      products =
-        products.map(
-          (product) => {
-            const stock =
-              stockMap.get(
-                product._id.toString()
-              );
-
-            const branchQuantity =
-              stock
-                ? stock.stockQuantity
-                : 0;
-
-            const branchMinimum =
-              stock
-                ? stock.minimumStock
-                : product.minimumStock;
-
-            return {
-              ...product,
-
-              /*
-               * Keep stockQuantity in the API response
-               * so the existing frontend continues working.
-               */
-              stockQuantity:
-                branchQuantity,
-
-              branchStock:
-                branchQuantity,
-
-              minimumStock:
-                branchMinimum,
-
-              branchId,
-            };
+    return branchStock;
+  } catch (error) {
+    /*
+     * Another request may have created
+     * the record at the same time.
+     *
+     * Try reading it again.
+     */
+    if (
+      error.code === 11000
+    ) {
+      branchStock =
+        await ProductBranchStock.findOne(
+          {
+            businessId,
+            branchId,
+            productId:
+              product._id,
+            isActive: true,
           }
         );
 
-      /*
-       * Low stock must use branch stock,
-       * not the legacy Product.stockQuantity.
-       */
-
-      if (
-        lowStock === "true"
-      ) {
-        products =
-          products.filter(
-            (product) =>
-              product.stockQuantity <=
-              product.minimumStock
-          );
+      if (branchStock) {
+        return branchStock;
       }
     }
 
-    const total =
-      await Product.countDocuments(
-        filter
-      );
-
-    return res.status(200).json({
-      success: true,
-      products,
-      activeBranchId:
-        branchId,
-      pagination: {
-        page:
-          currentPage,
-        limit:
-          pageSize,
-        total,
-        pages:
-          Math.ceil(
-            total /
-              pageSize
-          ),
-      },
-    });
-  } catch (error) {
-    console.error(
-      "Get products error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Failed to retrieve products",
-    });
+    throw error;
   }
 };
 
-/* ============================================================
-   GET PRODUCT BY ID
-============================================================ */
+/*
+|--------------------------------------------------------------------------
+| ENRICH PRODUCTS WITH BRANCH STOCK
+|--------------------------------------------------------------------------
+*/
 
-const getProductById =
+const attachBranchStock = async (
+  products,
+  branch
+) => {
+  if (
+    !branch ||
+    !products.length
+  ) {
+    return products.map(
+      (product) => ({
+        ...product.toObject(),
+        branchStockQuantity:
+          null,
+        branchMinimumStock:
+          null,
+        stockSource:
+          "BUSINESS",
+      })
+    );
+  }
+
+  const productIds =
+    products.map(
+      (product) =>
+        product._id
+    );
+
+  const branchStocks =
+    await ProductBranchStock.find({
+      businessId:
+        branch.businessId,
+
+      branchId:
+        branch._id,
+
+      productId: {
+        $in: productIds,
+      },
+
+      isActive: true,
+    }).lean();
+
+  const stockMap =
+    new Map();
+
+  for (
+    const stock of branchStocks
+  ) {
+    stockMap.set(
+      String(stock.productId),
+      stock
+    );
+  }
+
+  return products.map(
+    (product) => {
+      const plainProduct =
+        product.toObject();
+
+      const branchStock =
+        stockMap.get(
+          String(product._id)
+        );
+
+      if (branchStock) {
+        return {
+          ...plainProduct,
+
+          /*
+           * Keep stockQuantity for
+           * frontend compatibility.
+           *
+           * It now represents the
+           * CURRENT BRANCH stock.
+           */
+          stockQuantity:
+            branchStock.stockQuantity,
+
+          minimumStock:
+            branchStock.minimumStock,
+
+          branchStockQuantity:
+            branchStock.stockQuantity,
+
+          branchMinimumStock:
+            branchStock.minimumStock,
+
+          branchId:
+            branch._id,
+
+          stockSource:
+            "BRANCH",
+        };
+      }
+
+      /*
+       * No branch record yet.
+       */
+      return {
+        ...plainProduct,
+
+        branchStockQuantity:
+          0,
+
+        branchMinimumStock:
+          plainProduct.minimumStock ||
+          0,
+
+        stockQuantity: 0,
+
+        minimumStock:
+          plainProduct.minimumStock ||
+          0,
+
+        branchId:
+          branch._id,
+
+        stockSource:
+          "BRANCH",
+      };
+    }
+  );
+};
+
+/*
+|--------------------------------------------------------------------------
+| CREATE PRODUCT
+|--------------------------------------------------------------------------
+*/
+
+export const createProduct =
   async (
     req,
     res
   ) => {
     try {
+      const {
+        name,
+        sku,
+        barcode = "",
+        description = "",
+        buyingPrice,
+        sellingPrice,
+        stockQuantity = 0,
+        minimumStock = 0,
+        image = "",
+        unit = "piece",
+        trackStock = true,
+        categoryId = null,
+      } = req.body;
+
       const businessId =
         req.user.businessId;
 
-      const branchId =
-        getActiveBranchId(req);
+      /*
+       * Basic validation.
+       */
+      if (
+        !name ||
+        !String(name).trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Product name is required.",
+        });
+      }
+
+      if (
+        !sku ||
+        !String(sku).trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Product SKU is required.",
+        });
+      }
+
+      const numericBuyingPrice =
+        Number(
+          buyingPrice
+        );
+
+      const numericSellingPrice =
+        Number(
+          sellingPrice
+        );
+
+      const numericStock =
+        Number(
+          stockQuantity
+        );
+
+      const numericMinimumStock =
+        Number(
+          minimumStock
+        );
+
+      if (
+        !Number.isFinite(
+          numericBuyingPrice
+        ) ||
+        numericBuyingPrice < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Buying price must be a valid non-negative number.",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          numericSellingPrice
+        ) ||
+        numericSellingPrice < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Selling price must be a valid non-negative number.",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          numericStock
+        ) ||
+        numericStock < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Stock quantity must be a valid non-negative number.",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          numericMinimumStock
+        ) ||
+        numericMinimumStock < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Minimum stock must be a valid non-negative number.",
+        });
+      }
+
+      /*
+       * Validate category.
+       */
+      let category = null;
+
+      if (categoryId) {
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            categoryId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid category ID.",
+          });
+        }
+
+        category =
+          await Category.findOne({
+            _id: categoryId,
+            businessId,
+          });
+
+        if (!category) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "Category not found.",
+          });
+        }
+      }
+
+      /*
+       * Check SKU.
+       */
+      const existingSku =
+        await Product.findOne({
+          businessId,
+
+          sku: String(sku)
+            .trim()
+            .toUpperCase(),
+        });
+
+      if (existingSku) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "A product with this SKU already exists.",
+        });
+      }
+
+      /*
+       * Check barcode if provided.
+       */
+      const normalizedBarcode =
+        String(barcode || "").trim();
+
+      if (normalizedBarcode) {
+        const existingBarcode =
+          await Product.findOne({
+            businessId,
+
+            barcode:
+              normalizedBarcode,
+          });
+
+        if (existingBarcode) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "A product with this barcode already exists.",
+          });
+        }
+      }
+
+      /*
+       * Create product master.
+       *
+       * The legacy stock fields remain temporarily
+       * for compatibility with existing modules.
+       */
+      const product =
+        await Product.create({
+          businessId,
+
+          categoryId:
+            category
+              ? category._id
+              : null,
+
+          name:
+            String(name).trim(),
+
+          sku:
+            String(sku)
+              .trim()
+              .toUpperCase(),
+
+          barcode:
+            normalizedBarcode,
+
+          description:
+            String(
+              description || ""
+            ).trim(),
+
+          buyingPrice:
+            numericBuyingPrice,
+
+          sellingPrice:
+            numericSellingPrice,
+
+          stockQuantity:
+            numericStock,
+
+          minimumStock:
+            numericMinimumStock,
+
+          image:
+            String(image || ""),
+
+          unit:
+            String(
+              unit || "piece"
+            ).trim(),
+
+          trackStock:
+            Boolean(trackStock),
+
+          isActive: true,
+        });
+
+      /*
+       * Resolve current branch.
+       */
+      const branch =
+        await resolveActiveBranch(req);
+
+      /*
+       * Create branch stock record.
+       */
+      if (branch) {
+        await ProductBranchStock.create(
+          {
+            businessId,
+
+            branchId:
+              branch._id,
+
+            productId:
+              product._id,
+
+            stockQuantity:
+              numericStock,
+
+            minimumStock:
+              numericMinimumStock,
+
+            isActive: true,
+          }
+        );
+      }
+
+      /*
+       * Return enriched product.
+       */
+      let result = product;
+
+      if (branch) {
+        const enriched =
+          await attachBranchStock(
+            [product],
+            branch
+          );
+
+        result =
+          enriched[0];
+      }
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          "Product created successfully.",
+
+        product: result,
+      });
+    } catch (error) {
+      console.error(
+        "Create product error:",
+        error
+      );
+
+      if (
+        error.code === 11000
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "A product with the same SKU or barcode already exists.",
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Failed to create product.",
+      });
+    }
+  };
+
+/*
+|--------------------------------------------------------------------------
+| GET PRODUCTS
+|--------------------------------------------------------------------------
+*/
+
+export const getProducts =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        search = "",
+        categoryId,
+        status,
+        lowStock,
+        page = 1,
+        limit = 20,
+      } = req.query;
+
+      const businessId =
+        req.user.businessId;
+
+      /*
+       * Resolve active branch.
+       */
+      const branch =
+        await resolveActiveBranch(req);
+
+      /*
+       * Base filter.
+       */
+      const filter = {
+        businessId,
+      };
+
+      /*
+       * Search.
+       */
+      if (
+        typeof search === "string" &&
+        search.trim()
+      ) {
+        const searchRegex = {
+          $regex:
+            search.trim(),
+          $options:
+            "i",
+        };
+
+        filter.$or = [
+          {
+            name:
+              searchRegex,
+          },
+          {
+            sku:
+              searchRegex,
+          },
+          {
+            barcode:
+              searchRegex,
+          },
+        ];
+      }
+
+      /*
+       * Category.
+       */
+      if (categoryId) {
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            categoryId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid category ID.",
+          });
+        }
+
+        filter.categoryId =
+          categoryId;
+      }
+
+      /*
+       * Status.
+       */
+      if (
+        status === "ACTIVE"
+      ) {
+        filter.isActive = true;
+      }
+
+      if (
+        status === "INACTIVE"
+      ) {
+        filter.isActive = false;
+      }
+
+      /*
+       * Fetch products.
+       *
+       * We fetch before pagination when
+       * branch-level low-stock filtering
+       * is required.
+       */
+      const requiresBranchFiltering =
+        Boolean(
+          branch &&
+            (
+              lowStock === "true" ||
+              lowStock === "1"
+            )
+        );
+
+      let products;
+      let total;
+
+      if (
+        requiresBranchFiltering
+      ) {
+        /*
+         * Get all matching products.
+         */
+        const allProducts =
+          await Product.find(
+            filter
+          )
+            .populate(
+              "categoryId",
+              "name"
+            )
+            .sort({
+              createdAt:
+                -1,
+            });
+
+        const enrichedProducts =
+          await attachBranchStock(
+            allProducts,
+            branch
+          );
+
+        const lowStockProducts =
+          enrichedProducts.filter(
+            (product) =>
+              product.trackStock &&
+              Number(
+                product.stockQuantity
+              ) <=
+                Number(
+                  product.minimumStock
+                )
+          );
+
+        total =
+          lowStockProducts.length;
+
+        const parsedPage =
+          Number(page);
+
+        const parsedLimit =
+          Number(limit);
+
+        const pageNumber =
+          Number.isFinite(
+            parsedPage
+          )
+            ? Math.max(
+                parsedPage,
+                1
+              )
+            : 1;
+
+        const limitNumber =
+          Number.isFinite(
+            parsedLimit
+          )
+            ? Math.min(
+                Math.max(
+                  parsedLimit,
+                  1
+                ),
+                100
+              )
+            : 20;
+
+        const skip =
+          (pageNumber - 1) *
+          limitNumber;
+
+        products =
+          lowStockProducts.slice(
+            skip,
+            skip +
+              limitNumber
+          );
+
+        return res.json({
+          success: true,
+
+          products,
+
+          branch: {
+            id:
+              branch._id,
+
+            name:
+              branch.name,
+
+            code:
+              branch.code,
+          },
+
+          pagination: {
+            page:
+              pageNumber,
+
+            limit:
+              limitNumber,
+
+            total,
+
+            pages:
+              Math.ceil(
+                total /
+                  limitNumber
+              ),
+          },
+        });
+      }
+
+      /*
+       * Normal product query.
+       */
+      const parsedPage =
+        Number(page);
+
+      const parsedLimit =
+        Number(limit);
+
+      const pageNumber =
+        Number.isFinite(
+          parsedPage
+        )
+          ? Math.max(
+              parsedPage,
+              1
+            )
+          : 1;
+
+      const limitNumber =
+        Number.isFinite(
+          parsedLimit
+        )
+          ? Math.min(
+              Math.max(
+                parsedLimit,
+                1
+              ),
+              100
+            )
+          : 20;
+
+      const skip =
+        (pageNumber - 1) *
+        limitNumber;
+
+      const [
+        rawProducts,
+        rawTotal,
+      ] =
+        await Promise.all([
+          Product.find(filter)
+            .populate(
+              "categoryId",
+              "name"
+            )
+            .sort({
+              createdAt:
+                -1,
+            })
+            .skip(skip)
+            .limit(
+              limitNumber
+            ),
+
+          Product.countDocuments(
+            filter
+          ),
+        ]);
+
+      products =
+        await attachBranchStock(
+          rawProducts,
+          branch
+        );
+
+      total =
+        rawTotal;
+
+      return res.json({
+        success: true,
+
+        products,
+
+        branch: branch
+          ? {
+              id:
+                branch._id,
+
+              name:
+                branch.name,
+
+              code:
+                branch.code,
+            }
+          : null,
+
+        pagination: {
+          page:
+            pageNumber,
+
+          limit:
+            limitNumber,
+
+          total,
+
+          pages:
+            Math.ceil(
+              total /
+                limitNumber
+            ),
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Get products error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch products.",
+      });
+    }
+  };
+
+/*
+|--------------------------------------------------------------------------
+| GET PRODUCT BY ID
+|--------------------------------------------------------------------------
+*/
+
+export const getProductById =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const { id } =
+        req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid product ID.",
+        });
+      }
 
       const product =
         await Product.findOne({
-          _id:
-            req.params.id,
-          businessId,
+          _id: id,
+
+          businessId:
+            req.user.businessId,
         }).populate(
           "categoryId",
           "name"
@@ -674,51 +1053,44 @@ const getProductById =
         return res.status(404).json({
           success: false,
           message:
-            "Product not found",
+            "Product not found.",
         });
       }
 
-      let branchStock =
-        null;
+      const branch =
+        await resolveActiveBranch(req);
 
-      if (branchId) {
-        branchStock =
-          await ProductBranchStock.findOne(
-            {
-              businessId,
-              productId:
-                product._id,
-              branchId,
-            }
-          ).lean();
-      }
-
-      const responseProduct =
+      let result =
         product.toObject();
 
-      responseProduct.stockQuantity =
-        branchStock
-          ? branchStock.stockQuantity
-          : 0;
+      if (branch) {
+        const enriched =
+          await attachBranchStock(
+            [product],
+            branch
+          );
 
-      responseProduct.branchStock =
-        branchStock
-          ? branchStock.stockQuantity
-          : 0;
+        result =
+          enriched[0];
+      }
 
-      responseProduct.branchId =
-        branchId;
-
-      responseProduct.branchMinimumStock =
-        branchStock
-          ? branchStock.minimumStock
-          : product.minimumStock;
-
-      return res.status(200).json({
+      return res.json({
         success: true,
-        product:
-          responseProduct,
-        branchStock,
+
+        product: result,
+
+        branch: branch
+          ? {
+              id:
+                branch._id,
+
+              name:
+                branch.name,
+
+              code:
+                branch.code,
+            }
+          : null,
       });
     } catch (error) {
       console.error(
@@ -729,31 +1101,44 @@ const getProductById =
       return res.status(500).json({
         success: false,
         message:
-          "Failed to retrieve product",
+          "Failed to fetch product.",
       });
     }
   };
 
-/* ============================================================
-   UPDATE PRODUCT
-============================================================ */
+/*
+|--------------------------------------------------------------------------
+| UPDATE PRODUCT
+|--------------------------------------------------------------------------
+*/
 
-const updateProduct =
+export const updateProduct =
   async (
     req,
     res
   ) => {
     try {
+      const { id } =
+        req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid product ID.",
+        });
+      }
+
       const businessId =
         req.user.businessId;
 
-      const branchId =
-        getActiveBranchId(req);
-
       const product =
         await Product.findOne({
-          _id:
-            req.params.id,
+          _id: id,
           businessId,
         });
 
@@ -761,7 +1146,7 @@ const updateProduct =
         return res.status(404).json({
           success: false,
           message:
-            "Product not found",
+            "Product not found.",
         });
       }
 
@@ -770,7 +1155,6 @@ const updateProduct =
         sku,
         barcode,
         description,
-        categoryId,
         buyingPrice,
         sellingPrice,
         stockQuantity,
@@ -778,71 +1162,79 @@ const updateProduct =
         image,
         unit,
         trackStock,
+        categoryId,
       } = req.body;
 
       /*
-       * ======================================================
-       * NAME
-       * ======================================================
+       * Category validation.
        */
-
-      if (
-        name !== undefined
-      ) {
+      if (categoryId) {
         if (
-          !name.trim()
+          !mongoose.Types.ObjectId.isValid(
+            categoryId
+          )
         ) {
           return res.status(400).json({
             success: false,
             message:
-              "Product name cannot be empty",
+              "Invalid category ID.",
           });
         }
 
-        product.name =
-          name.trim();
+        const category =
+          await Category.findOne({
+            _id: categoryId,
+            businessId,
+          });
+
+        if (!category) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "Category not found.",
+          });
+        }
+
+        product.categoryId =
+          category._id;
       }
 
       /*
-       * ======================================================
-       * SKU
-       * ======================================================
+       * SKU validation.
        */
-
       if (
         sku !== undefined
       ) {
         const normalizedSku =
-          sku
+          String(sku)
             .trim()
             .toUpperCase();
 
-        if (
-          !normalizedSku
-        ) {
+        if (!normalizedSku) {
           return res.status(400).json({
             success: false,
             message:
-              "SKU cannot be empty",
+              "SKU cannot be empty.",
           });
         }
 
         const duplicate =
           await Product.findOne({
+            _id: {
+              $ne: product._id,
+            },
+
             businessId,
+
             sku:
               normalizedSku,
-            _id: {
-              $ne:
-                product._id,
-            },
           });
 
         if (duplicate) {
           return res.status(409).json({
             success: false,
             message:
-              "A product with this SKU already exists",
+              "Another product with this SKU already exists.",
           });
         }
 
@@ -851,116 +1243,74 @@ const updateProduct =
       }
 
       /*
-       * ======================================================
-       * BARCODE
-       * ======================================================
+       * Barcode validation.
        */
-
       if (
         barcode !== undefined
       ) {
-        const trimmedBarcode =
-          barcode.trim();
+        const normalizedBarcode =
+          String(
+            barcode || ""
+          ).trim();
 
         if (
-          trimmedBarcode
+          normalizedBarcode
         ) {
           const duplicate =
             await Product.findOne({
-              businessId,
-              barcode:
-                trimmedBarcode,
               _id: {
                 $ne:
                   product._id,
               },
+
+              businessId,
+
+              barcode:
+                normalizedBarcode,
             });
 
           if (duplicate) {
             return res.status(409).json({
               success: false,
               message:
-                "A product with this barcode already exists",
+                "Another product with this barcode already exists.",
             });
           }
         }
 
         product.barcode =
-          trimmedBarcode;
+          normalizedBarcode;
       }
 
       /*
-       * ======================================================
-       * DESCRIPTION
-       * ======================================================
+       * Basic fields.
        */
+      if (
+        name !== undefined
+      ) {
+        if (
+          !String(name).trim()
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Product name cannot be empty.",
+          });
+        }
+
+        product.name =
+          String(name).trim();
+      }
 
       if (
         description !==
         undefined
       ) {
         product.description =
-          description.trim();
+          String(
+            description || ""
+          ).trim();
       }
-
-      /*
-       * ======================================================
-       * CATEGORY
-       * ======================================================
-       */
-
-      if (
-        categoryId !==
-        undefined
-      ) {
-        if (
-          categoryId ===
-            null ||
-          categoryId ===
-            ""
-        ) {
-          product.categoryId =
-            null;
-        } else {
-          if (
-            !mongoose.Types.ObjectId.isValid(
-              categoryId
-            )
-          ) {
-            return res.status(400).json({
-              success: false,
-              message:
-                "Invalid category ID",
-            });
-          }
-
-          const category =
-            await Category.findOne({
-              _id:
-                categoryId,
-              businessId,
-              isActive:
-                true,
-            });
-
-          if (!category) {
-            return res.status(400).json({
-              success: false,
-              message:
-                "Selected category was not found",
-            });
-          }
-
-          product.categoryId =
-            categoryId;
-        }
-      }
-
-      /*
-       * ======================================================
-       * BUYING PRICE
-       * ======================================================
-       */
 
       if (
         buyingPrice !==
@@ -972,7 +1322,7 @@ const updateProduct =
           );
 
         if (
-          Number.isNaN(
+          !Number.isFinite(
             value
           ) ||
           value < 0
@@ -980,19 +1330,13 @@ const updateProduct =
           return res.status(400).json({
             success: false,
             message:
-              "Buying price cannot be negative",
+              "Buying price must be a valid non-negative number.",
           });
         }
 
         product.buyingPrice =
           value;
       }
-
-      /*
-       * ======================================================
-       * SELLING PRICE
-       * ======================================================
-       */
 
       if (
         sellingPrice !==
@@ -1004,7 +1348,7 @@ const updateProduct =
           );
 
         if (
-          Number.isNaN(
+          !Number.isFinite(
             value
           ) ||
           value < 0
@@ -1012,7 +1356,7 @@ const updateProduct =
           return res.status(400).json({
             success: false,
             message:
-              "Selling price cannot be negative",
+              "Selling price must be a valid non-negative number.",
           });
         }
 
@@ -1021,178 +1365,19 @@ const updateProduct =
       }
 
       if (
-        product.sellingPrice <
-        product.buyingPrice
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Selling price cannot be lower than buying price",
-        });
-      }
-
-      /*
-       * ======================================================
-       * STOCK
-       * ======================================================
-       *
-       * IMPORTANT:
-       *
-       * Stock changes are now branch-specific.
-       *
-       * Do not directly change Product.stockQuantity.
-       */
-
-      if (
-        stockQuantity !==
-        undefined
-      ) {
-        if (
-          !branchId
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "No active branch is selected.",
-          });
-        }
-
-        const numericStock =
-          Number(
-            stockQuantity
-          );
-
-        if (
-          Number.isNaN(
-            numericStock
-          ) ||
-          numericStock < 0
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Stock quantity cannot be negative",
-          });
-        }
-
-        let branchStock =
-          await ProductBranchStock.findOne(
-            {
-              businessId,
-              productId:
-                product._id,
-              branchId,
-            }
-          );
-
-        if (
-          !branchStock
-        ) {
-          branchStock =
-            await ProductBranchStock.create(
-              {
-                businessId,
-                productId:
-                  product._id,
-                branchId,
-                stockQuantity:
-                  numericStock,
-                minimumStock:
-                  product.minimumStock,
-              }
-            );
-        } else {
-          branchStock.stockQuantity =
-            numericStock;
-
-          branchStock.lastStockUpdate =
-            new Date();
-
-          await branchStock.save();
-        }
-
-        /*
-         * Keep the old field synchronized
-         * temporarily for compatibility.
-         */
-        product.stockQuantity =
-          numericStock;
-      }
-
-      /*
-       * ======================================================
-       * MINIMUM STOCK
-       * ======================================================
-       */
-
-      if (
-        minimumStock !==
-        undefined
-      ) {
-        const numericMinimum =
-          Number(
-            minimumStock
-          );
-
-        if (
-          Number.isNaN(
-            numericMinimum
-          ) ||
-          numericMinimum < 0
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Minimum stock cannot be negative",
-          });
-        }
-
-        product.minimumStock =
-          numericMinimum;
-
-        /*
-         * Update the branch-specific
-         * minimum stock as well.
-         */
-        if (branchId) {
-          await ProductBranchStock.updateOne(
-            {
-              businessId,
-              productId:
-                product._id,
-              branchId,
-            },
-            {
-              $set: {
-                minimumStock:
-                  numericMinimum,
-              },
-            }
-          );
-        }
-      }
-
-      /*
-       * ======================================================
-       * OTHER FIELDS
-       * ======================================================
-       */
-
-      if (
-        image !==
-        undefined
+        image !== undefined
       ) {
         product.image =
-          image.trim();
+          String(image || "");
       }
 
       if (
-        unit !==
-        undefined
+        unit !== undefined
       ) {
         product.unit =
-          unit.trim() ||
-          "piece";
+          String(
+            unit || "piece"
+          ).trim();
       }
 
       if (
@@ -1200,60 +1385,211 @@ const updateProduct =
         undefined
       ) {
         product.trackStock =
-          Boolean(
-            trackStock
-          );
+          Boolean(trackStock);
+      }
+
+      /*
+       * Resolve branch.
+       */
+      const branch =
+        await resolveActiveBranch(req);
+
+      /*
+       * Branch stock updates.
+       *
+       * We keep compatibility with the existing
+       * product form, but actual branch stock is
+       * now stored in ProductBranchStock.
+       */
+      if (
+        branch &&
+        (
+          stockQuantity !==
+            undefined ||
+          minimumStock !==
+            undefined
+        )
+      ) {
+        const branchStock =
+          await getOrCreateBranchStock({
+            businessId,
+
+            branchId:
+              branch._id,
+
+            product,
+          });
+
+        if (
+          stockQuantity !==
+          undefined
+        ) {
+          const value =
+            Number(
+              stockQuantity
+            );
+
+          if (
+            !Number.isFinite(
+              value
+            ) ||
+            value < 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Stock quantity must be a valid non-negative number.",
+            });
+          }
+
+          branchStock.stockQuantity =
+            value;
+
+          /*
+           * Legacy compatibility.
+           *
+           * This is maintained only so
+           * older modules don't suddenly
+           * receive undefined data.
+           */
+          if (
+            branch._id &&
+            (
+              await Branch.countDocuments({
+                businessId,
+                isActive: true,
+              })
+            ) === 1
+          ) {
+            product.stockQuantity =
+              value;
+          }
+        }
+
+        if (
+          minimumStock !==
+          undefined
+        ) {
+          const value =
+            Number(
+              minimumStock
+            );
+
+          if (
+            !Number.isFinite(
+              value
+            ) ||
+            value < 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Minimum stock must be a valid non-negative number.",
+            });
+          }
+
+          branchStock.minimumStock =
+            value;
+
+          if (
+            (
+              await Branch.countDocuments({
+                businessId,
+                isActive: true,
+              })
+            ) === 1
+          ) {
+            product.minimumStock =
+              value;
+          }
+        }
+
+        await branchStock.save();
+      } else {
+        /*
+         * No active branch.
+         *
+         * Only update legacy fields.
+         */
+        if (
+          stockQuantity !==
+          undefined
+        ) {
+          const value =
+            Number(
+              stockQuantity
+            );
+
+          if (
+            !Number.isFinite(
+              value
+            ) ||
+            value < 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Stock quantity must be a valid non-negative number.",
+            });
+          }
+
+          product.stockQuantity =
+            value;
+        }
+
+        if (
+          minimumStock !==
+          undefined
+        ) {
+          const value =
+            Number(
+              minimumStock
+            );
+
+          if (
+            !Number.isFinite(
+              value
+            ) ||
+            value < 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Minimum stock must be a valid non-negative number.",
+            });
+          }
+
+          product.minimumStock =
+            value;
+        }
       }
 
       await product.save();
 
-      const populatedProduct =
-        await Product.findById(
-          product._id
-        ).populate(
-          "categoryId",
-          "name"
-        );
+      /*
+       * Return branch-aware product.
+       */
+      let result =
+        product.toObject();
 
-      let currentBranchStock =
-        null;
+      if (branch) {
+        const enriched =
+          await attachBranchStock(
+            [product],
+            branch
+          );
 
-      if (branchId) {
-        currentBranchStock =
-          await ProductBranchStock.findOne(
-            {
-              businessId,
-              productId:
-                product._id,
-              branchId,
-            }
-          ).lean();
+        result =
+          enriched[0];
       }
 
-      const responseProduct =
-        populatedProduct.toObject();
-
-      responseProduct.stockQuantity =
-        currentBranchStock
-          ? currentBranchStock.stockQuantity
-          : 0;
-
-      responseProduct.branchStock =
-        currentBranchStock
-          ? currentBranchStock.stockQuantity
-          : 0;
-
-      responseProduct.branchId =
-        branchId;
-
-      return res.status(200).json({
+      return res.json({
         success: true,
+
         message:
-          "Product updated successfully",
-        product:
-          responseProduct,
-        branchStock:
-          currentBranchStock,
+          "Product updated successfully.",
+
+        product: result,
       });
     } catch (error) {
       console.error(
@@ -1264,46 +1600,71 @@ const updateProduct =
       return res.status(500).json({
         success: false,
         message:
-          "Failed to update product",
+          error.message ||
+          "Failed to update product.",
       });
     }
   };
 
-/* ============================================================
-   DEACTIVATE PRODUCT
-============================================================ */
+/*
+|--------------------------------------------------------------------------
+| DEACTIVATE PRODUCT
+|--------------------------------------------------------------------------
+*/
 
-const deactivateProduct =
+export const deactivateProduct =
   async (
     req,
     res
   ) => {
     try {
-      const product =
-        await Product.findOne({
-          _id:
-            req.params.id,
-          businessId:
-            req.user.businessId,
+      const { id } =
+        req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid product ID.",
         });
+      }
+
+      const product =
+        await Product.findOneAndUpdate(
+          {
+            _id: id,
+
+            businessId:
+              req.user.businessId,
+          },
+
+          {
+            isActive: false,
+          },
+
+          {
+            new: true,
+          }
+        );
 
       if (!product) {
         return res.status(404).json({
           success: false,
           message:
-            "Product not found",
+            "Product not found.",
         });
       }
 
-      product.isActive =
-        false;
-
-      await product.save();
-
-      return res.status(200).json({
+      return res.json({
         success: true,
+
         message:
-          "Product deactivated successfully",
+          "Product deactivated successfully.",
+
         product,
       });
     } catch (error) {
@@ -1315,46 +1676,70 @@ const deactivateProduct =
       return res.status(500).json({
         success: false,
         message:
-          "Failed to deactivate product",
+          "Failed to deactivate product.",
       });
     }
   };
 
-/* ============================================================
-   ACTIVATE PRODUCT
-============================================================ */
+/*
+|--------------------------------------------------------------------------
+| ACTIVATE PRODUCT
+|--------------------------------------------------------------------------
+*/
 
-const activateProduct =
+export const activateProduct =
   async (
     req,
     res
   ) => {
     try {
-      const product =
-        await Product.findOne({
-          _id:
-            req.params.id,
-          businessId:
-            req.user.businessId,
+      const { id } =
+        req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid product ID.",
         });
+      }
+
+      const product =
+        await Product.findOneAndUpdate(
+          {
+            _id: id,
+
+            businessId:
+              req.user.businessId,
+          },
+
+          {
+            isActive: true,
+          },
+
+          {
+            new: true,
+          }
+        );
 
       if (!product) {
         return res.status(404).json({
           success: false,
           message:
-            "Product not found",
+            "Product not found.",
         });
       }
 
-      product.isActive =
-        true;
-
-      await product.save();
-
-      return res.status(200).json({
+      return res.json({
         success: true,
+
         message:
-          "Product activated successfully",
+          "Product activated successfully.",
+
         product,
       });
     } catch (error) {
@@ -1366,16 +1751,7 @@ const activateProduct =
       return res.status(500).json({
         success: false,
         message:
-          "Failed to activate product",
+          "Failed to activate product.",
       });
     }
   };
-
-export {
-  createProduct,
-  getProducts,
-  getProductById,
-  updateProduct,
-  deactivateProduct,
-  activateProduct,
-};
