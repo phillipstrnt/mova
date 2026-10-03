@@ -1,2 +1,2 @@
 # mova
-A web-based POS platform featuring multi-role user access, high-speed cashier checkout, real-time inventory and stock tracking, sales management, and actionable analytics reporting.
+**MOVA** is an installable, offline-fast Point of Sale (POS) platform designed to work across desktops, tablets, and phones with or without dedicated hardware. Built for reliability and performance, it features multi-role access, high-speed cashier checkout, camera and physical barcode scanning, real-time inventory tracking, sales management, actionable analytics reporting, and automatic synchronization when connectivity is restored.
