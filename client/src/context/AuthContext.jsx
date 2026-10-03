@@ -31,7 +31,11 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (userData) {
-      localStorage.setItem("mova_user", JSON.stringify(userData));
+      localStorage.setItem(
+        "mova_user",
+        JSON.stringify(userData)
+      );
+
       setUser(userData);
     }
 
@@ -40,6 +44,7 @@ export const AuthProvider = ({ children }) => {
         "mova_business",
         JSON.stringify(businessData)
       );
+
       setBusiness(businessData);
     }
 
@@ -48,6 +53,7 @@ export const AuthProvider = ({ children }) => {
         "mova_branch",
         JSON.stringify(branchData)
       );
+
       setBranch(branchData);
     }
 
@@ -94,14 +100,24 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // Load local session first.
-      // This is important for our future offline/PWA support.
+      /*
+       * Load local session first.
+       *
+       * This is important for the future MOVA PWA/offline
+       * architecture because the application should still
+       * know the current user, business and branch when
+       * the internet is temporarily unavailable.
+       */
       try {
-        const storedUser = localStorage.getItem("mova_user");
+        const storedUser =
+          localStorage.getItem("mova_user");
+
         const storedBusiness =
           localStorage.getItem("mova_business");
+
         const storedBranch =
           localStorage.getItem("mova_branch");
+
         const storedBranches =
           localStorage.getItem("mova_branches");
 
@@ -118,7 +134,12 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (storedBranches) {
-          setBranches(JSON.parse(storedBranches));
+          const parsedBranches =
+            JSON.parse(storedBranches);
+
+          if (Array.isArray(parsedBranches)) {
+            setBranches(parsedBranches);
+          }
         }
       } catch (error) {
         console.error(
@@ -127,18 +148,27 @@ export const AuthProvider = ({ children }) => {
         );
       }
 
-      // Verify with backend when internet/server is available.
+      /*
+       * Verify session with backend when the server
+       * is available.
+       */
       try {
         const response = await api.get("/auth/me");
 
         const data = response.data;
 
-        const userData = data?.user || null;
-        const businessData = data?.business || null;
-        const branchData = data?.branch || null;
+        const userData =
+          data?.user || null;
+
+        const businessData =
+          data?.business || null;
+
+        const branchData =
+          data?.branch || null;
 
         const branchList =
-          Array.isArray(data?.branches) && data.branches.length > 0
+          Array.isArray(data?.branches) &&
+          data.branches.length > 0
             ? data.branches
             : branchData
             ? [branchData]
@@ -175,10 +205,12 @@ export const AuthProvider = ({ children }) => {
           JSON.stringify(branchList)
         );
       } catch (error) {
-        // Do NOT delete the local session here.
-        //
-        // Later, this will allow MOVA to continue working
-        // offline and synchronize when internet returns.
+        /*
+         * Do NOT delete the local session here.
+         *
+         * This is intentional because MOVA will eventually
+         * support offline/PWA operation and synchronization.
+         */
         console.warn(
           "Could not verify session with server. Keeping local session.",
           error?.message
@@ -209,12 +241,18 @@ export const AuthProvider = ({ children }) => {
         );
       }
 
-      const userData = data?.user || null;
-      const businessData = data?.business || null;
-      const branchData = data?.branch || null;
+      const userData =
+        data?.user || null;
+
+      const businessData =
+        data?.business || null;
+
+      const branchData =
+        data?.branch || null;
 
       const branchList =
-        Array.isArray(data?.branches) && data.branches.length > 0
+        Array.isArray(data?.branches) &&
+        data.branches.length > 0
           ? data.branches
           : branchData
           ? [branchData]
@@ -249,10 +287,13 @@ export const AuthProvider = ({ children }) => {
   // --------------------------------------------------
   const login = async (email, password) => {
     try {
-      const response = await api.post("/auth/login", {
-        email,
-        password,
-      });
+      const response = await api.post(
+        "/auth/login",
+        {
+          email,
+          password,
+        }
+      );
 
       const data = response.data;
 
@@ -262,12 +303,18 @@ export const AuthProvider = ({ children }) => {
         );
       }
 
-      const userData = data?.user || null;
-      const businessData = data?.business || null;
-      const branchData = data?.branch || null;
+      const userData =
+        data?.user || null;
+
+      const businessData =
+        data?.business || null;
+
+      const branchData =
+        data?.branch || null;
 
       const branchList =
-        Array.isArray(data?.branches) && data.branches.length > 0
+        Array.isArray(data?.branches) &&
+        data.branches.length > 0
           ? data.branches
           : branchData
           ? [branchData]
@@ -283,7 +330,10 @@ export const AuthProvider = ({ children }) => {
 
       return data;
     } catch (error) {
-      console.error("Login failed:", error);
+      console.error(
+        "Login failed:",
+        error
+      );
 
       const message =
         error?.response?.data?.message ||
@@ -298,12 +348,17 @@ export const AuthProvider = ({ children }) => {
   // SWITCH BRANCH
   // --------------------------------------------------
   const switchBranch = (branchId) => {
-    const selectedBranch = branches.find(
-      (item) => item._id === branchId || item.id === branchId
-    );
+    const selectedBranch =
+      branches.find(
+        (item) =>
+          item._id === branchId ||
+          item.id === branchId
+      );
 
     if (!selectedBranch) {
-      throw new Error("Selected branch was not found.");
+      throw new Error(
+        "Selected branch was not found."
+      );
     }
 
     setBranch(selectedBranch);
@@ -326,11 +381,16 @@ export const AuthProvider = ({ children }) => {
   // --------------------------------------------------
   // AUTH STATUS
   // --------------------------------------------------
-  const isAuthenticated = Boolean(user);
+  const isAuthenticated =
+    Boolean(user);
 
+  // --------------------------------------------------
+  // CONTEXT VALUE
+  // --------------------------------------------------
   return (
     <AuthContext.Provider
       value={{
+        // Current session data
         user,
         business,
         branch,
@@ -338,6 +398,15 @@ export const AuthProvider = ({ children }) => {
         loading,
         isAuthenticated,
 
+        // State setters
+        // These are required by onboarding and
+        // multi-business / multi-branch features.
+        setUser,
+        setBusiness,
+        setBranch,
+        setBranches,
+
+        // Authentication actions
         register,
         login,
         switchBranch,
@@ -353,7 +422,8 @@ export const AuthProvider = ({ children }) => {
 // useAuth HOOK
 // --------------------------------------------------
 export const useAuth = () => {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(AuthContext);
 
   if (!context) {
     throw new Error(

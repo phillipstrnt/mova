@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -93,6 +94,7 @@ const BusinessSetup = () => {
   } = useAuth();
 
   const fileInputRef = useRef(null);
+  const logoObjectUrlRef = useRef(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -106,11 +108,27 @@ const BusinessSetup = () => {
     logo: "",
   });
 
+  /*
+   * Keep the actual selected file separately.
+   *
+   * We need this because URL.createObjectURL() only creates
+   * a temporary browser preview. It is NOT a permanent image URL.
+   *
+   * Cloudinary upload will be connected in the next stage.
+   */
+  const [logoFile, setLogoFile] = useState(null);
+
   const [logoPreview, setLogoPreview] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  /*
+   |--------------------------------------------------------------------------
+   | LOAD EXISTING BUSINESS
+   |--------------------------------------------------------------------------
+   */
 
   useEffect(() => {
     if (!business) {
@@ -133,6 +151,28 @@ const BusinessSetup = () => {
     setLogoPreview(business.logo || "");
   }, [business]);
 
+  /*
+   |--------------------------------------------------------------------------
+   | CLEANUP OBJECT URL
+   |--------------------------------------------------------------------------
+   */
+
+  useEffect(() => {
+    return () => {
+      if (logoObjectUrlRef.current) {
+        URL.revokeObjectURL(
+          logoObjectUrlRef.current
+        );
+      }
+    };
+  }, []);
+
+  /*
+   |--------------------------------------------------------------------------
+   | FORM CHANGES
+   |--------------------------------------------------------------------------
+   */
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -145,6 +185,12 @@ const BusinessSetup = () => {
     setSuccess("");
   };
 
+  /*
+   |--------------------------------------------------------------------------
+   | LOGO SELECTION
+   |--------------------------------------------------------------------------
+   */
+
   const handleLogoChange = (event) => {
     const file = event.target.files?.[0];
 
@@ -153,7 +199,11 @@ const BusinessSetup = () => {
     }
 
     if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file.");
+      setError(
+        "Please select a valid image file."
+      );
+
+      event.target.value = "";
       return;
     }
 
@@ -161,16 +211,41 @@ const BusinessSetup = () => {
       setError(
         "Business logo must be smaller than 5MB."
       );
+
+      event.target.value = "";
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
+    /*
+     * Remove the previous temporary preview URL.
+     */
+    if (logoObjectUrlRef.current) {
+      URL.revokeObjectURL(
+        logoObjectUrlRef.current
+      );
+    }
 
+    const previewUrl =
+      URL.createObjectURL(file);
+
+    logoObjectUrlRef.current = previewUrl;
+
+    /*
+     * Keep the actual file.
+     */
+    setLogoFile(file);
+
+    /*
+     * Display temporary preview.
+     */
     setLogoPreview(previewUrl);
 
     /*
-     * We keep the selected file in the browser for now.
-     * Cloudinary upload will be added in the next step.
+     * Clear the existing server logo because a new
+     * image has been selected.
+     *
+     * The actual upload will happen through Cloudinary
+     * in the next implementation stage.
      */
     setFormData((current) => ({
       ...current,
@@ -181,7 +256,22 @@ const BusinessSetup = () => {
     setSuccess("");
   };
 
+  /*
+   |--------------------------------------------------------------------------
+   | REMOVE LOGO
+   |--------------------------------------------------------------------------
+   */
+
   const removeLogo = () => {
+    if (logoObjectUrlRef.current) {
+      URL.revokeObjectURL(
+        logoObjectUrlRef.current
+      );
+
+      logoObjectUrlRef.current = null;
+    }
+
+    setLogoFile(null);
     setLogoPreview("");
 
     setFormData((current) => ({
@@ -192,7 +282,16 @@ const BusinessSetup = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+
+    setError("");
+    setSuccess("");
   };
+
+  /*
+   |--------------------------------------------------------------------------
+   | VALIDATION
+   |--------------------------------------------------------------------------
+   */
 
   const validate = () => {
     if (!formData.name.trim()) {
@@ -207,8 +306,23 @@ const BusinessSetup = () => {
       return "Please enter your business phone number.";
     }
 
+    if (
+      formData.email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        formData.email.trim()
+      )
+    ) {
+      return "Please enter a valid business email address.";
+    }
+
     return "";
   };
+
+  /*
+   |--------------------------------------------------------------------------
+   | SUBMIT
+   |--------------------------------------------------------------------------
+   */
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -225,41 +339,91 @@ const BusinessSetup = () => {
       setError("");
       setSuccess("");
 
+      /*
+       * At this stage the business profile API receives
+       * the business information.
+       *
+       * The logo file is deliberately NOT converted into
+       * a temporary URL and sent to MongoDB.
+       *
+       * We will upload logoFile to Cloudinary and then
+       * save the returned secure_url in Business.logo.
+       */
       const response = await api.put(
         "/business/profile",
         {
           name: formData.name.trim(),
+
           businessType:
             formData.businessType.trim(),
+
           phone: formData.phone.trim(),
-          email: formData.email.trim(),
+
+          email: formData.email
+            .trim()
+            .toLowerCase(),
+
           address: formData.address.trim(),
-          country: formData.country.trim(),
-          currency: formData.currency,
-          timezone: formData.timezone,
-          logo: formData.logo,
+
+          country:
+            formData.country.trim() ||
+            "Uganda",
+
+          currency:
+            formData.currency || "UGX",
+
+          timezone:
+            formData.timezone ||
+            "Africa/Kampala",
+
+          /*
+           * Keep an already saved logo if the user
+           * did not select a new one.
+           */
+          logo: formData.logo || "",
         }
       );
 
       const updatedBusiness =
         response?.data?.business;
 
-      if (updatedBusiness) {
-        setBusiness(updatedBusiness);
-
-        localStorage.setItem(
-          "mova_business",
-          JSON.stringify(updatedBusiness)
+      if (!updatedBusiness) {
+        throw new Error(
+          "The server did not return the updated business."
         );
       }
 
-      setSuccess(
-        "Business information saved successfully."
+      /*
+       * Update AuthContext.
+       */
+      setBusiness(updatedBusiness);
+
+      /*
+       * Keep business information available after
+       * page refresh.
+       */
+      localStorage.setItem(
+        "mova_business",
+        JSON.stringify(updatedBusiness)
       );
 
+      /*
+       * Tell the user the profile was saved.
+       */
+      setSuccess(
+        logoFile
+          ? "Business information saved. Logo upload will be completed next."
+          : "Business information saved successfully."
+      );
+
+      /*
+       * Continue to Branch Setup.
+       */
       setTimeout(() => {
-        navigate("/setup/branch");
-      }, 700);
+        navigate("/setup/branch", {
+          replace: true,
+        });
+      }, 800);
     } catch (requestError) {
       console.error(
         "Business setup error:",
@@ -268,12 +432,19 @@ const BusinessSetup = () => {
 
       setError(
         requestError?.response?.data?.message ||
+          requestError?.message ||
           "Failed to save business information. Please try again."
       );
     } finally {
       setSaving(false);
     }
   };
+
+  /*
+   |--------------------------------------------------------------------------
+   | SKIP
+   |--------------------------------------------------------------------------
+   */
 
   const handleSkip = () => {
     navigate("/app");
@@ -293,6 +464,7 @@ const BusinessSetup = () => {
               <p className="text-lg font-bold text-slate-900">
                 MOVA
               </p>
+
               <p className="text-xs text-slate-500">
                 Business setup
               </p>
@@ -348,6 +520,7 @@ const BusinessSetup = () => {
 
         {/* Main card */}
         <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          {/* Card header */}
           <div className="border-b border-slate-200 px-6 py-6 sm:px-8">
             <div className="flex items-start gap-4">
               <div className="rounded-xl bg-slate-100 p-3">
@@ -454,11 +627,17 @@ const BusinessSetup = () => {
                   <p className="mt-2 text-xs text-slate-400">
                     PNG, JPG, WEBP or SVG. Maximum 5MB.
                   </p>
+
+                  {logoFile && (
+                    <p className="mt-2 text-xs font-medium text-slate-500">
+                      Selected: {logoFile.name}
+                    </p>
+                  )}
                 </div>
               </div>
             </section>
 
-            {/* Business identity */}
+            {/* Business information */}
             <section className="mb-10">
               <div className="mb-5">
                 <h2 className="font-semibold text-slate-900">
@@ -471,6 +650,7 @@ const BusinessSetup = () => {
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">
+                {/* Name */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Business name *
@@ -493,6 +673,7 @@ const BusinessSetup = () => {
                   </div>
                 </div>
 
+                {/* Business type */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Business type *
@@ -519,6 +700,7 @@ const BusinessSetup = () => {
                   </select>
                 </div>
 
+                {/* Phone */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Phone number *
@@ -541,6 +723,7 @@ const BusinessSetup = () => {
                   </div>
                 </div>
 
+                {/* Email */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Business email
@@ -563,6 +746,7 @@ const BusinessSetup = () => {
                   </div>
                 </div>
 
+                {/* Address */}
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Business address
@@ -601,6 +785,7 @@ const BusinessSetup = () => {
               </div>
 
               <div className="grid gap-5 md:grid-cols-3">
+                {/* Country */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Country
@@ -622,6 +807,7 @@ const BusinessSetup = () => {
                   </div>
                 </div>
 
+                {/* Currency */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Currency
@@ -633,19 +819,18 @@ const BusinessSetup = () => {
                     onChange={handleChange}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
-                    {CURRENCIES.map(
-                      (currency) => (
-                        <option
-                          key={currency.value}
-                          value={currency.value}
-                        >
-                          {currency.label}
-                        </option>
-                      )
-                    )}
+                    {CURRENCIES.map((currency) => (
+                      <option
+                        key={currency.value}
+                        value={currency.value}
+                      >
+                        {currency.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
+                {/* Timezone */}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Timezone
@@ -657,16 +842,14 @@ const BusinessSetup = () => {
                     onChange={handleChange}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
-                    {TIMEZONES.map(
-                      (timezone) => (
-                        <option
-                          key={timezone.value}
-                          value={timezone.value}
-                        >
-                          {timezone.label}
-                        </option>
-                      )
-                    )}
+                    {TIMEZONES.map((timezone) => (
+                      <option
+                        key={timezone.value}
+                        value={timezone.value}
+                      >
+                        {timezone.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

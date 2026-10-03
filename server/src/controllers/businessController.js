@@ -1,8 +1,15 @@
+
 import Business from "../models/Business.js";
+
+// ==========================================
+// GET BUSINESS PROFILE
+// ==========================================
 
 const getBusinessProfile = async (req, res) => {
   try {
-    const business = await Business.findById(req.user.businessId);
+    const business = await Business.findById(
+      req.user.businessId
+    );
 
     if (!business) {
       return res.status(404).json({
@@ -16,7 +23,10 @@ const getBusinessProfile = async (req, res) => {
       business,
     });
   } catch (error) {
-    console.error("Get business profile error:", error);
+    console.error(
+      "Get business profile error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
@@ -24,6 +34,10 @@ const getBusinessProfile = async (req, res) => {
     });
   }
 };
+
+// ==========================================
+// UPDATE BUSINESS PROFILE
+// ==========================================
 
 const updateBusinessProfile = async (req, res) => {
   try {
@@ -41,6 +55,10 @@ const updateBusinessProfile = async (req, res) => {
       logo,
     } = req.body;
 
+    // --------------------------------------
+    // VALIDATION
+    // --------------------------------------
+
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -55,29 +73,54 @@ const updateBusinessProfile = async (req, res) => {
       });
     }
 
+    // --------------------------------------
+    // BUILD UPDATE
+    // --------------------------------------
+
     const updateData = {
       name: name.trim(),
-      businessType: businessType.trim(),
-      phone: phone?.trim() || "",
-      email: email?.trim().toLowerCase() || "",
-      address: address?.trim() || "",
-      country: country?.trim() || "Uganda",
-      currency: currency?.trim() || "UGX",
-      timezone: timezone?.trim() || "Africa/Kampala",
+
+      businessType:
+        businessType.trim(),
+
+      phone:
+        phone?.trim() || "",
+
+      email:
+        email?.trim().toLowerCase() || "",
+
+      address:
+        address?.trim() || "",
+
+      country:
+        country?.trim() || "Uganda",
+
+      currency:
+        currency?.trim() || "UGX",
+
+      timezone:
+        timezone?.trim() || "Africa/Kampala",
     };
+
+    // Only update logo when a value is provided
 
     if (typeof logo === "string") {
       updateData.logo = logo.trim();
     }
 
-    const business = await Business.findByIdAndUpdate(
-      businessId,
-      updateData,
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
+    // --------------------------------------
+    // UPDATE BUSINESS
+    // --------------------------------------
+
+    const business =
+      await Business.findByIdAndUpdate(
+        businessId,
+        updateData,
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
 
     if (!business) {
       return res.status(404).json({
@@ -88,19 +131,28 @@ const updateBusinessProfile = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Business profile updated successfully",
+      message:
+        "Business profile updated successfully",
       business,
     });
   } catch (error) {
-    console.error("Update business profile error:", error);
+    console.error(
+      "Update business profile error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to update business profile",
+      message:
+        "Failed to update business profile",
       error: error.message,
     });
   }
 };
+
+// ==========================================
+// EXPORT
+// ==========================================
 
 export {
   getBusinessProfile,
