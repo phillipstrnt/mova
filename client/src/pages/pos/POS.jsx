@@ -205,8 +205,14 @@ const POS = () => {
    * We will connect this to the physical terminal
    * after the backend payment architecture is ready.
    */
-  const [cardPaymentStatus, setCardPaymentStatus] =
-    useState("IDLE");
+    const [cardPaymentStatus, setCardPaymentStatus] =
+  useState("IDLE");
+
+const [paymentTransaction, setPaymentTransaction] =
+  useState(null);
+
+const [paymentPolling, setPaymentPolling] =
+  useState(false);
 
 
   /* =======================================================
