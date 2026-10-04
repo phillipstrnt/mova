@@ -1,4 +1,3 @@
-
 import {
   Navigate,
   Route,
@@ -17,7 +16,6 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import BusinessSetup from "./pages/setup/BusinessSetup";
 import BranchSetup from "./pages/setup/BranchSetup";
 import ReceiptSetup from "./pages/setup/ReceiptSetup";
-import Categories from "./pages/products/Categories";
 
 // APP
 import Dashboard from "./pages/dashboard/Dashboard";
@@ -26,6 +24,7 @@ import Sales from "./pages/sales/Sales";
 import Payments from "./pages/payments/Payments";
 import Receipts from "./pages/receipts/Receipts";
 import Products from "./pages/products/Products";
+import Categories from "./pages/products/Categories";
 import Inventory from "./pages/inventory/Inventory";
 import Customers from "./pages/customers/Customers";
 import Suppliers from "./pages/suppliers/Suppliers";
@@ -33,11 +32,8 @@ import Purchases from "./pages/purchases/Purchases";
 import Expenses from "./pages/expenses/Expenses";
 import Reports from "./pages/reports/Reports";
 
-const ProtectedRoute = ({
-  children,
-}) => {
-  const token =
-    localStorage.getItem("mova_token");
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem("mova_token");
 
   if (!token) {
     return (
@@ -95,7 +91,10 @@ const ModulePage = ({
 const App = () => {
   return (
     <Routes>
-      {/* AUTH */}
+      {/* =====================================================
+          AUTH
+      ===================================================== */}
+
       <Route
         path="/login"
         element={<Login />}
@@ -111,7 +110,10 @@ const App = () => {
         element={<ForgotPassword />}
       />
 
-      {/* BUSINESS SETUP */}
+      {/* =====================================================
+          BUSINESS SETUP
+      ===================================================== */}
+
       <Route
         path="/setup/business"
         element={
@@ -121,7 +123,10 @@ const App = () => {
         }
       />
 
-      {/* BRANCH SETUP */}
+      {/* =====================================================
+          BRANCH SETUP
+      ===================================================== */}
+
       <Route
         path="/setup/branch"
         element={
@@ -131,7 +136,10 @@ const App = () => {
         }
       />
 
-      {/* RECEIPT SETUP */}
+      {/* =====================================================
+          RECEIPT SETUP
+      ===================================================== */}
+
       <Route
         path="/setup/receipt"
         element={
@@ -141,7 +149,10 @@ const App = () => {
         }
       />
 
-      {/* MAIN APPLICATION */}
+      {/* =====================================================
+          MAIN APPLICATION
+      ===================================================== */}
+
       <Route
         path="/app"
         element={
@@ -152,89 +163,104 @@ const App = () => {
           </ProtectedRoute>
         }
       >
+        {/* DASHBOARD */}
+
         <Route
           index
           element={<Dashboard />}
         />
+
+        {/* POS */}
 
         <Route
           path="pos"
           element={<POS />}
         />
 
+        {/* SALES */}
+
         <Route
           path="sales"
           element={<Sales />}
         />
+
+        {/* PAYMENTS */}
 
         <Route
           path="payments"
           element={<Payments />}
         />
 
+        {/* RECEIPTS */}
+
         <Route
           path="receipts"
           element={<Receipts />}
         />
+
+        {/* PRODUCTS */}
 
         <Route
           path="products"
           element={<Products />}
         />
 
-        <Route
-          path="categories"
-          element={
-            <ModulePage
-              title="Categories"
-              description="Create and manage product categories to organize your MOVA inventory."
-            />
-          }
-        />
+        {/* =================================================
+            CATEGORIES
 
-        <Route
-          path="products/categories"
-          element={
-            <ModulePage
-              title="Categories"
-              description="Create and manage product categories to organize your MOVA inventory."
-            />
-          }
-        />
+            Official Categories URL:
+
+            /app/products/categories
+        ================================================= */}
 
         <Route
           path="products/categories"
           element={<Categories />}
         />
+
+        {/* INVENTORY */}
+
         <Route
           path="inventory"
           element={<Inventory />}
         />
+
+        {/* CUSTOMERS */}
 
         <Route
           path="customers"
           element={<Customers />}
         />
 
+        {/* SUPPLIERS */}
+
         <Route
           path="suppliers"
           element={<Suppliers />}
         />
+
+        {/* PURCHASES */}
 
         <Route
           path="purchases"
           element={<Purchases />}
         />
 
+        {/* EXPENSES */}
+
         <Route
           path="expenses"
           element={<Expenses />}
         />
 
+        {/* REPORTS */}
+
         <Route
           path="reports"
           element={<Reports />}
         />
+
+        {/* SETTINGS */}
 
         <Route
           path="settings"
@@ -245,6 +271,8 @@ const App = () => {
             />
           }
         />
+
+        {/* UNKNOWN APP ROUTES */}
 
         <Route
           path="*"
@@ -257,7 +285,10 @@ const App = () => {
         />
       </Route>
 
-      {/* DEFAULT */}
+      {/* =====================================================
+          DEFAULT
+      ===================================================== */}
+
       <Route
         path="/"
         element={
@@ -268,7 +299,10 @@ const App = () => {
         }
       />
 
-      {/* UNKNOWN ROUTES */}
+      {/* =====================================================
+          UNKNOWN ROUTES
+      ===================================================== */}
+
       <Route
         path="*"
         element={

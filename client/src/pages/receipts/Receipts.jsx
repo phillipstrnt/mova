@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 
 import api from "../../services/api";
@@ -53,7 +52,7 @@ const statusClasses = {
 };
 
 // ==========================================
-// CURRENCY FORMATTER
+// CURRENCY
 // ==========================================
 
 const formatCurrency = (amount = 0) => {
@@ -65,7 +64,7 @@ const formatCurrency = (amount = 0) => {
 };
 
 // ==========================================
-// DATE FORMATTER
+// DATE
 // ==========================================
 
 const formatDate = (date) => {
@@ -89,7 +88,7 @@ const formatDate = (date) => {
 };
 
 // ==========================================
-// ERROR HANDLER
+// ERROR
 // ==========================================
 
 const getErrorMessage = (error, fallback) => {
@@ -114,21 +113,21 @@ const escapeHtml = (value) => {
 };
 
 // ==========================================
-// CUSTOMER DETAILS
+// CUSTOMER
 // ==========================================
 
-const getReceiptCustomer = (sale) => {
-  const customer = sale?.customer;
+const getReceiptCustomer = (sale, customer) => {
+  const saleCustomer = sale?.customer || customer;
 
   const name =
-    customer?.name ||
-    customer?.customerName ||
+    saleCustomer?.name ||
+    saleCustomer?.customerName ||
     sale?.customerName ||
     "";
 
   const phone =
-    customer?.phone ||
-    customer?.phoneNumber ||
+    saleCustomer?.phone ||
+    saleCustomer?.phoneNumber ||
     sale?.customerPhone ||
     "";
 
@@ -142,13 +141,19 @@ const getReceiptCustomer = (sale) => {
 // PAYMENT DETAILS
 // ==========================================
 
-const getReceiptPaymentDetails = (sale) => {
+const getReceiptPaymentDetails = (
+  sale,
+  payment
+) => {
   const amountPaid =
+    payment?.amountReceived ??
+    payment?.amountPaid ??
     sale?.amountPaid ??
     sale?.paidAmount ??
     sale?.paymentAmount;
 
   const change =
+    payment?.change ??
     sale?.change ??
     sale?.changeAmount;
 
@@ -172,11 +177,98 @@ const getReceiptPaymentDetails = (sale) => {
 };
 
 // ==========================================
-// RECEIPTS PAGE
+// BUSINESS NORMALIZER
 // ==========================================
 
-const Receipts = () => {
-  const [receipts, setReceipts] = useState([]);
+const normalizeBusiness = (
+  responseBusiness,
+  sale
+) => {
+  const business =
+    responseBusiness ||
+    sale?.business ||
+    {};
+
+  return {
+    name:
+      business.name ||
+      sale?.businessName ||
+      "Business",
+
+    businessType:
+      business.businessType ||
+      "",
+
+    phone:
+      business.phone ||
+      "",
+
+    email:
+      business.email ||
+      "",
+
+    address:
+      business.address ||
+      "",
+
+    country:
+      business.country ||
+      "Uganda",
+
+    currency:
+      business.currency ||
+      "UGX",
+
+    logo:
+      business.logo ||
+      "",
+
+    tin:
+      business.tin ||
+      business.taxNumber ||
+      business.tinNumber ||
+      "",
+  };
+};
+
+// ==========================================
+// COMPONENT
+// ==========================================
+
+const Receipts = ({
+  sale: saleProp = null,
+  customer: customerProp = null,
+  payment: paymentProp = null,
+  onClose,
+  onNewSale,
+}) => {
+  // ========================================
+  // RECEIPT MODAL MODE
+  // ========================================
+
+  const isReceiptModal = Boolean(saleProp);
+
+  // ========================================
+  // BUSINESS
+  // ========================================
+
+  const [business, setBusiness] = useState(
+    () =>
+      normalizeBusiness(
+        saleProp?.business,
+        saleProp
+      )
+  );
+
+  const [loadingBusiness, setLoadingBusiness] =
+    useState(false);
+
+  // ========================================
+  // RECEIPTS PAGE STATE
+  // ========================================
+
+  const [receipts, setReceipts] =
+    useState([]);
 
   const [loading, setLoading] =
     useState(true);
@@ -217,6 +309,69 @@ const Receipts = () => {
   const pageSize = 10;
 
   // ========================================
+  // FETCH BUSINESS
+  // ========================================
+
+  const fetchBusiness = async (sale = null) => {
+    try {
+      setLoadingBusiness(true);
+
+      /*
+       * The business belongs to the authenticated
+       * user's business. This endpoint should return
+       * the current business.
+       */
+      const response = await api.get("/business");
+
+      const responseBusiness =
+        response.data?.business ||
+        response.data?.data ||
+        response.data;
+
+      if (
+        responseBusiness &&
+        typeof responseBusiness === "object"
+      ) {
+        setBusiness(
+          normalizeBusiness(
+            responseBusiness,
+            sale
+          )
+        );
+      }
+    } catch (requestError) {
+      /*
+       * Do not break receipt printing if business
+       * information cannot be loaded.
+       *
+       * If the sale already contains business
+       * information, we use that.
+       */
+      console.warn(
+        "Unable to load business information:",
+        requestError
+      );
+
+      setBusiness(
+        normalizeBusiness(
+          sale?.business,
+          sale
+        )
+      );
+    } finally {
+      setLoadingBusiness(false);
+    }
+  };
+
+  // ========================================
+  // LOAD BUSINESS
+  // ========================================
+
+  useEffect(() => {
+    fetchBusiness(saleProp);
+  }, [saleProp?._id]);
+
+  // ========================================
   // FETCH RECEIPTS
   // ========================================
 
@@ -238,20 +393,15 @@ const Receipts = () => {
       };
 
       if (search.trim()) {
-        params.search =
-          search.trim();
+        params.search = search.trim();
       }
 
-      if (
-        paymentFilter !== "ALL"
-      ) {
+      if (paymentFilter !== "ALL") {
         params.paymentMethod =
           paymentFilter;
       }
 
-      if (
-        statusFilter !== "ALL"
-      ) {
+      if (statusFilter !== "ALL") {
         params.status =
           statusFilter;
       }
@@ -263,13 +413,13 @@ const Receipts = () => {
         }
       );
 
-      const data =
-        response.data;
+      const data = response.data;
 
-      const sales =
-        Array.isArray(data.sales)
-          ? data.sales
-          : [];
+      const sales = Array.isArray(
+        data.sales
+      )
+        ? data.sales
+        : [];
 
       setReceipts(sales);
 
@@ -308,11 +458,16 @@ const Receipts = () => {
   // ========================================
 
   useEffect(() => {
+    if (isReceiptModal) {
+      return;
+    }
+
     fetchReceipts();
   }, [
     page,
     paymentFilter,
     statusFilter,
+    isReceiptModal,
   ]);
 
   // ========================================
@@ -320,15 +475,20 @@ const Receipts = () => {
   // ========================================
 
   useEffect(() => {
-    const timer =
-      setTimeout(() => {
-        setPage(1);
-        fetchReceipts();
-      }, 400);
+    if (isReceiptModal) {
+      return;
+    }
 
-    return () =>
-      clearTimeout(timer);
-  }, [search]);
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchReceipts();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [
+    search,
+    isReceiptModal,
+  ]);
 
   // ========================================
   // VISIBLE RECEIPTS
@@ -345,40 +505,37 @@ const Receipts = () => {
   // SUMMARY
   // ========================================
 
-  const summary =
-    useMemo(() => {
-      const totalAmount =
-        visibleReceipts.reduce(
-          (sum, receipt) =>
-            sum +
-            Number(
-              receipt.total || 0
-            ),
-          0
-        );
+  const summary = useMemo(() => {
+    const totalAmount =
+      visibleReceipts.reduce(
+        (sum, receipt) =>
+          sum +
+          Number(receipt.total || 0),
+        0
+      );
 
-      const completed =
-        visibleReceipts.filter(
-          (receipt) =>
-            receipt.status ===
-            "COMPLETED"
-        ).length;
+    const completed =
+      visibleReceipts.filter(
+        (receipt) =>
+          receipt.status ===
+          "COMPLETED"
+      ).length;
 
-      const refunded =
-        visibleReceipts.filter(
-          (receipt) =>
-            receipt.status ===
-              "REFUNDED" ||
-            receipt.status ===
-              "PARTIALLY_REFUNDED"
-        ).length;
+    const refunded =
+      visibleReceipts.filter(
+        (receipt) =>
+          receipt.status ===
+            "REFUNDED" ||
+          receipt.status ===
+            "PARTIALLY_REFUNDED"
+      ).length;
 
-      return {
-        totalAmount,
-        completed,
-        refunded,
-      };
-    }, [visibleReceipts]);
+    return {
+      totalAmount,
+      completed,
+      refunded,
+    };
+  }, [visibleReceipts]);
 
   // ========================================
   // VIEW RECEIPT
@@ -403,10 +560,13 @@ const Receipts = () => {
             `/sales/${receiptId}`
           );
 
-        setSelectedReceipt(
+        const sale =
           response.data.sale ||
-            response.data
-        );
+          response.data;
+
+        setSelectedReceipt(sale);
+
+        await fetchBusiness(sale);
       } catch (requestError) {
         console.error(
           "Failed to load receipt:",
@@ -425,417 +585,625 @@ const Receipts = () => {
     };
 
   // ========================================
-  // BUILD PRINT RECEIPT HTML
+  // RECEIPT BUSINESS DETAILS
   // ========================================
 
-  const buildReceiptHtml =
-    (sale) => {
-      const customer =
-        getReceiptCustomer(
-          sale
-        );
+  const getBusinessForSale = (
+    sale
+  ) => {
+    return normalizeBusiness(
+      business,
+      sale
+    );
+  };
 
-      const paymentDetails =
-        getReceiptPaymentDetails(
-          sale
-        );
+  // ========================================
+  // BUILD RECEIPT HTML
+  // ========================================
 
-      const customerHtml =
-        customer.name ||
-        customer.phone
-          ? `
-            <div>
-              <strong>Customer:</strong>
+  const buildReceiptHtml = (
+    sale,
+    receiptBusiness = business,
+    receiptPayment = paymentProp
+  ) => {
+    const receiptBusinessData =
+      getBusinessForSale(sale);
+
+    const customer =
+      getReceiptCustomer(
+        sale,
+        customerProp
+      );
+
+    const paymentDetails =
+      getReceiptPaymentDetails(
+        sale,
+        receiptPayment
+      );
+
+    const businessLogoHtml =
+      receiptBusinessData.logo
+        ? `
+          <div class="logo-container">
+            <img
+              src="${escapeHtml(
+                receiptBusinessData.logo
+              )}"
+              alt="Business logo"
+              class="logo"
+            />
+          </div>
+        `
+        : "";
+
+    const businessContactHtml = [
+      receiptBusinessData.address,
+      receiptBusinessData.phone,
+      receiptBusinessData.email,
+      receiptBusinessData.tin
+        ? `TIN: ${receiptBusinessData.tin}`
+        : "",
+    ]
+      .filter(Boolean)
+      .map(
+        (item) =>
+          `<div>${escapeHtml(
+            item
+          )}</div>`
+      )
+      .join("");
+
+    const customerHtml =
+      customer.name ||
+      customer.phone
+        ? `
+          <div>
+            <strong>Customer:</strong>
+            ${escapeHtml(
+              customer.name ||
+                "Walk-in Customer"
+            )}
+          </div>
+
+          ${
+            customer.phone
+              ? `
+                <div>
+                  <strong>Phone:</strong>
+                  ${escapeHtml(
+                    customer.phone
+                  )}
+                </div>
+              `
+              : ""
+          }
+        `
+        : `
+          <div>
+            <strong>Customer:</strong>
+            Walk-in Customer
+          </div>
+        `;
+
+    const paymentDetailsHtml =
+      paymentDetails.hasAmountPaid ||
+      paymentDetails.hasChange
+        ? `
+          <hr />
+
+          ${
+            paymentDetails.hasAmountPaid
+              ? `
+                <div class="row">
+                  <span>Amount Paid</span>
+                  <span>
+                    ${formatCurrency(
+                      paymentDetails.amountPaid
+                    )}
+                  </span>
+                </div>
+              `
+              : ""
+          }
+
+          ${
+            paymentDetails.hasChange
+              ? `
+                <div class="row change-row">
+                  <span>Change</span>
+                  <span>
+                    ${formatCurrency(
+                      paymentDetails.change
+                    )}
+                  </span>
+                </div>
+              `
+              : ""
+          }
+        `
+        : "";
+
+    const itemsHtml =
+      (sale.items || [])
+        .map(
+          (item) => `
+            <tr>
+              <td>
+                ${escapeHtml(
+                  item.name || "-"
+                )}
+              </td>
+
+              <td style="text-align:center;">
+                ${
+                  Number(
+                    item.quantity
+                  ) || 0
+                }
+              </td>
+
+              <td style="text-align:right;">
+                ${formatCurrency(
+                  item.subtotal
+                )}
+              </td>
+            </tr>
+          `
+        )
+        .join("");
+
+    return `
+      <!DOCTYPE html>
+
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+
+          <title>
+            ${escapeHtml(
+              receiptBusinessData.name
+            )}
+            -
+            ${escapeHtml(
+              sale.receiptNumber || ""
+            )}
+          </title>
+
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family:
+                Arial,
+                sans-serif;
+
+              padding: 24px;
+
+              color: #111827;
+
+              background: #fff;
+            }
+
+            .receipt {
+              max-width: 420px;
+
+              margin: 0 auto;
+            }
+
+            .logo-container {
+              text-align: center;
+
+              margin-bottom: 8px;
+            }
+
+            .logo {
+              max-width: 90px;
+
+              max-height: 70px;
+
+              object-fit: contain;
+            }
+
+            h1 {
+              text-align: center;
+
+              margin: 0 0 4px;
+
+              font-size: 25px;
+            }
+
+            .business-type {
+              text-align: center;
+
+              color: #6b7280;
+
+              font-size: 12px;
+
+              margin-bottom: 5px;
+            }
+
+            .business-contact {
+              text-align: center;
+
+              color: #4b5563;
+
+              font-size: 11px;
+
+              line-height: 1.5;
+            }
+
+            .center {
+              text-align: center;
+            }
+
+            .muted {
+              color: #6b7280;
+            }
+
+            .meta {
+              line-height: 1.7;
+
+              font-size: 13px;
+            }
+
+            hr {
+              border: 0;
+
+              border-top:
+                1px dashed
+                #9ca3af;
+
+              margin: 16px 0;
+            }
+
+            table {
+              width: 100%;
+
+              border-collapse:
+                collapse;
+            }
+
+            th,
+            td {
+              padding: 8px 0;
+
+              border-bottom:
+                1px solid
+                #e5e7eb;
+
+              font-size: 13px;
+            }
+
+            th {
+              text-align: left;
+
+              color: #4b5563;
+            }
+
+            .row {
+              display: flex;
+
+              justify-content:
+                space-between;
+
+              gap: 20px;
+
+              margin: 8px 0;
+
+              font-size: 14px;
+            }
+
+            .total {
+              font-size: 18px;
+
+              font-weight: bold;
+            }
+
+            .change-row {
+              font-weight: bold;
+
+              color: #047857;
+            }
+
+            .footer {
+              margin-top: 20px;
+
+              text-align: center;
+
+              color: #6b7280;
+
+              font-size: 12px;
+            }
+
+            .powered {
+              margin-top: 5px;
+
+              text-align: center;
+
+              color: #9ca3af;
+
+              font-size: 9px;
+            }
+
+            @media print {
+              body {
+                padding: 8px;
+              }
+
+              .receipt {
+                max-width: 100%;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="receipt">
+
+            ${businessLogoHtml}
+
+            <h1>
               ${escapeHtml(
-                customer.name ||
-                  "Walk-in Customer"
+                receiptBusinessData.name
               )}
-            </div>
+            </h1>
 
             ${
-              customer.phone
+              receiptBusinessData.businessType
                 ? `
-                  <div>
-                    <strong>Phone:</strong>
+                  <div class="business-type">
                     ${escapeHtml(
-                      customer.phone
+                      receiptBusinessData.businessType
                     )}
                   </div>
                 `
                 : ""
             }
-          `
-          : "";
 
-      const paymentDetailsHtml =
-        paymentDetails.hasAmountPaid ||
-        paymentDetails.hasChange
-          ? `
+            ${
+              businessContactHtml
+                ? `
+                  <div class="business-contact">
+                    ${businessContactHtml}
+                  </div>
+                `
+                : ""
+            }
+
             <hr />
 
-            ${
-              paymentDetails.hasAmountPaid
-                ? `
-                  <div class="row">
-                    <span>Amount Paid</span>
-                    <span>
-                      ${formatCurrency(
-                        paymentDetails.amountPaid
+            <div class="meta">
+
+              <div>
+                <strong>Receipt:</strong>
+                ${escapeHtml(
+                  sale.receiptNumber ||
+                    "-"
+                )}
+              </div>
+
+              <div>
+                <strong>Date:</strong>
+                ${escapeHtml(
+                  formatDate(
+                    sale.createdAt
+                  )
+                )}
+              </div>
+
+              ${
+                sale.cashier?.name ||
+                sale.cashierName
+                  ? `
+                    <div>
+                      <strong>Cashier:</strong>
+                      ${escapeHtml(
+                        sale.cashier?.name ||
+                          sale.cashierName
                       )}
-                    </span>
-                  </div>
-                `
-                : ""
-            }
+                    </div>
+                  `
+                  : ""
+              }
 
-            ${
-              paymentDetails.hasChange
-                ? `
-                  <div class="row">
-                    <span>Change</span>
-                    <span>
-                      ${formatCurrency(
-                        paymentDetails.change
+              ${
+                sale.branch?.name ||
+                sale.branchName
+                  ? `
+                    <div>
+                      <strong>Branch:</strong>
+                      ${escapeHtml(
+                        sale.branch?.name ||
+                          sale.branchName
                       )}
-                    </span>
-                  </div>
-                `
-                : ""
-            }
-          `
-          : "";
-
-      const itemsHtml =
-        (sale.items || [])
-          .map(
-            (item) => `
-              <tr>
-                <td>
-                  ${escapeHtml(
-                    item.name || "-"
-                  )}
-                </td>
-
-                <td style="text-align:center;">
-                  ${
-                    Number(
-                      item.quantity
-                    ) || 0
-                  }
-                </td>
-
-                <td style="text-align:right;">
-                  ${formatCurrency(
-                    item.subtotal
-                  )}
-                </td>
-              </tr>
-            `
-          )
-          .join("");
-
-      return `
-        <!DOCTYPE html>
-
-        <html>
-          <head>
-            <meta charset="UTF-8" />
-
-            <title>
-              Receipt
-              ${escapeHtml(
-                sale.receiptNumber ||
-                  ""
-              )}
-            </title>
-
-            <style>
-              * {
-                box-sizing: border-box;
+                    </div>
+                  `
+                  : ""
               }
 
-              body {
-                font-family:
-                  Arial,
-                  sans-serif;
-
-                padding: 24px;
-
-                color: #111827;
-
-                background: #fff;
-              }
-
-              .receipt {
-                max-width: 420px;
-
-                margin: 0 auto;
-              }
-
-              h1 {
-                text-align: center;
-
-                margin: 0 0 4px;
-
-                font-size: 28px;
-              }
-
-              .center {
-                text-align: center;
-              }
-
-              .muted {
-                color: #6b7280;
-              }
-
-              .meta {
-                line-height: 1.7;
-
-                font-size: 13px;
-              }
-
-              hr {
-                border: 0;
-
-                border-top:
-                  1px dashed
-                  #9ca3af;
-
-                margin: 16px 0;
-              }
-
-              table {
-                width: 100%;
-
-                border-collapse:
-                  collapse;
-              }
-
-              th,
-              td {
-                padding: 8px 0;
-
-                border-bottom:
-                  1px solid
-                  #e5e7eb;
-
-                font-size: 13px;
-              }
-
-              th {
-                text-align: left;
-
-                color: #4b5563;
-              }
-
-              .row {
-                display: flex;
-
-                justify-content:
-                  space-between;
-
-                gap: 20px;
-
-                margin: 8px 0;
-
-                font-size: 14px;
-              }
-
-              .total {
-                font-size: 18px;
-
-                font-weight: bold;
-              }
-
-              .footer {
-                margin-top: 20px;
-
-                text-align: center;
-
-                color: #6b7280;
-
-                font-size: 12px;
-              }
-
-              @media print {
-                body {
-                  padding: 8px;
-                }
-
-                .receipt {
-                  max-width: 100%;
-                }
-              }
-            </style>
-          </head>
-
-          <body>
-            <div class="receipt">
-
-              <h1>MOVA</h1>
-
-              <div class="center muted">
-                Business Management Platform
+              <div>
+                <strong>Payment:</strong>
+                ${escapeHtml(
+                  paymentLabels[
+                    sale.paymentMethod
+                  ] ||
+                    sale.paymentMethod ||
+                    "-"
+                )}
               </div>
 
-              <hr />
-
-              <div class="meta">
-
-                <div>
-                  <strong>Receipt:</strong>
-                  ${escapeHtml(
-                    sale.receiptNumber ||
-                      "-"
-                  )}
-                </div>
-
-                <div>
-                  <strong>Date:</strong>
-                  ${escapeHtml(
-                    formatDate(
-                      sale.createdAt
-                    )
-                  )}
-                </div>
-
-                <div>
-                  <strong>Payment:</strong>
-                  ${escapeHtml(
-                    paymentLabels[
-                      sale.paymentMethod
-                    ] ||
-                      sale.paymentMethod ||
-                      "-"
-                  )}
-                </div>
-
-                ${customerHtml}
-
-              </div>
-
-              <hr />
-
-              <table>
-
-                <thead>
-                  <tr>
-                    <th>Item</th>
-
-                    <th
-                      style="
-                        text-align:center;
-                      "
-                    >
-                      Qty
-                    </th>
-
-                    <th
-                      style="
-                        text-align:right;
-                      "
-                    >
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  ${itemsHtml}
-                </tbody>
-
-              </table>
-
-              <hr />
-
-              <div class="row">
-                <span>Subtotal</span>
-
-                <span>
-                  ${formatCurrency(
-                    sale.subtotal
-                  )}
-                </span>
-              </div>
-
-              <div class="row">
-                <span>Discount</span>
-
-                <span>
-                  ${formatCurrency(
-                    sale.discount
-                  )}
-                </span>
-              </div>
-
-              <div class="row total">
-                <span>Total</span>
-
-                <span>
-                  ${formatCurrency(
-                    sale.total
-                  )}
-                </span>
-              </div>
-
-              ${paymentDetailsHtml}
-
-              <div class="footer">
-                Thank you for your business.
-              </div>
+              ${customerHtml}
 
             </div>
-          </body>
-        </html>
-      `;
-    };
+
+            <hr />
+
+            <table>
+
+              <thead>
+                <tr>
+                  <th>Item</th>
+
+                  <th
+                    style="
+                      text-align:center;
+                    "
+                  >
+                    Qty
+                  </th>
+
+                  <th
+                    style="
+                      text-align:right;
+                    "
+                  >
+                    Amount
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+
+            </table>
+
+            <hr />
+
+            <div class="row">
+              <span>Subtotal</span>
+
+              <span>
+                ${formatCurrency(
+                  sale.subtotal
+                )}
+              </span>
+            </div>
+
+            <div class="row">
+              <span>Discount</span>
+
+              <span>
+                ${formatCurrency(
+                  sale.discount
+                )}
+              </span>
+            </div>
+
+            <div class="row total">
+              <span>Total</span>
+
+              <span>
+                ${formatCurrency(
+                  sale.total
+                )}
+              </span>
+            </div>
+
+            ${paymentDetailsHtml}
+
+            <div class="footer">
+              Thank you for your business.
+            </div>
+
+            <div class="powered">
+              Powered by MOVA Business OS
+            </div>
+
+          </div>
+        </body>
+      </html>
+    `;
+  };
 
   // ========================================
   // CREATE PDF
   // ========================================
 
-  const createReceiptPdf =
-    (sale) => {
-      const doc =
-        new jsPDF({
-          unit: "mm",
-          format: "a4",
-        });
+  const createReceiptPdf = (
+    sale,
+    receiptBusiness = business,
+    receiptPayment = paymentProp
+  ) => {
+    const doc = new jsPDF({
+      unit: "mm",
+      format: "a4",
+    });
 
-      const customer =
-        getReceiptCustomer(
-          sale
-        );
+    const receiptBusinessData =
+      getBusinessForSale(sale);
 
-      const paymentDetails =
-        getReceiptPaymentDetails(
-          sale
-        );
-
-      const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-      let y = 18;
-
-      doc.setFontSize(22);
-
-      doc.setFont(
-        undefined,
-        "bold"
+    const customer =
+      getReceiptCustomer(
+        sale,
+        customerProp
       );
 
-      doc.text(
-        "MOVA",
-        pageWidth / 2,
-        y,
-        {
-          align: "center",
-        }
+    const paymentDetails =
+      getReceiptPaymentDetails(
+        sale,
+        receiptPayment
       );
 
-      y += 7;
+    const pageWidth =
+      doc.internal.pageSize.getWidth();
 
-      doc.setFontSize(10);
+    let y = 18;
+
+    // ======================================
+    // LOGO
+    // ======================================
+
+    if (receiptBusinessData.logo) {
+      try {
+        doc.addImage(
+          receiptBusinessData.logo,
+          "AUTO",
+          pageWidth / 2 - 15,
+          y,
+          30,
+          20
+        );
+
+        y += 25;
+      } catch {
+        // Continue without logo if
+        // browser cannot load it into PDF.
+      }
+    }
+
+    // ======================================
+    // BUSINESS NAME
+    // ======================================
+
+    doc.setFontSize(20);
+
+    doc.setFont(
+      undefined,
+      "bold"
+    );
+
+    doc.text(
+      receiptBusinessData.name,
+      pageWidth / 2,
+      y,
+      {
+        align: "center",
+      }
+    );
+
+    y += 6;
+
+    // ======================================
+    // BUSINESS TYPE
+    // ======================================
+
+    if (
+      receiptBusinessData.businessType
+    ) {
+      doc.setFontSize(9);
 
       doc.setFont(
         undefined,
@@ -843,7 +1211,7 @@ const Receipts = () => {
       );
 
       doc.text(
-        "Business Management Platform",
+        receiptBusinessData.businessType,
         pageWidth / 2,
         y,
         {
@@ -851,323 +1219,430 @@ const Receipts = () => {
         }
       );
 
-      y += 10;
-
-      doc.setFontSize(9);
-
-      doc.text(
-        `Receipt: ${
-          sale.receiptNumber ||
-          "-"
-        }`,
-        14,
-        y
-      );
-
       y += 5;
+    }
 
-      doc.text(
-        `Date: ${formatDate(
-          sale.createdAt
-        )}`,
-        14,
-        y
-      );
+    // ======================================
+    // BUSINESS CONTACT
+    // ======================================
 
-      y += 5;
+    const contactLines = [
+      receiptBusinessData.address,
+      receiptBusinessData.phone,
+      receiptBusinessData.email,
+      receiptBusinessData.tin
+        ? `TIN: ${receiptBusinessData.tin}`
+        : "",
+    ].filter(Boolean);
 
-      doc.text(
-        `Payment: ${
-          paymentLabels[
-            sale.paymentMethod
-          ] ||
-          sale.paymentMethod ||
-          "-"
-        }`,
-        14,
-        y
-      );
+    doc.setFontSize(8);
 
-      if (
-        customer.name ||
-        customer.phone
-      ) {
-        y += 5;
-
+    contactLines.forEach(
+      (line) => {
         doc.text(
-          `Customer: ${
-            customer.name ||
-            "Walk-in Customer"
-          }`,
+          String(line),
+          pageWidth / 2,
+          y,
+          {
+            align: "center",
+          }
+        );
+
+        y += 4;
+      }
+    );
+
+    y += 5;
+
+    // ======================================
+    // RECEIPT META
+    // ======================================
+
+    doc.setFontSize(9);
+
+    doc.text(
+      `Receipt: ${
+        sale.receiptNumber || "-"
+      }`,
+      14,
+      y
+    );
+
+    y += 5;
+
+    doc.text(
+      `Date: ${formatDate(
+        sale.createdAt
+      )}`,
+      14,
+      y
+    );
+
+    y += 5;
+
+    if (
+      sale.cashier?.name ||
+      sale.cashierName
+    ) {
+      doc.text(
+        `Cashier: ${
+          sale.cashier?.name ||
+          sale.cashierName
+        }`,
+        14,
+        y
+      );
+
+      y += 5;
+    }
+
+    if (
+      sale.branch?.name ||
+      sale.branchName
+    ) {
+      doc.text(
+        `Branch: ${
+          sale.branch?.name ||
+          sale.branchName
+        }`,
+        14,
+        y
+      );
+
+      y += 5;
+    }
+
+    doc.text(
+      `Payment: ${
+        paymentLabels[
+          sale.paymentMethod
+        ] ||
+        sale.paymentMethod ||
+        "-"
+      }`,
+      14,
+      y
+    );
+
+    y += 5;
+
+    if (
+      customer.name ||
+      customer.phone
+    ) {
+      doc.text(
+        `Customer: ${
+          customer.name ||
+          "Walk-in Customer"
+        }`,
+        14,
+        y
+      );
+
+      y += 5;
+
+      if (customer.phone) {
+        doc.text(
+          `Phone: ${customer.phone}`,
           14,
           y
         );
 
-        if (customer.phone) {
-          y += 5;
-
-          doc.text(
-            `Phone: ${customer.phone}`,
-            14,
-            y
-          );
-        }
+        y += 5;
       }
+    }
 
-      const rows =
-        (sale.items || []).map(
-          (item) => [
-            item.name || "-",
-            Number(
-              item.quantity
-            ) || 0,
-            formatCurrency(
-              item.unitPrice
-            ),
-            formatCurrency(
-              item.subtotal
-            ),
-          ]
+    // ======================================
+    // ITEMS
+    // ======================================
+
+    const rows =
+      (sale.items || []).map(
+        (item) => [
+          item.name || "-",
+          Number(
+            item.quantity
+          ) || 0,
+          formatCurrency(
+            item.unitPrice
+          ),
+          formatCurrency(
+            item.subtotal
+          ),
+        ]
+      );
+
+    autoTable(doc, {
+      startY: y + 5,
+
+      head: [
+        [
+          "Item",
+          "Qty",
+          "Unit Price",
+          "Amount",
+        ],
+      ],
+
+      body: rows,
+
+      theme: "grid",
+
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.5,
+      },
+
+      headStyles: {
+        fontStyle: "bold",
+      },
+
+      columnStyles: {
+        1: {
+          halign: "center",
+          cellWidth: 16,
+        },
+
+        2: {
+          halign: "right",
+          cellWidth: 32,
+        },
+
+        3: {
+          halign: "right",
+          cellWidth: 32,
+        },
+      },
+
+      margin: {
+        left: 14,
+        right: 14,
+      },
+    });
+
+    y =
+      (doc.lastAutoTable
+        ?.finalY ||
+        y + 20) + 10;
+
+    // ======================================
+    // TOTALS
+    // ======================================
+
+    const totals = [
+      [
+        "Subtotal",
+        formatCurrency(
+          sale.subtotal
+        ),
+      ],
+
+      [
+        "Discount",
+        formatCurrency(
+          sale.discount
+        ),
+      ],
+
+      [
+        "Total",
+        formatCurrency(
+          sale.total
+        ),
+      ],
+    ];
+
+    if (
+      paymentDetails.hasAmountPaid
+    ) {
+      totals.push([
+        "Amount Paid",
+        formatCurrency(
+          paymentDetails.amountPaid
+        ),
+      ]);
+    }
+
+    if (
+      paymentDetails.hasChange
+    ) {
+      totals.push([
+        "Change",
+        formatCurrency(
+          paymentDetails.change
+        ),
+      ]);
+    }
+
+    totals.forEach(
+      ([label, value]) => {
+        const isTotal =
+          label === "Total";
+
+        const isChange =
+          label === "Change";
+
+        doc.setFont(
+          undefined,
+          isTotal || isChange
+            ? "bold"
+            : "normal"
         );
 
-      autoTable(doc, {
-        startY: y + 7,
+        doc.setFontSize(
+          isTotal ? 11 : 9
+        );
 
-        head: [
-          [
-            "Item",
-            "Qty",
-            "Unit Price",
-            "Amount",
-          ],
-        ],
+        doc.text(
+          label,
+          pageWidth - 80,
+          y
+        );
 
-        body: rows,
+        doc.text(
+          value,
+          pageWidth - 14,
+          y,
+          {
+            align: "right",
+          }
+        );
 
-        theme: "grid",
-
-        styles: {
-          fontSize: 8,
-          cellPadding: 2.5,
-        },
-
-        headStyles: {
-          fontStyle: "bold",
-        },
-
-        columnStyles: {
-          1: {
-            halign: "center",
-            cellWidth: 16,
-          },
-
-          2: {
-            halign: "right",
-            cellWidth: 32,
-          },
-
-          3: {
-            halign: "right",
-            cellWidth: 32,
-          },
-        },
-
-        margin: {
-          left: 14,
-          right: 14,
-        },
-      });
-
-      y =
-        (doc.lastAutoTable
-          ?.finalY ||
-          y + 20) + 10;
-
-      const totals = [
-        [
-          "Subtotal",
-          formatCurrency(
-            sale.subtotal
-          ),
-        ],
-
-        [
-          "Discount",
-          formatCurrency(
-            sale.discount
-          ),
-        ],
-
-        [
-          "Total",
-          formatCurrency(
-            sale.total
-          ),
-        ],
-      ];
-
-      if (
-        paymentDetails.hasAmountPaid
-      ) {
-        totals.push([
-          "Amount Paid",
-          formatCurrency(
-            paymentDetails.amountPaid
-          ),
-        ]);
+        y += isTotal ? 7 : 5;
       }
+    );
 
-      if (
-        paymentDetails.hasChange
-      ) {
-        totals.push([
-          "Change",
-          formatCurrency(
-            paymentDetails.change
-          ),
-        ]);
+    y += 7;
+
+    doc.setFont(
+      undefined,
+      "normal"
+    );
+
+    doc.setFontSize(9);
+
+    doc.text(
+      "Thank you for your business.",
+      pageWidth / 2,
+      y,
+      {
+        align: "center",
       }
+    );
 
-      totals.forEach(
-        ([label, value]) => {
-          const isTotal =
-            label === "Total";
+    y += 5;
 
-          doc.setFont(
-            undefined,
-            isTotal
-              ? "bold"
-              : "normal"
-          );
+    doc.setFontSize(7);
 
-          doc.setFontSize(
-            isTotal ? 11 : 9
-          );
+    doc.text(
+      "Powered by MOVA Business OS",
+      pageWidth / 2,
+      y,
+      {
+        align: "center",
+      }
+    );
 
-          doc.text(
-            label,
-            pageWidth - 80,
-            y
-          );
-
-          doc.text(
-            value,
-            pageWidth - 14,
-            y,
-            {
-              align: "right",
-            }
-          );
-
-          y += isTotal ? 7 : 5;
-        }
-      );
-
-      y += 7;
-
-      doc.setFont(
-        undefined,
-        "normal"
-      );
-
-      doc.setFontSize(9);
-
-      doc.text(
-        "Thank you for your business.",
-        pageWidth / 2,
-        y,
-        {
-          align: "center",
-        }
-      );
-
-      return doc;
-    };
+    return doc;
+  };
 
   // ========================================
   // PRINT RECEIPT
   // ========================================
 
-  const handlePrintReceipt =
-    (sale) => {
-      if (!sale) {
-        return;
-      }
+  const handlePrintReceipt = (
+    sale,
+    receiptPayment = paymentProp
+  ) => {
+    if (!sale) {
+      return;
+    }
 
-      const receiptWindow =
-        window.open(
-          "",
-          "_blank",
-          "width=500,height=700"
-        );
-
-      if (!receiptWindow) {
-        setActionMessage(
-          "Please allow pop-ups to print the receipt."
-        );
-
-        return;
-      }
-
-      receiptWindow.document.write(
-        buildReceiptHtml(sale)
+    const receiptWindow =
+      window.open(
+        "",
+        "_blank",
+        "width=500,height=700"
       );
 
-      receiptWindow.document.close();
+    if (!receiptWindow) {
+      setActionMessage(
+        "Please allow pop-ups to print the receipt."
+      );
 
-      receiptWindow.focus();
+      return;
+    }
 
-      setTimeout(() => {
-        receiptWindow.print();
-      }, 300);
-    };
+    receiptWindow.document.write(
+      buildReceiptHtml(
+        sale,
+        business,
+        receiptPayment
+      )
+    );
+
+    receiptWindow.document.close();
+
+    receiptWindow.focus();
+
+    setTimeout(() => {
+      receiptWindow.print();
+    }, 300);
+  };
 
   // ========================================
-  // DOWNLOAD RECEIPT
+  // DOWNLOAD PDF
   // ========================================
 
-  const handleDownloadReceipt =
-    (sale) => {
-      if (!sale) {
-        return;
-      }
+  const handleDownloadReceipt = (
+    sale,
+    receiptPayment = paymentProp
+  ) => {
+    if (!sale) {
+      return;
+    }
 
-      try {
-        const doc =
-          createReceiptPdf(
-            sale
-          );
-
-        const receiptName =
-          sale.receiptNumber ||
-          sale._id ||
-          "receipt";
-
-        doc.save(
-          `MOVA_Receipt_${receiptName}.pdf`
+    try {
+      const doc =
+        createReceiptPdf(
+          sale,
+          business,
+          receiptPayment
         );
 
-        setActionMessage(
-          "Receipt PDF downloaded successfully."
-        );
-      } catch (requestError) {
-        console.error(
-          "Failed to create receipt PDF:",
-          requestError
-        );
+      const receiptName =
+        sale.receiptNumber ||
+        sale._id ||
+        "receipt";
 
-        setActionMessage(
-          "Unable to create the receipt PDF."
-        );
-      }
-    };
+      doc.save(
+        `${business.name || "Business"}_Receipt_${receiptName}.pdf`
+      );
+
+      setActionMessage(
+        "Receipt PDF downloaded successfully."
+      );
+    } catch (requestError) {
+      console.error(
+        "Failed to create receipt PDF:",
+        requestError
+      );
+
+      setActionMessage(
+        "Unable to create the receipt PDF."
+      );
+    }
+  };
 
   // ========================================
   // SHARE RECEIPT
   // ========================================
 
   const handleShareReceipt =
-    async (sale) => {
+    async (
+      sale,
+      receiptPayment = paymentProp
+    ) => {
       if (!sale) {
         return;
       }
@@ -1175,14 +1650,16 @@ const Receipts = () => {
       try {
         const doc =
           createReceiptPdf(
-            sale
+            sale,
+            business,
+            receiptPayment
           );
 
         const pdfBlob =
           doc.output("blob");
 
         const receiptName =
-          `MOVA_Receipt_${
+          `${business.name || "Business"}_Receipt_${
             sale.receiptNumber ||
             sale._id ||
             "receipt"
@@ -1198,19 +1675,16 @@ const Receipts = () => {
           );
 
         const shareText = [
-          `MOVA Receipt: ${
-            sale.receiptNumber ||
-            "-"
+          `${business.name || "Business"} Receipt`,
+          `Receipt: ${
+            sale.receiptNumber || "-"
           }`,
-
           `Date: ${formatDate(
             sale.createdAt
           )}`,
-
           `Total: ${formatCurrency(
             sale.total
           )}`,
-
           `Payment: ${
             paymentLabels[
               sale.paymentMethod
@@ -1229,7 +1703,10 @@ const Receipts = () => {
             })
           ) {
             await navigator.share({
-              title: `MOVA Receipt ${
+              title: `${
+                business.name ||
+                "Business"
+              } Receipt ${
                 sale.receiptNumber ||
                 ""
               }`.trim(),
@@ -1240,7 +1717,10 @@ const Receipts = () => {
             });
           } else {
             await navigator.share({
-              title: `MOVA Receipt ${
+              title: `${
+                business.name ||
+                "Business"
+              } Receipt ${
                 sale.receiptNumber ||
                 ""
               }`.trim(),
@@ -1297,33 +1777,479 @@ const Receipts = () => {
     };
 
   // ========================================
+  // CLOSE RECEIPT MODAL
+  // ========================================
+
+  const closeReceipt = () => {
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  // ========================================
   // CLEAR FILTERS
   // ========================================
 
   const clearFilters = () => {
     setSearch("");
 
-    setPaymentFilter(
-      "ALL"
-    );
+    setPaymentFilter("ALL");
 
-    setStatusFilter(
-      "ALL"
-    );
+    setStatusFilter("ALL");
 
     setPage(1);
   };
 
   // ========================================
-  // RENDER
+  // SINGLE RECEIPT MODAL
+  // ========================================
+
+  if (isReceiptModal) {
+    const receiptBusiness =
+      getBusinessForSale(
+        saleProp
+      );
+
+    const customer =
+      getReceiptCustomer(
+        saleProp,
+        customerProp
+      );
+
+    const paymentDetails =
+      getReceiptPaymentDetails(
+        saleProp,
+        paymentProp
+      );
+
+    return (
+      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+
+        <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+
+          {/* HEADER */}
+
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">
+                Sale Completed
+              </p>
+
+              <h2 className="mt-1 text-xl font-black text-slate-950">
+                Receipt
+              </h2>
+
+              <p className="text-sm text-slate-500">
+                {saleProp.receiptNumber ||
+                  "-"}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeReceipt}
+              className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+              aria-label="Close receipt"
+            >
+              <X size={21} />
+            </button>
+
+          </div>
+
+          {/* RECEIPT PREVIEW */}
+
+          <div className="flex-1 overflow-y-auto bg-slate-100 p-4 sm:p-8">
+
+            <div className="mx-auto w-full max-w-[500px] bg-white p-6 shadow-lg sm:p-8">
+
+              {/* LOGO */}
+
+              {receiptBusiness.logo && (
+                <div className="mb-3 flex justify-center">
+
+                  <img
+                    src={receiptBusiness.logo}
+                    alt={`${receiptBusiness.name} logo`}
+                    className="max-h-20 max-w-28 object-contain"
+                  />
+
+                </div>
+              )}
+
+              {/* BUSINESS NAME */}
+
+              <div className="text-center">
+
+                <h1 className="text-2xl font-black uppercase tracking-tight text-slate-950">
+                  {receiptBusiness.name}
+                </h1>
+
+                {receiptBusiness.businessType && (
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    {receiptBusiness.businessType}
+                  </p>
+                )}
+
+                {receiptBusiness.address && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {receiptBusiness.address}
+                  </p>
+                )}
+
+                <div className="mt-1 flex flex-wrap justify-center gap-x-3 text-xs text-slate-500">
+
+                  {receiptBusiness.phone && (
+                    <span>
+                      {receiptBusiness.phone}
+                    </span>
+                  )}
+
+                  {receiptBusiness.email && (
+                    <span>
+                      {receiptBusiness.email}
+                    </span>
+                  )}
+
+                </div>
+
+                {receiptBusiness.tin && (
+                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                    TIN:{" "}
+                    {receiptBusiness.tin}
+                  </p>
+                )}
+
+              </div>
+
+              <div className="my-5 border-t border-dashed border-slate-300" />
+
+              {/* META */}
+
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-xs">
+
+                <div>
+                  <p className="text-slate-400">
+                    Receipt
+                  </p>
+
+                  <p className="font-bold text-slate-900">
+                    {saleProp.receiptNumber ||
+                      "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400">
+                    Date
+                  </p>
+
+                  <p className="font-bold text-slate-900">
+                    {formatDate(
+                      saleProp.createdAt
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400">
+                    Payment
+                  </p>
+
+                  <p className="font-bold text-slate-900">
+                    {paymentLabels[
+                      saleProp
+                        .paymentMethod
+                    ] ||
+                      saleProp.paymentMethod ||
+                      "-"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400">
+                    Customer
+                  </p>
+
+                  <p className="font-bold text-slate-900">
+                    {customer.name ||
+                      "Walk-in Customer"}
+                  </p>
+                </div>
+
+                {(saleProp.branch?.name ||
+                  saleProp.branchName) && (
+                  <div>
+                    <p className="text-slate-400">
+                      Branch
+                    </p>
+
+                    <p className="font-bold text-slate-900">
+                      {saleProp.branch
+                        ?.name ||
+                        saleProp.branchName}
+                    </p>
+                  </div>
+                )}
+
+                {(saleProp.cashier?.name ||
+                  saleProp.cashierName) && (
+                  <div>
+                    <p className="text-slate-400">
+                      Cashier
+                    </p>
+
+                    <p className="font-bold text-slate-900">
+                      {saleProp.cashier
+                        ?.name ||
+                        saleProp.cashierName}
+                    </p>
+                  </div>
+                )}
+
+              </div>
+
+              {customer.phone && (
+                <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs">
+
+                  <span className="text-slate-400">
+                    Customer phone:{" "}
+                  </span>
+
+                  <span className="font-bold text-slate-700">
+                    {customer.phone}
+                  </span>
+
+                </div>
+              )}
+
+              <div className="my-5 border-t border-dashed border-slate-300" />
+
+              {/* ITEMS */}
+
+              <div className="space-y-3">
+
+                {(saleProp.items || []).map(
+                  (item, index) => (
+                    <div
+                      key={`${item.productId || item.name || "item"}-${index}`}
+                      className="flex items-start justify-between gap-4"
+                    >
+
+                      <div className="min-w-0">
+
+                        <p className="font-bold text-slate-900">
+                          {item.name ||
+                            "-"}
+                        </p>
+
+                        <p className="text-xs text-slate-500">
+                          {item.quantity ||
+                            0}{" "}
+                          ×{" "}
+                          {formatCurrency(
+                            item.unitPrice
+                          )}
+                        </p>
+
+                      </div>
+
+                      <p className="shrink-0 font-bold text-slate-900">
+                        {formatCurrency(
+                          item.subtotal
+                        )}
+                      </p>
+
+                    </div>
+                  )
+                )}
+
+              </div>
+
+              <div className="my-5 border-t border-dashed border-slate-300" />
+
+              {/* TOTALS */}
+
+              <div className="space-y-2">
+
+                <div className="flex justify-between text-sm">
+
+                  <span className="text-slate-500">
+                    Subtotal
+                  </span>
+
+                  <span className="font-bold text-slate-900">
+                    {formatCurrency(
+                      saleProp.subtotal
+                    )}
+                  </span>
+
+                </div>
+
+                <div className="flex justify-between text-sm">
+
+                  <span className="text-slate-500">
+                    Discount
+                  </span>
+
+                  <span className="font-bold text-slate-900">
+                    {formatCurrency(
+                      saleProp.discount
+                    )}
+                  </span>
+
+                </div>
+
+                <div className="flex justify-between border-t border-slate-200 pt-3">
+
+                  <span className="font-black text-slate-950">
+                    TOTAL
+                  </span>
+
+                  <span className="text-xl font-black text-blue-600">
+                    {formatCurrency(
+                      saleProp.total
+                    )}
+                  </span>
+
+                </div>
+
+                {paymentDetails.hasAmountPaid && (
+                  <div className="flex justify-between text-sm">
+
+                    <span className="text-slate-500">
+                      Amount Paid
+                    </span>
+
+                    <span className="font-bold text-slate-900">
+                      {formatCurrency(
+                        paymentDetails.amountPaid
+                      )}
+                    </span>
+
+                  </div>
+                )}
+
+                {paymentDetails.hasChange && (
+                  <div className="flex justify-between rounded-xl bg-emerald-50 px-3 py-3 text-sm">
+
+                    <span className="font-bold text-emerald-700">
+                      Change
+                    </span>
+
+                    <span className="font-black text-emerald-700">
+                      {formatCurrency(
+                        paymentDetails.change
+                      )}
+                    </span>
+
+                  </div>
+                )}
+
+              </div>
+
+              {/* FOOTER */}
+
+              <div className="mt-7 text-center">
+
+                <p className="text-sm font-bold text-slate-700">
+                  Thank you for your business.
+                </p>
+
+                <p className="mt-2 text-[10px] text-slate-400">
+                  Powered by MOVA Business OS
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* ACTIONS */}
+
+          <div className="border-t border-slate-200 bg-white p-4">
+
+            <div className="flex flex-wrap justify-end gap-2">
+
+              <button
+                type="button"
+                onClick={() =>
+                  handlePrintReceipt(
+                    saleProp,
+                    paymentProp
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                <Printer size={17} />
+                Print Receipt
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleDownloadReceipt(
+                    saleProp,
+                    paymentProp
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100"
+              >
+                <Download size={17} />
+                PDF
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleShareReceipt(
+                    saleProp,
+                    paymentProp
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100"
+              >
+                <Share2 size={17} />
+                Share
+              </button>
+
+              {onNewSale && (
+                <button
+                  type="button"
+                  onClick={onNewSale}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                >
+                  New Sale
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={closeReceipt}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <X size={17} />
+                Close
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  // ========================================
+  // RECEIPTS HISTORY PAGE
   // ========================================
 
   return (
     <div className="space-y-6">
 
-      {/* ====================================
-          HEADER
-      ==================================== */}
+      {/* HEADER */}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
@@ -1355,7 +2281,6 @@ const Receipts = () => {
           disabled={refreshing}
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
-
           <RefreshCw
             size={17}
             className={
@@ -1366,14 +2291,44 @@ const Receipts = () => {
           />
 
           Refresh
-
         </button>
 
       </div>
 
-      {/* ====================================
-          ERROR
-      ==================================== */}
+      {/* BUSINESS INFORMATION */}
+
+      {!loadingBusiness &&
+        business.name && (
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+
+            {business.logo ? (
+              <img
+                src={business.logo}
+                alt={`${business.name} logo`}
+                className="h-12 w-12 rounded-xl object-contain"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 font-black text-blue-600">
+                {business.name
+                  .charAt(0)
+                  .toUpperCase()}
+              </div>
+            )}
+
+            <div>
+              <p className="font-black text-slate-900">
+                {business.name}
+              </p>
+
+              <p className="text-xs text-slate-500">
+                Receipts for this business
+              </p>
+            </div>
+
+          </div>
+        )}
+
+      {/* ERROR */}
 
       {error && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
@@ -1408,9 +2363,7 @@ const Receipts = () => {
         </div>
       )}
 
-      {/* ====================================
-          ACTION MESSAGE
-      ==================================== */}
+      {/* ACTION MESSAGE */}
 
       {actionMessage && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -1433,9 +2386,7 @@ const Receipts = () => {
         </div>
       )}
 
-      {/* ====================================
-          SUMMARY
-      ==================================== */}
+      {/* SUMMARY */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
@@ -1491,9 +2442,7 @@ const Receipts = () => {
 
       </div>
 
-      {/* ====================================
-          FILTERS
-      ==================================== */}
+      {/* FILTERS */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
 
@@ -1531,7 +2480,6 @@ const Receipts = () => {
             }}
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
-
             <option value="ALL">
               All Payment Methods
             </option>
@@ -1551,7 +2499,6 @@ const Receipts = () => {
             <option value="BANK">
               Bank
             </option>
-
           </select>
 
           <select
@@ -1565,7 +2512,6 @@ const Receipts = () => {
             }}
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
-
             <option value="ALL">
               All Statuses
             </option>
@@ -1585,7 +2531,6 @@ const Receipts = () => {
             <option value="REFUNDED">
               Refunded
             </option>
-
           </select>
 
         </div>
@@ -1606,9 +2551,7 @@ const Receipts = () => {
 
       </div>
 
-      {/* ====================================
-          RECEIPTS TABLE
-      ==================================== */}
+      {/* RECEIPTS TABLE */}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
@@ -1706,8 +2649,6 @@ const Receipts = () => {
                           className="border-b border-slate-100 transition hover:bg-slate-50"
                         >
 
-                          {/* RECEIPT NUMBER */}
-
                           <td className="px-5 py-4">
 
                             <p className="font-bold text-slate-900">
@@ -1717,15 +2658,11 @@ const Receipts = () => {
 
                           </td>
 
-                          {/* DATE */}
-
                           <td className="px-5 py-4 text-sm text-slate-600">
                             {formatDate(
                               receipt.createdAt
                             )}
                           </td>
-
-                          {/* CUSTOMER */}
 
                           <td className="px-5 py-4">
 
@@ -1743,8 +2680,6 @@ const Receipts = () => {
                             )}
 
                           </td>
-
-                          {/* PAYMENT */}
 
                           <td className="px-5 py-4">
 
@@ -1765,15 +2700,11 @@ const Receipts = () => {
 
                           </td>
 
-                          {/* TOTAL */}
-
                           <td className="px-5 py-4 text-right font-black text-slate-900">
                             {formatCurrency(
                               receipt.total
                             )}
                           </td>
-
-                          {/* STATUS */}
 
                           <td className="px-5 py-4">
 
@@ -1805,13 +2736,9 @@ const Receipts = () => {
 
                           </td>
 
-                          {/* ACTIONS */}
-
                           <td className="px-5 py-4">
 
                             <div className="flex justify-end gap-2">
-
-                              {/* VIEW */}
 
                               <button
                                 type="button"
@@ -1828,8 +2755,6 @@ const Receipts = () => {
                                 />
                               </button>
 
-                              {/* PRINT */}
-
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1845,8 +2770,6 @@ const Receipts = () => {
                                 />
                               </button>
 
-                              {/* DOWNLOAD */}
-
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1861,8 +2784,6 @@ const Receipts = () => {
                                   size={17}
                                 />
                               </button>
-
-                              {/* SHARE */}
 
                               <button
                                 type="button"
@@ -1894,9 +2815,7 @@ const Receipts = () => {
 
             </div>
 
-            {/* ==================================
-                PAGINATION
-            ================================== */}
+            {/* PAGINATION */}
 
             <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
 
@@ -1973,16 +2892,12 @@ const Receipts = () => {
 
       </div>
 
-      {/* ====================================
-          RECEIPT DETAILS MODAL
-      ==================================== */}
+      {/* RECEIPT DETAILS MODAL */}
 
       {selectedReceipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
 
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-
-            {/* HEADER */}
 
             <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
 
@@ -2014,6 +2929,57 @@ const Receipts = () => {
             </div>
 
             <div className="space-y-6 p-5">
+
+              {/* BUSINESS */}
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+
+                <div className="flex items-center gap-4">
+
+                  {business.logo ? (
+                    <img
+                      src={business.logo}
+                      alt={`${business.name} logo`}
+                      className="h-14 w-14 rounded-xl object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-100 text-xl font-black text-blue-700">
+                      {business.name
+                        ?.charAt(
+                          0
+                        )
+                        .toUpperCase() ||
+                        "B"}
+                    </div>
+                  )}
+
+                  <div>
+
+                    <p className="text-lg font-black text-slate-900">
+                      {business.name}
+                    </p>
+
+                    {business.businessType && (
+                      <p className="text-xs text-slate-500">
+                        {
+                          business.businessType
+                        }
+                      </p>
+                    )}
+
+                    {business.phone && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {
+                          business.phone
+                        }
+                      </p>
+                    )}
+
+                  </div>
+
+                </div>
+
+              </div>
 
               {/* RECEIPT INFORMATION */}
 
@@ -2082,28 +3048,6 @@ const Receipts = () => {
 
               </div>
 
-              {/* CUSTOMER PHONE */}
-
-              {getReceiptCustomer(
-                selectedReceipt
-              ).phone && (
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Customer Phone
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-900">
-                    {
-                      getReceiptCustomer(
-                        selectedReceipt
-                      ).phone
-                    }
-                  </p>
-
-                </div>
-              )}
-
               {/* ITEMS */}
 
               <div>
@@ -2164,7 +3108,9 @@ const Receipts = () => {
 
                               {item.sku && (
                                 <p className="text-xs text-slate-500">
-                                  {item.sku}
+                                  {
+                                    item.sku
+                                  }
                                 </p>
                               )}
 
@@ -2276,7 +3222,7 @@ const Receipts = () => {
                             Change
                           </span>
 
-                          <span className="font-bold text-slate-900">
+                          <span className="font-bold text-emerald-600">
                             {formatCurrency(
                               paymentDetails.change
                             )}
@@ -2342,9 +3288,7 @@ const Receipts = () => {
         </div>
       )}
 
-      {/* ====================================
-          LOADING RECEIPT
-      ==================================== */}
+      {/* LOADING RECEIPT */}
 
       {loadingReceipt && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/30">

@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import Receipt from "../receipts/Receipts";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AlertCircle,
@@ -7,9 +6,15 @@ import {
   ChevronDown,
   ChevronUp,
   CreditCard,
+  Clock3,
+  HandCoins,
+  Keyboard,
+  PauseCircle,
+  PlayCircle,
   Search,
   ShoppingCart,
   Smartphone,
+  Trash2,
   User,
   UserPlus,
   Wallet,
@@ -17,6 +22,16 @@ import {
 } from "lucide-react";
 
 import api from "../../services/api";
+
+// IMPORTANT:
+// POS.jsx is inside pages/pos/
+// Receipts.jsx is inside pages/receipts/
+import Receipt from "../receipts/Receipts";
+
+
+/* =========================================================
+   CONSTANTS
+========================================================= */
 
 const PAYMENT_METHODS = [
   {
@@ -41,6 +56,13 @@ const PAYMENT_METHODS = [
   },
 ];
 
+const HELD_SALES_KEY = "mova_held_sales";
+
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat("en-UG", {
     style: "currency",
@@ -49,12 +71,75 @@ const formatCurrency = (amount) => {
   }).format(Number(amount) || 0);
 };
 
-const POS = () => {
-  // ====================================================
-  // PRODUCTS
-  // ====================================================
+const formatTime = (date) => {
+  if (!date) {
+    return "-";
+  }
 
-  const [products, setProducts] = useState([]);
+  try {
+    return new Date(date).toLocaleTimeString(
+      "en-UG",
+      {
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
+  } catch {
+    return "-";
+  }
+};
+
+const loadHeldSales = () => {
+  try {
+    const stored = localStorage.getItem(
+      HELD_SALES_KEY
+    );
+
+    if (!stored) {
+      return [];
+    }
+
+    const parsed = JSON.parse(stored);
+
+    return Array.isArray(parsed)
+      ? parsed
+      : [];
+  } catch (error) {
+    console.error(
+      "Failed to load held sales:",
+      error
+    );
+
+    return [];
+  }
+};
+
+const saveHeldSales = (sales) => {
+  try {
+    localStorage.setItem(
+      HELD_SALES_KEY,
+      JSON.stringify(sales)
+    );
+  } catch (error) {
+    console.error(
+      "Failed to save held sales:",
+      error
+    );
+  }
+};
+
+
+/* =========================================================
+   POS COMPONENT
+========================================================= */
+
+const POS = () => {
+  /* =======================================================
+     PRODUCTS
+  ======================================================= */
+
+  const [products, setProducts] =
+    useState([]);
 
   const [productSearch, setProductSearch] =
     useState("");
@@ -62,25 +147,24 @@ const POS = () => {
   const [loadingProducts, setLoadingProducts] =
     useState(true);
 
-  // ====================================================
-  // CART
-  // ====================================================
+  const productSearchRef =
+    useRef(null);
 
-  const [cart, setCart] = useState([]);
+
+  /* =======================================================
+     CART
+  ======================================================= */
+
+  const [cart, setCart] =
+    useState([]);
 
   const [discount, setDiscount] =
     useState(0);
 
-  // ====================================================
-  // PAYMENT
-  // ====================================================
 
-  const [paymentMethod, setPaymentMethod] =
-    useState("CASH");
-
-  // ====================================================
-  // CUSTOMER
-  // ====================================================
+  /* =======================================================
+     CUSTOMER
+  ======================================================= */
 
   const [customerSearch, setCustomerSearch] =
     useState("");
@@ -97,9 +181,48 @@ const POS = () => {
   const [customerPanelOpen, setCustomerPanelOpen] =
     useState(false);
 
-  // ====================================================
-  // SALE
-  // ====================================================
+  const customerSearchRef =
+    useRef(null);
+
+
+  /* =======================================================
+     PAYMENT
+  ======================================================= */
+
+  const [paymentMethod, setPaymentMethod] =
+    useState("CASH");
+
+  const [cashReceived, setCashReceived] =
+    useState("");
+
+  const [paymentPanelOpen, setPaymentPanelOpen] =
+    useState(false);
+
+  /*
+   * IMPORTANT:
+   *
+   * CARD PROCESSING IS ONLY A UI STATE FOR NOW.
+   * We will connect this to the physical terminal
+   * after the backend payment architecture is ready.
+   */
+  const [cardPaymentStatus, setCardPaymentStatus] =
+    useState("IDLE");
+
+
+  /* =======================================================
+     HELD SALES
+  ======================================================= */
+
+  const [heldSales, setHeldSales] =
+    useState(() => loadHeldSales());
+
+  const [heldSalesOpen, setHeldSalesOpen] =
+    useState(false);
+
+
+  /* =======================================================
+     SALE
+  ======================================================= */
 
   const [processingSale, setProcessingSale] =
     useState(false);
@@ -107,49 +230,64 @@ const POS = () => {
   const [saleSuccess, setSaleSuccess] =
     useState(null);
 
-  const [error, setError] =
-    useState("");
-
-  // ====================================================
-  // RECEIPT
-  // ====================================================
-
-  const [showReceipt, setShowReceipt] =
-    useState(false);
-
   const [completedSale, setCompletedSale] =
     useState(null);
 
   const [completedCustomer, setCompletedCustomer] =
     useState(null);
 
-  // ====================================================
-  // FETCH PRODUCTS
-  // ====================================================
+  const [showReceipt, setShowReceipt] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+
+  /* =======================================================
+     SHORTCUTS
+  ======================================================= */
+
+  const [shortcutsOpen, setShortcutsOpen] =
+    useState(false);
+
+
+  /* =======================================================
+     LOAD PRODUCTS
+  ======================================================= */
 
   const fetchProducts = async () => {
     try {
       setLoadingProducts(true);
 
-      const response =
-        await api.get("/products", {
+      const response = await api.get(
+        "/products",
+        {
           params: {
             limit: 100,
             status: "active",
           },
-        });
+        }
+      );
+
+      const productData =
+        response.data?.products ||
+        response.data?.data ||
+        [];
 
       setProducts(
-        response.data.products || []
+        Array.isArray(productData)
+          ? productData
+          : []
       );
-    } catch (error) {
+    } catch (requestError) {
       console.error(
         "Failed to load products:",
-        error
+        requestError
       );
 
       setError(
-        error.response?.data?.message ||
+        requestError.response?.data
+          ?.message ||
           "Failed to load products."
       );
     } finally {
@@ -157,48 +295,75 @@ const POS = () => {
     }
   };
 
+
   useEffect(() => {
     fetchProducts();
   }, []);
 
-  // ====================================================
-  // SEARCH CUSTOMERS
-  // ====================================================
+
+  /* =======================================================
+     SAVE HELD SALES
+  ======================================================= */
 
   useEffect(() => {
-    const searchCustomers = async () => {
-      if (!customerSearch.trim()) {
-        setCustomers([]);
-        return;
-      }
+    saveHeldSales(heldSales);
+  }, [heldSales]);
 
-      try {
-        setSearchingCustomers(true);
 
-        const response =
-          await api.get("/customers", {
-            params: {
-              search:
-                customerSearch.trim(),
+  /* =======================================================
+     CUSTOMER SEARCH
+  ======================================================= */
 
-              limit: 10,
+  useEffect(() => {
+    const searchCustomers =
+      async () => {
+        if (!customerSearch.trim()) {
+          setCustomers([]);
+          return;
+        }
 
-              status: "active",
-            },
-          });
+        try {
+          setSearchingCustomers(
+            true
+          );
 
-        setCustomers(
-          response.data.customers || []
-        );
-      } catch (error) {
-        console.error(
-          "Customer search failed:",
-          error
-        );
-      } finally {
-        setSearchingCustomers(false);
-      }
-    };
+          const response =
+            await api.get(
+              "/customers",
+              {
+                params: {
+                  search:
+                    customerSearch.trim(),
+                  limit: 10,
+                  status: "active",
+                },
+              }
+            );
+
+          const customerData =
+            response.data
+              ?.customers ||
+            response.data?.data ||
+            [];
+
+          setCustomers(
+            Array.isArray(
+              customerData
+            )
+              ? customerData
+              : []
+          );
+        } catch (requestError) {
+          console.error(
+            "Customer search failed:",
+            requestError
+          );
+        } finally {
+          setSearchingCustomers(
+            false
+          );
+        }
+      };
 
     const timer =
       setTimeout(
@@ -210,9 +375,10 @@ const POS = () => {
       clearTimeout(timer);
   }, [customerSearch]);
 
-  // ====================================================
-  // FILTER PRODUCTS
-  // ====================================================
+
+  /* =======================================================
+     FILTER PRODUCTS
+  ======================================================= */
 
   const filteredProducts =
     useMemo(() => {
@@ -242,17 +408,22 @@ const POS = () => {
       productSearch,
     ]);
 
-  // ====================================================
-  // CART TOTALS
-  // ====================================================
+
+  /* =======================================================
+     TOTALS
+  ======================================================= */
 
   const subtotal =
     useMemo(() => {
       return cart.reduce(
         (sum, item) =>
           sum +
-          Number(item.sellingPrice || 0) *
-            item.quantity,
+          Number(
+            item.sellingPrice || 0
+          ) *
+            Number(
+              item.quantity || 0
+            ),
         0
       );
     }, [cart]);
@@ -260,219 +431,251 @@ const POS = () => {
   const parsedDiscount =
     Number(discount) || 0;
 
-  const total =
-    Math.max(
-      subtotal -
-        parsedDiscount,
-      0
-    );
+  const total = Math.max(
+    subtotal -
+      parsedDiscount,
+    0
+  );
 
-  // ====================================================
-  // ADD PRODUCT TO CART
-  // ====================================================
+  const parsedCashReceived =
+    Number(cashReceived) ||
+    0;
 
-  const addToCart = (product) => {
+  const change = Math.max(
+    parsedCashReceived -
+      total,
+    0
+  );
+
+  const cashIsEnough =
+    paymentMethod !==
+      "CASH" ||
+    parsedCashReceived >=
+      total;
+
+
+  /* =======================================================
+     ADD PRODUCT
+  ======================================================= */
+
+  const addToCart = (
+    product
+  ) => {
     setError("");
 
-    setCart((currentCart) => {
-      const existing =
-        currentCart.find(
-          (item) =>
-            item._id ===
-            product._id
-        );
+    if (
+      product.trackStock &&
+      Number(
+        product.stockQuantity || 0
+      ) <= 0
+    ) {
+      setError(
+        `${product.name} is out of stock.`
+      );
 
-      if (existing) {
-        if (
-          product.trackStock &&
-          existing.quantity >=
-            product.stockQuantity
-        ) {
-          setError(
-            `Only ${product.stockQuantity} units of ${product.name} are available.`
+      return;
+    }
+
+    setCart(
+      (currentCart) => {
+        const existing =
+          currentCart.find(
+            (item) =>
+              item._id ===
+              product._id
           );
 
-          return currentCart;
+        if (existing) {
+          if (
+            product.trackStock &&
+            existing.quantity >=
+              Number(
+                product.stockQuantity ||
+                  0
+              )
+          ) {
+            setError(
+              `Only ${product.stockQuantity} units of ${product.name} are available.`
+            );
+
+            return currentCart;
+          }
+
+          return currentCart.map(
+            (item) =>
+              item._id ===
+              product._id
+                ? {
+                    ...item,
+                    quantity:
+                      item.quantity +
+                      1,
+                  }
+                : item
+          );
         }
 
-        return currentCart.map(
-          (item) =>
-            item._id ===
-            product._id
-              ? {
-                  ...item,
-                  quantity:
-                    item.quantity + 1,
-                }
-              : item
-        );
+        return [
+          ...currentCart,
+          {
+            ...product,
+            quantity: 1,
+          },
+        ];
       }
-
-      if (
-        product.trackStock &&
-        product.stockQuantity <= 0
-      ) {
-        setError(
-          `${product.name} is out of stock.`
-        );
-
-        return currentCart;
-      }
-
-      return [
-        ...currentCart,
-        {
-          ...product,
-          quantity: 1,
-        },
-      ];
-    });
+    );
   };
 
-  // ====================================================
-  // INCREASE QUANTITY
-  // ====================================================
+
+  /* =======================================================
+     INCREASE QUANTITY
+  ======================================================= */
 
   const increaseQuantity = (
     productId
   ) => {
-    setCart((currentCart) =>
-      currentCart.map((item) => {
-        if (
-          item._id !== productId
-        ) {
-          return item;
-        }
+    setCart(
+      (currentCart) =>
+        currentCart.map(
+          (item) => {
+            if (
+              item._id !==
+              productId
+            ) {
+              return item;
+            }
 
-        if (
-          item.trackStock &&
-          item.quantity >=
-            item.stockQuantity
-        ) {
-          setError(
-            `Only ${item.stockQuantity} units of ${item.name} are available.`
-          );
+            if (
+              item.trackStock &&
+              item.quantity >=
+                Number(
+                  item.stockQuantity ||
+                    0
+                )
+            ) {
+              setError(
+                `Only ${item.stockQuantity} units of ${item.name} are available.`
+              );
 
-          return item;
-        }
+              return item;
+            }
 
-        return {
-          ...item,
-          quantity:
-            item.quantity + 1,
-        };
-      })
+            return {
+              ...item,
+              quantity:
+                item.quantity +
+                1,
+            };
+          }
+        )
     );
   };
 
-  // ====================================================
-  // DECREASE QUANTITY
-  // ====================================================
+
+  /* =======================================================
+     DECREASE QUANTITY
+  ======================================================= */
 
   const decreaseQuantity = (
     productId
   ) => {
-    setCart((currentCart) =>
-      currentCart
-        .map((item) =>
-          item._id === productId
-            ? {
-                ...item,
-                quantity:
-                  item.quantity - 1,
-              }
-            : item
-        )
-        .filter(
-          (item) =>
-            item.quantity > 0
-        )
+    setCart(
+      (currentCart) =>
+        currentCart
+          .map((item) =>
+            item._id ===
+            productId
+              ? {
+                  ...item,
+                  quantity:
+                    item.quantity -
+                    1,
+                }
+              : item
+          )
+          .filter(
+            (item) =>
+              item.quantity >
+              0
+          )
     );
   };
 
-  // ====================================================
-  // REMOVE CART ITEM
-  // ====================================================
+
+  /* =======================================================
+     REMOVE PRODUCT
+  ======================================================= */
 
   const removeFromCart = (
     productId
   ) => {
-    setCart((currentCart) =>
-      currentCart.filter(
-        (item) =>
-          item._id !== productId
-      )
+    setCart(
+      (currentCart) =>
+        currentCart.filter(
+          (item) =>
+            item._id !==
+            productId
+        )
     );
   };
 
-  // ====================================================
-  // CLEAR CART
-  // ====================================================
+
+  /* =======================================================
+     CLEAR CURRENT SALE
+  ======================================================= */
 
   const clearCart = () => {
     setCart([]);
     setDiscount(0);
-    setError("");
+    setCashReceived("");
+    setPaymentMethod("CASH");
+    setSelectedCustomer(null);
+    setCustomerSearch("");
+    setCustomers([]);
+    setPaymentPanelOpen(false);
+    setCardPaymentStatus("IDLE");
   };
 
-  // ====================================================
-  // SELECT CUSTOMER
-  // ====================================================
+
+  /* =======================================================
+     SELECT CUSTOMER
+  ======================================================= */
 
   const selectCustomer = (
     customer
   ) => {
-    setSelectedCustomer(customer);
+    setSelectedCustomer(
+      customer
+    );
+
     setCustomerSearch("");
     setCustomers([]);
     setCustomerPanelOpen(false);
     setError("");
   };
 
-  // ====================================================
-  // REMOVE CUSTOMER
-  // ====================================================
+
+  /* =======================================================
+     REMOVE CUSTOMER
+  ======================================================= */
 
   const removeCustomer = () => {
-    setSelectedCustomer(null);
+    setSelectedCustomer(
+      null
+    );
   };
 
-  // ====================================================
-  // CLOSE RECEIPT
-  // ====================================================
 
-  const closeReceipt = () => {
-    setShowReceipt(false);
-  };
+  /* =======================================================
+     HOLD CURRENT SALE
+  ======================================================= */
 
-  // ====================================================
-  // START NEW SALE
-  // ====================================================
-
-  const startNewSale = () => {
-    setShowReceipt(false);
-    setCompletedSale(null);
-    setCompletedCustomer(null);
-    setSaleSuccess(null);
+  const holdCurrentSale = () => {
     setError("");
-    setPaymentMethod("CASH");
-    setDiscount(0);
-    setCart([]);
-    setSelectedCustomer(null);
-    setCustomerSearch("");
-  };
-
-  // ====================================================
-  // COMPLETE SALE
-  // ====================================================
-
-  const completeSale = async () => {
-    setError("");
-    setSaleSuccess(null);
 
     if (cart.length === 0) {
       setError(
-        "Add at least one product to the cart."
+        "There is no sale to hold."
       );
 
       return;
@@ -489,156 +692,565 @@ const POS = () => {
       return;
     }
 
-    try {
-      setProcessingSale(true);
+    const heldSale = {
+      id:
+        `HELD-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
 
-      const payload = {
-        items: cart.map(
-          (item) => ({
-            productId:
-              item._id,
+      createdAt:
+        new Date().toISOString(),
 
-            quantity:
-              item.quantity,
-          })
-        ),
+      customer:
+        selectedCustomer ||
+        null,
 
-        discount:
-          parsedDiscount,
+      cart: cart.map(
+        (item) => ({
+          ...item,
+        })
+      ),
 
+      discount:
+        parsedDiscount,
+
+      paymentMethod:
         paymentMethod,
 
-        customerId:
-          selectedCustomer?._id ||
-          null,
-      };
+      cashReceived:
+        parsedCashReceived,
 
-      const response =
-        await api.post(
-          "/sales",
-          payload
+      subtotal,
+      total,
+    };
+
+    setHeldSales(
+      (current) => [
+        heldSale,
+        ...current,
+      ]
+    );
+
+    /*
+     * THIS IS THE IMPORTANT PART.
+     *
+     * We clear the active transaction
+     * immediately.
+     *
+     * No blocking modal is opened.
+     *
+     * The cashier can now serve
+     * another customer.
+     */
+    clearCart();
+
+    setProductSearch("");
+
+    setHeldSalesOpen(false);
+
+    setError(
+      "Sale held successfully. You can now serve another customer."
+    );
+  };
+
+
+  /* =======================================================
+     RESUME HELD SALE
+  ======================================================= */
+
+  const resumeHeldSale = (
+    heldSale
+  ) => {
+    if (!heldSale) {
+      return;
+    }
+
+    if (cart.length > 0) {
+      const shouldContinue =
+        window.confirm(
+          "You currently have an active sale. Resume the held sale and replace the current cart?"
         );
 
-      const sale =
-        response.data.sale;
-
-      if (!sale) {
-        throw new Error(
-          "Sale was completed but no sale information was returned."
-        );
+      if (!shouldContinue) {
+        return;
       }
+    }
 
-      /*
-      |--------------------------------------------------------------------------
-      | SAVE COMPLETED SALE
-      |--------------------------------------------------------------------------
-      */
+    setCart(
+      Array.isArray(
+        heldSale.cart
+      )
+        ? heldSale.cart
+        : []
+    );
 
-      setCompletedSale({
-        ...sale,
+    setDiscount(
+      heldSale.discount ||
+        0
+    );
 
-        /*
-        | The backend already returns sale items.
-        | Keep them exactly as returned.
-        */
-        items:
-          sale.items || [],
-      });
+    setPaymentMethod(
+      heldSale.paymentMethod ||
+        "CASH"
+    );
 
-      /*
-      |--------------------------------------------------------------------------
-      | SAVE CUSTOMER
-      |--------------------------------------------------------------------------
-      */
+    setCashReceived(
+      heldSale.cashReceived ||
+        ""
+    );
 
-      const saleCustomer =
-        response.data.customer ||
-        selectedCustomer ||
-        null;
+    setSelectedCustomer(
+      heldSale.customer ||
+        null
+    );
 
-      setCompletedCustomer(
-        saleCustomer
+    setSaleSuccess(null);
+    setCompletedSale(null);
+    setCompletedCustomer(
+      null
+    );
+    setShowReceipt(false);
+    setError("");
+    setCardPaymentStatus(
+      "IDLE"
+    );
+
+    setHeldSales(
+      (current) =>
+        current.filter(
+          (item) =>
+            item.id !==
+            heldSale.id
+        )
+    );
+
+    setHeldSalesOpen(false);
+  };
+
+
+  /* =======================================================
+     DELETE HELD SALE
+  ======================================================= */
+
+  const deleteHeldSale = (
+    heldSaleId
+  ) => {
+    const confirmed =
+      window.confirm(
+        "Delete this held sale? This cannot be undone."
       );
 
-      /*
-      |--------------------------------------------------------------------------
-      | SUCCESS INFORMATION
-      |--------------------------------------------------------------------------
-      */
+    if (!confirmed) {
+      return;
+    }
 
-      setSaleSuccess({
-        receiptNumber:
-          sale.receiptNumber,
+    setHeldSales(
+      (current) =>
+        current.filter(
+          (item) =>
+            item.id !==
+            heldSaleId
+        )
+    );
+  };
 
-        total:
-          sale.total,
 
-        paymentMethod:
-          sale.paymentMethod,
+  /* =======================================================
+     CARD TERMINAL
+  ======================================================= */
 
-        customer:
-          saleCustomer,
-      });
-
-      /*
-      |--------------------------------------------------------------------------
-      | CLEAR CURRENT SALE
-      |--------------------------------------------------------------------------
-      */
-
-      setCart([]);
-
-      setDiscount(0);
-
-      setSelectedCustomer(null);
-
-      setCustomerSearch("");
-
-      /*
-      |--------------------------------------------------------------------------
-      | REFRESH PRODUCTS
-      |--------------------------------------------------------------------------
-      */
-
-      await fetchProducts();
-
-      /*
-      |--------------------------------------------------------------------------
-      | OPEN RECEIPT
-      |--------------------------------------------------------------------------
-      */
-
-      setShowReceipt(true);
-    } catch (error) {
-      console.error(
-        "Sale failed:",
-        error
-      );
-
+  const beginCardPayment = () => {
+    if (total <= 0) {
       setError(
-        error.response?.data?.message ||
-          error.message ||
-          "Failed to complete sale."
+        "Add products before starting payment."
       );
-    } finally {
-      setProcessingSale(false);
+
+      return;
+    }
+
+    /*
+     * DO NOT pretend the card was charged.
+     *
+     * This state will later be connected
+     * to the real physical card terminal.
+     */
+    setCardPaymentStatus(
+      "PROCESSING"
+    );
+
+    setError("");
+  };
+
+
+  const cancelCardPayment =
+    () => {
+      setCardPaymentStatus(
+        "IDLE"
+      );
+    };
+
+
+  /* =======================================================
+     PAYMENT METHOD
+  ======================================================= */
+
+  const changePaymentMethod = (
+    method
+  ) => {
+    setPaymentMethod(method);
+    setError("");
+
+    if (method !== "CARD") {
+      setCardPaymentStatus(
+        "IDLE"
+      );
     }
   };
 
-  // ====================================================
-  // SUCCESS SCREEN
-  // ====================================================
+
+  /* =======================================================
+     COMPLETE SALE
+  ======================================================= */
+
+  const completeSale =
+    async () => {
+      setError("");
+      setSaleSuccess(null);
+
+      if (cart.length === 0) {
+        setError(
+          "Add at least one product to the cart."
+        );
+
+        return;
+      }
+
+      if (
+        parsedDiscount >
+        subtotal
+      ) {
+        setError(
+          "Discount cannot be greater than the subtotal."
+        );
+
+        return;
+      }
+
+      if (
+        paymentMethod ===
+          "CASH" &&
+        !cashIsEnough
+      ) {
+        setError(
+          `Customer still owes ${formatCurrency(
+            total -
+              parsedCashReceived
+          )}.`
+        );
+
+        setPaymentPanelOpen(
+          true
+        );
+
+        return;
+      }
+
+      /*
+       * A CARD sale cannot be completed
+       * until the physical terminal approves it.
+       */
+      if (
+        paymentMethod ===
+          "CARD" &&
+        cardPaymentStatus !==
+          "APPROVED"
+      ) {
+        setError(
+          "Card payment has not been approved by a payment terminal yet."
+        );
+
+        setPaymentPanelOpen(
+          true
+        );
+
+        return;
+      }
+
+      try {
+        setProcessingSale(
+          true
+        );
+
+        const payload = {
+          items: cart.map(
+            (item) => ({
+              productId:
+                item._id,
+              quantity:
+                item.quantity,
+            })
+          ),
+
+          discount:
+            parsedDiscount,
+
+          paymentMethod,
+
+          customerId:
+            selectedCustomer?._id ||
+            null,
+        };
+
+        const response =
+          await api.post(
+            "/sales",
+            payload
+          );
+
+        const sale =
+          response.data?.sale ||
+          response.data?.data;
+
+        if (!sale) {
+          throw new Error(
+            "Sale was created but the server did not return the sale."
+          );
+        }
+
+        const customer =
+          response.data?.customer ||
+          selectedCustomer ||
+          null;
+
+        const saleWithPayment =
+          {
+            ...sale,
+
+            amountPaid:
+              paymentMethod ===
+              "CASH"
+                ? parsedCashReceived
+                : sale.amountPaid,
+
+            change:
+              paymentMethod ===
+              "CASH"
+                ? change
+                : sale.change,
+          };
+
+        setCompletedSale(
+          saleWithPayment
+        );
+
+        setCompletedCustomer(
+          customer
+        );
+
+        setSaleSuccess({
+          receiptNumber:
+            sale.receiptNumber,
+
+          total:
+            sale.total,
+
+          paymentMethod:
+            sale.paymentMethod,
+
+          customer,
+
+          amountPaid:
+            paymentMethod ===
+            "CASH"
+              ? parsedCashReceived
+              : null,
+
+          change:
+            paymentMethod ===
+            "CASH"
+              ? change
+              : null,
+        });
+
+        clearCart();
+
+        await fetchProducts();
+      } catch (requestError) {
+        console.error(
+          "Sale failed:",
+          requestError
+        );
+
+        setError(
+          requestError.response
+            ?.data?.message ||
+            requestError.message ||
+            "Failed to complete sale."
+        );
+      } finally {
+        setProcessingSale(
+          false
+        );
+      }
+    };
+
+
+  /* =======================================================
+     NEW SALE
+  ======================================================= */
+
+  const startNewSale = () => {
+    setSaleSuccess(null);
+    setCompletedSale(null);
+    setCompletedCustomer(
+      null
+    );
+    setShowReceipt(false);
+    setError("");
+  };
+
+
+  /* =======================================================
+     KEYBOARD SHORTCUTS
+  ======================================================= */
+
+  useEffect(() => {
+    const handleKeyDown =
+      (event) => {
+        const target =
+          event.target;
+
+        const isTyping =
+          target?.tagName ===
+            "INPUT" ||
+          target?.tagName ===
+            "TEXTAREA" ||
+          target?.tagName ===
+            "SELECT" ||
+          target?.isContentEditable;
+
+        /*
+         * Don't interfere with typing.
+         */
+        if (
+          isTyping &&
+          event.key !==
+            "Escape"
+        ) {
+          return;
+        }
+
+        switch (event.key) {
+          case "F2":
+            event.preventDefault();
+
+            productSearchRef.current?.focus();
+
+            break;
+
+          case "F4":
+            event.preventDefault();
+
+            setCustomerPanelOpen(
+              true
+            );
+
+            setTimeout(() => {
+              customerSearchRef.current?.focus();
+            }, 50);
+
+            break;
+
+          case "F6":
+            event.preventDefault();
+
+            setPaymentPanelOpen(
+              true
+            );
+
+            break;
+
+          case "F7":
+            event.preventDefault();
+
+            holdCurrentSale();
+
+            break;
+
+          case "F8":
+            event.preventDefault();
+
+            setHeldSalesOpen(
+              (current) =>
+                !current
+            );
+
+            break;
+
+          case "F9":
+            event.preventDefault();
+
+            completeSale();
+
+            break;
+
+          case "Escape":
+            event.preventDefault();
+
+            setHeldSalesOpen(
+              false
+            );
+
+            setCustomerPanelOpen(
+              false
+            );
+
+            setPaymentPanelOpen(
+              false
+            );
+
+            setShortcutsOpen(
+              false
+            );
+
+            break;
+
+          default:
+            break;
+        }
+      };
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+    };
+  });
+
+
+  /* =======================================================
+     SALE SUCCESS
+  ======================================================= */
 
   if (saleSuccess) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto max-w-3xl space-y-6">
+
         <div className="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
 
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
+
             <CheckCircle2
               size={42}
               className="text-emerald-600"
             />
+
           </div>
 
           <h1 className="mt-6 text-3xl font-black text-slate-900">
@@ -650,9 +1262,11 @@ const POS = () => {
             successfully recorded.
           </p>
 
+
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
 
             <div className="rounded-2xl bg-slate-50 p-5">
+
               <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
                 Receipt
               </p>
@@ -662,9 +1276,12 @@ const POS = () => {
                   saleSuccess.receiptNumber
                 }
               </p>
+
             </div>
 
+
             <div className="rounded-2xl bg-slate-50 p-5">
+
               <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
                 Total
               </p>
@@ -674,9 +1291,11 @@ const POS = () => {
                   saleSuccess.total
                 )}
               </p>
+
             </div>
 
           </div>
+
 
           {saleSuccess.customer && (
             <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-left">
@@ -684,13 +1303,16 @@ const POS = () => {
               <div className="flex items-center gap-3">
 
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+
                   <User
                     size={20}
                     className="text-blue-600"
                   />
+
                 </div>
 
                 <div>
+
                   <p className="text-xs font-bold uppercase tracking-wide text-blue-500">
                     Customer
                   </p>
@@ -702,6 +1324,7 @@ const POS = () => {
                         .name
                     }
                   </p>
+
                 </div>
 
               </div>
@@ -709,21 +1332,64 @@ const POS = () => {
             </div>
           )}
 
+
+          {saleSuccess.paymentMethod ===
+            "CASH" && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+
+              <div className="rounded-2xl border border-slate-200 p-5 text-left">
+
+                <p className="text-xs font-bold uppercase text-slate-400">
+                  Cash Received
+                </p>
+
+                <p className="mt-2 text-xl font-black text-slate-900">
+                  {formatCurrency(
+                    saleSuccess.amountPaid
+                  )}
+                </p>
+
+              </div>
+
+
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-left">
+
+                <p className="text-xs font-bold uppercase text-emerald-600">
+                  Change
+                </p>
+
+                <p className="mt-2 text-xl font-black text-emerald-700">
+                  {formatCurrency(
+                    saleSuccess.change
+                  )}
+                </p>
+
+              </div>
+
+            </div>
+          )}
+
+
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
 
             <button
               type="button"
               onClick={() =>
-                setShowReceipt(true)
+                setShowReceipt(
+                  true
+                )
               }
-              className="rounded-xl border border-blue-200 bg-blue-50 px-6 py-3 font-bold text-blue-600 transition hover:bg-blue-100"
+              className="rounded-xl border border-slate-200 bg-white px-6 py-3 font-bold text-slate-700 transition hover:bg-slate-50"
             >
               View Receipt
             </button>
 
+
             <button
               type="button"
-              onClick={startNewSale}
+              onClick={
+                startNewSale
+              }
               className="rounded-xl bg-blue-600 px-6 py-3 font-bold text-white transition hover:bg-blue-700"
             >
               New Sale
@@ -733,54 +1399,120 @@ const POS = () => {
 
         </div>
 
-        {/* ====================================================
-            RECEIPT MODAL
-        ==================================================== */}
 
         {showReceipt &&
           completedSale && (
             <Receipt
-              sale={completedSale}
+              sale={
+                completedSale
+              }
               customer={
                 completedCustomer
               }
-              onClose={
-                closeReceipt
+              onClose={() =>
+                setShowReceipt(
+                  false
+                )
               }
               onNewSale={
                 startNewSale
               }
             />
           )}
+
       </div>
     );
   }
 
-  // ====================================================
-  // MAIN POS
-  // ====================================================
+
+  /* =======================================================
+     MAIN POS
+  ======================================================= */
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
 
-      {/* ====================================================
+      {/* ===================================================
           HEADER
-      ==================================================== */}
+      =================================================== */}
 
-      <div>
-        <h1 className="text-3xl font-black text-slate-900">
-          Point of Sale
-        </h1>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
-        <p className="mt-1 text-slate-500">
-          Sell products quickly and
-          accurately.
-        </p>
+        <div>
+
+          <h1 className="text-3xl font-black text-slate-900">
+            Point of Sale
+          </h1>
+
+          <p className="mt-1 text-slate-500">
+            Sell products quickly
+            and accurately.
+          </p>
+
+        </div>
+
+
+        <div className="flex flex-wrap gap-2">
+
+          <button
+            type="button"
+            onClick={() =>
+              setHeldSalesOpen(
+                true
+              )
+            }
+            className="relative inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 transition hover:bg-amber-100"
+          >
+
+            <PauseCircle
+              size={18}
+            />
+
+            Held Sales
+
+            {heldSales.length >
+              0 && (
+              <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-600 px-1.5 text-xs font-black text-white">
+                {
+                  heldSales.length
+                }
+              </span>
+            )}
+
+            <span className="hidden text-xs opacity-60 sm:inline">
+              F8
+            </span>
+
+          </button>
+
+
+          <button
+            type="button"
+            onClick={() =>
+              setShortcutsOpen(
+                (current) =>
+                  !current
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+          >
+
+            <Keyboard
+              size={18}
+            />
+
+            Shortcuts
+
+          </button>
+
+        </div>
+
       </div>
 
-      {/* ====================================================
+
+      {/* ===================================================
           ERROR
-      ==================================================== */}
+      =================================================== */}
 
       {error && (
         <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
@@ -807,9 +1539,84 @@ const POS = () => {
         </div>
       )}
 
-      {/* ====================================================
-          CUSTOMER SECTION
-      ==================================================== */}
+
+      {/* ===================================================
+          SHORTCUTS
+      =================================================== */}
+
+      {shortcutsOpen && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+
+          <div className="mb-4 flex items-center justify-between">
+
+            <div>
+
+              <h2 className="font-black text-slate-900">
+                POS Keyboard Shortcuts
+              </h2>
+
+              <p className="text-sm text-slate-500">
+                Designed for fast
+                cashier operation.
+              </p>
+
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setShortcutsOpen(
+                  false
+                )
+              }
+              className="rounded-lg p-2 text-slate-400 hover:bg-white"
+            >
+              <X size={18} />
+            </button>
+
+          </div>
+
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
+            {[
+              ["F2", "Search products"],
+              ["F4", "Customer"],
+              ["F6", "Payment"],
+              ["F7", "Hold sale"],
+              ["F8", "Held sales"],
+              ["F9", "Complete sale"],
+              ["ESC", "Close panels"],
+            ].map(
+              ([key, description]) => (
+                <div
+                  key={key}
+                  className="flex items-center gap-3 rounded-xl bg-white p-3"
+                >
+
+                  <kbd className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-700 shadow-sm">
+                    {key}
+                  </kbd>
+
+                  <span className="text-sm font-semibold text-slate-600">
+                    {
+                      description
+                    }
+                  </span>
+
+                </div>
+              )
+            )}
+
+          </div>
+
+        </div>
+      )}
+
+
+      {/* ===================================================
+          CUSTOMER
+      =================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -818,13 +1625,16 @@ const POS = () => {
           <div className="flex items-center gap-3">
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
+
               <User
                 size={21}
                 className="text-blue-600"
               />
+
             </div>
 
             <div>
+
               <h2 className="font-bold text-slate-900">
                 Customer
               </h2>
@@ -833,19 +1643,24 @@ const POS = () => {
                 Optional — walk-in
                 customers are supported.
               </p>
+
             </div>
 
           </div>
+
 
           {selectedCustomer ? (
             <div className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center">
 
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100">
+
                 <User
                   size={19}
                   className="text-blue-600"
                 />
+
               </div>
+
 
               <div className="min-w-0 flex-1">
 
@@ -883,6 +1698,7 @@ const POS = () => {
 
               </div>
 
+
               <button
                 type="button"
                 onClick={
@@ -904,21 +1720,28 @@ const POS = () => {
               }
               className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
             >
-              <UserPlus size={18} />
+
+              <UserPlus
+                size={18}
+              />
 
               Select Customer
 
               {customerPanelOpen ? (
-                <ChevronUp size={17} />
+                <ChevronUp
+                  size={17}
+                />
               ) : (
-                <ChevronDown size={17} />
+                <ChevronDown
+                  size={17}
+                />
               )}
+
             </button>
           )}
 
         </div>
 
-        {/* CUSTOMER SEARCH */}
 
         {customerPanelOpen &&
           !selectedCustomer && (
@@ -932,6 +1755,9 @@ const POS = () => {
                 />
 
                 <input
+                  ref={
+                    customerSearchRef
+                  }
                   type="text"
                   value={
                     customerSearch
@@ -943,16 +1769,17 @@ const POS = () => {
                   }
                   placeholder="Search customer by name, phone or email..."
                   className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  autoFocus
                 />
 
               </div>
+
 
               {searchingCustomers && (
                 <p className="mt-3 text-sm text-slate-500">
                   Searching customers...
                 </p>
               )}
+
 
               {!searchingCustomers &&
                 customerSearch.trim() &&
@@ -962,6 +1789,7 @@ const POS = () => {
                     No customers found.
                   </div>
                 )}
+
 
               {customers.length >
                 0 && (
@@ -991,6 +1819,7 @@ const POS = () => {
 
                         </div>
 
+
                         <div className="min-w-0 flex-1">
 
                           <p className="font-bold text-slate-900">
@@ -1008,6 +1837,7 @@ const POS = () => {
                           </p>
 
                         </div>
+
 
                         <div className="hidden text-right sm:block">
 
@@ -1035,15 +1865,16 @@ const POS = () => {
 
       </div>
 
-      {/* ====================================================
-          MAIN POS GRID
-      ==================================================== */}
+
+      {/* ===================================================
+          PRODUCTS + CART
+      =================================================== */}
 
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
 
-        {/* ==================================================
+        {/* =================================================
             PRODUCTS
-        ================================================== */}
+        ================================================= */}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1056,11 +1887,12 @@ const POS = () => {
               </h2>
 
               <p className="text-sm text-slate-500">
-                Select products to add them
-                to the cart.
+                Search by product,
+                SKU or barcode.
               </p>
 
             </div>
+
 
             <div className="relative sm:w-80">
 
@@ -1070,6 +1902,9 @@ const POS = () => {
               />
 
               <input
+                ref={
+                  productSearchRef
+                }
                 type="text"
                 value={
                   productSearch
@@ -1079,13 +1914,14 @@ const POS = () => {
                     event.target.value
                   )
                 }
-                placeholder="Search products..."
+                placeholder="Search products or scan barcode..."
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
 
             </div>
 
           </div>
+
 
           {loadingProducts ? (
             <div className="flex min-h-64 items-center justify-center">
@@ -1107,7 +1943,8 @@ const POS = () => {
               </h3>
 
               <p className="mt-1 text-sm text-slate-500">
-                Try another search.
+                Try another search or
+                barcode.
               </p>
 
             </div>
@@ -1118,8 +1955,10 @@ const POS = () => {
                 (product) => {
                   const outOfStock =
                     product.trackStock &&
-                    product.stockQuantity <=
-                      0;
+                    Number(
+                      product.stockQuantity ||
+                        0
+                    ) <= 0;
 
                   return (
                     <button
@@ -1163,6 +2002,7 @@ const POS = () => {
 
                       </div>
 
+
                       <div className="p-3">
 
                         <h3 className="line-clamp-2 min-h-10 text-sm font-bold text-slate-800">
@@ -1176,6 +2016,7 @@ const POS = () => {
                             product.sku
                           }
                         </p>
+
 
                         <div className="mt-3 flex items-end justify-between gap-2">
 
@@ -1211,9 +2052,10 @@ const POS = () => {
 
         </section>
 
-        {/* ==================================================
+
+        {/* =================================================
             CART
-        ================================================== */}
+        ================================================= */}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1235,6 +2077,7 @@ const POS = () => {
 
             </div>
 
+
             {cart.length >
               0 && (
               <button
@@ -1250,7 +2093,6 @@ const POS = () => {
 
           </div>
 
-          {/* CART ITEMS */}
 
           <div className="mt-5 max-h-[430px] space-y-3 overflow-y-auto">
 
@@ -1299,16 +2141,15 @@ const POS = () => {
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center">
-
                             <ShoppingCart
                               size={18}
                               className="text-slate-300"
                             />
-
                           </div>
                         )}
 
                       </div>
+
 
                       <div className="min-w-0 flex-1">
 
@@ -1331,6 +2172,7 @@ const POS = () => {
 
                           </div>
 
+
                           <button
                             type="button"
                             onClick={() =>
@@ -1346,6 +2188,7 @@ const POS = () => {
                           </button>
 
                         </div>
+
 
                         <div className="mt-3 flex items-center justify-between">
 
@@ -1383,12 +2226,17 @@ const POS = () => {
 
                           </div>
 
+
                           <p className="font-black text-slate-900">
                             {formatCurrency(
                               Number(
-                                item.sellingPrice
+                                item.sellingPrice ||
+                                  0
                               ) *
-                                item.quantity
+                                Number(
+                                  item.quantity ||
+                                    0
+                                )
                             )}
                           </p>
 
@@ -1405,7 +2253,10 @@ const POS = () => {
 
           </div>
 
-          {/* TOTALS */}
+
+          {/* =================================================
+              TOTALS
+          ================================================= */}
 
           <div className="mt-5 border-t border-slate-100 pt-5">
 
@@ -1423,7 +2274,6 @@ const POS = () => {
 
             </div>
 
-            {/* DISCOUNT */}
 
             <div className="mt-3">
 
@@ -1448,7 +2298,6 @@ const POS = () => {
 
             </div>
 
-            {/* TOTAL */}
 
             <div className="mt-5 flex items-center justify-between">
 
@@ -1464,13 +2313,36 @@ const POS = () => {
 
             </div>
 
-            {/* PAYMENT METHOD */}
+
+            {/* =================================================
+                PAYMENT
+            ================================================= */}
 
             <div className="mt-5">
 
-              <p className="mb-3 text-sm font-bold text-slate-700">
-                Payment Method
-              </p>
+              <div className="mb-3 flex items-center justify-between">
+
+                <p className="text-sm font-bold text-slate-700">
+                  Payment Method
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPaymentPanelOpen(
+                      (current) =>
+                        !current
+                    )
+                  }
+                  className="text-xs font-bold text-blue-600"
+                >
+                  {paymentPanelOpen
+                    ? "Hide"
+                    : "Payment details"}
+                </button>
+
+              </div>
+
 
               <div className="grid grid-cols-2 gap-2">
 
@@ -1486,7 +2358,7 @@ const POS = () => {
                       }
                       type="button"
                       onClick={() =>
-                        setPaymentMethod(
+                        changePaymentMethod(
                           value
                         )
                       }
@@ -1497,20 +2369,363 @@ const POS = () => {
                           : "border-slate-200 text-slate-600 hover:bg-slate-50"
                       }`}
                     >
+
                       <Icon
                         size={17}
                       />
 
-                      {label}
+                      {
+                        label
+                      }
+
                     </button>
                   )
                 )}
 
               </div>
 
+
+              {paymentPanelOpen && (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+
+                  {/* CASH */}
+
+                  {paymentMethod ===
+                    "CASH" && (
+                    <div>
+
+                      <div className="flex items-center gap-2">
+
+                        <HandCoins
+                          size={18}
+                          className="text-emerald-600"
+                        />
+
+                        <p className="font-bold text-slate-800">
+                          Cash Payment
+                        </p>
+
+                      </div>
+
+
+                      <label className="mt-4 mb-2 block text-sm font-bold text-slate-600">
+                        Cash received
+                      </label>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={
+                          cashReceived
+                        }
+                        onChange={(event) =>
+                          setCashReceived(
+                            event.target.value
+                          )
+                        }
+                        placeholder="Enter amount received"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg font-bold outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+
+
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+
+                        <div className="rounded-xl bg-white p-3">
+
+                          <p className="text-xs font-bold uppercase text-slate-400">
+                            Customer owes
+                          </p>
+
+                          <p className="mt-1 font-black text-slate-900">
+                            {formatCurrency(
+                              total
+                            )}
+                          </p>
+
+                        </div>
+
+
+                        <div className="rounded-xl bg-emerald-50 p-3">
+
+                          <p className="text-xs font-bold uppercase text-emerald-600">
+                            Change
+                          </p>
+
+                          <p className="mt-1 font-black text-emerald-700">
+                            {formatCurrency(
+                              change
+                            )}
+                          </p>
+
+                        </div>
+
+                      </div>
+
+
+                      {parsedCashReceived >
+                        0 &&
+                        !cashIsEnough && (
+                          <p className="mt-3 text-sm font-bold text-red-600">
+                            Insufficient cash:
+                            {" "}
+                            {formatCurrency(
+                              total -
+                                parsedCashReceived
+                            )}{" "}
+                            remaining.
+                          </p>
+                        )}
+
+                    </div>
+                  )}
+
+
+                  {/* CARD */}
+
+                  {paymentMethod ===
+                    "CARD" && (
+                    <div>
+
+                      <div className="flex items-center gap-3">
+
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+
+                          <CreditCard
+                            size={20}
+                            className="text-blue-600"
+                          />
+
+                        </div>
+
+
+                        <div>
+
+                          <p className="font-bold text-slate-900">
+                            Card Terminal
+                          </p>
+
+                          <p className="text-xs text-slate-500">
+                            Amount to charge:
+                            {" "}
+                            {formatCurrency(
+                              total
+                            )}
+                          </p>
+
+                        </div>
+
+                      </div>
+
+
+                      {cardPaymentStatus ===
+                        "IDLE" && (
+                        <button
+                          type="button"
+                          onClick={
+                            beginCardPayment
+                          }
+                          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 font-black text-white hover:bg-slate-800"
+                        >
+                          Start Card Payment
+                        </button>
+                      )}
+
+
+                      {cardPaymentStatus ===
+                        "PROCESSING" && (
+                        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-center">
+
+                          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+
+                            <CreditCard
+                              size={25}
+                              className="animate-pulse text-blue-600"
+                            />
+
+                          </div>
+
+                          <p className="mt-3 font-black text-blue-900">
+                            Waiting for
+                            terminal
+                          </p>
+
+                          <p className="mt-1 text-sm text-blue-700">
+                            Present, insert
+                            or swipe the
+                            customer's card
+                            on the connected
+                            payment terminal.
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={
+                              cancelCardPayment
+                            }
+                            className="mt-4 text-sm font-bold text-red-600"
+                          >
+                            Cancel payment
+                          </button>
+
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+
+
+                  {/* MOBILE MONEY */}
+
+                  {paymentMethod ===
+                    "MOBILE_MONEY" && (
+                    <div className="rounded-xl bg-white p-4">
+
+                      <div className="flex items-center gap-3">
+
+                        <Smartphone
+                          size={21}
+                          className="text-blue-600"
+                        />
+
+                        <div>
+
+                          <p className="font-bold text-slate-900">
+                            Mobile Money
+                          </p>
+
+                          <p className="text-xs text-slate-500">
+                            Amount:
+                            {" "}
+                            {formatCurrency(
+                              total
+                            )}
+                          </p>
+
+                        </div>
+
+                      </div>
+
+
+                      <p className="mt-3 text-sm text-slate-500">
+                        Mobile-money gateway
+                        integration will
+                        confirm the payment
+                        before the sale is
+                        completed.
+                      </p>
+
+                    </div>
+                  )}
+
+
+                  {/* BANK */}
+
+                  {paymentMethod ===
+                    "BANK" && (
+                    <div className="rounded-xl bg-white p-4">
+
+                      <div className="flex items-center gap-3">
+
+                        <CreditCard
+                          size={21}
+                          className="text-blue-600"
+                        />
+
+                        <div>
+
+                          <p className="font-bold text-slate-900">
+                            Bank Payment
+                          </p>
+
+                          <p className="text-xs text-slate-500">
+                            Amount:
+                            {" "}
+                            {formatCurrency(
+                              total
+                            )}
+                          </p>
+
+                        </div>
+
+                      </div>
+
+
+                      <p className="mt-3 text-sm text-slate-500">
+                        Bank-payment
+                        integration will be
+                        connected through
+                        the selected provider.
+                      </p>
+
+                    </div>
+                  )}
+
+                </div>
+              )}
+
             </div>
 
-            {/* COMPLETE SALE */}
+
+            {/* =================================================
+                SALE ACTIONS
+            ================================================= */}
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+
+              <button
+                type="button"
+                onClick={
+                  holdCurrentSale
+                }
+                disabled={
+                  cart.length ===
+                  0
+                }
+                className="flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-4 font-black text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+
+                <PauseCircle
+                  size={19}
+                />
+
+                Hold
+
+                <span className="hidden text-xs opacity-60 sm:inline">
+                  F7
+                </span>
+
+              </button>
+
+
+              <button
+                type="button"
+                onClick={() =>
+                  setHeldSalesOpen(
+                    true
+                  )
+                }
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-4 font-black text-slate-700 transition hover:bg-slate-50"
+              >
+
+                <Clock3
+                  size={19}
+                />
+
+                Held
+
+                {heldSales.length >
+                  0 && (
+                  <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">
+                    {
+                      heldSales.length
+                    }
+                  </span>
+                )}
+
+              </button>
+
+            </div>
+
 
             <button
               type="button"
@@ -1520,10 +2735,16 @@ const POS = () => {
               disabled={
                 processingSale ||
                 cart.length ===
-                  0
+                  0 ||
+                !cashIsEnough ||
+                (paymentMethod ===
+                  "CARD" &&
+                  cardPaymentStatus !==
+                    "APPROVED")
               }
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-4 font-black text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-4 font-black text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
+
               {processingSale ? (
                 <>
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -1537,8 +2758,13 @@ const POS = () => {
                   />
 
                   Complete Sale
+
+                  <span className="hidden text-xs opacity-60 sm:inline">
+                    F9
+                  </span>
                 </>
               )}
+
             </button>
 
           </div>
@@ -1547,8 +2773,264 @@ const POS = () => {
 
       </div>
 
+
+      {/* ===================================================
+          HELD SALES DRAWER
+      =================================================== */}
+
+      {heldSalesOpen && (
+        <>
+
+          <div
+            className="fixed inset-0 z-40 bg-slate-900/20"
+            onClick={() =>
+              setHeldSalesOpen(
+                false
+              )
+            }
+          />
+
+
+          <aside className="fixed right-0 top-0 z-50 flex h-screen w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl">
+
+            {/* HEADER */}
+
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+
+              <div>
+
+                <div className="flex items-center gap-2">
+
+                  <PauseCircle
+                    size={21}
+                    className="text-amber-600"
+                  />
+
+                  <h2 className="font-black text-slate-900">
+                    Held Sales
+                  </h2>
+
+                </div>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  {heldSales.length} sale
+                  {heldSales.length ===
+                  1
+                    ? ""
+                    : "s"} waiting
+                </p>
+
+              </div>
+
+
+              <button
+                type="button"
+                onClick={() =>
+                  setHeldSalesOpen(
+                    false
+                  )
+                }
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+
+            </div>
+
+
+            {/* HELD SALES */}
+
+            <div className="flex-1 overflow-y-auto p-4">
+
+              {heldSales.length ===
+              0 ? (
+                <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
+
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
+
+                    <PauseCircle
+                      size={30}
+                      className="text-slate-400"
+                    />
+
+                  </div>
+
+                  <h3 className="mt-4 font-black text-slate-800">
+                    No held sales
+                  </h3>
+
+                  <p className="mt-1 max-w-xs text-sm text-slate-500">
+                    When you press F7,
+                    the current customer
+                    will appear here while
+                    you serve another
+                    customer.
+                  </p>
+
+                </div>
+              ) : (
+                <div className="space-y-3">
+
+                  {heldSales.map(
+                    (heldSale) => (
+                      <div
+                        key={
+                          heldSale.id
+                        }
+                        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                      >
+
+                        <div className="flex items-start justify-between gap-3">
+
+                          <div className="min-w-0">
+
+                            <p className="font-black text-slate-900">
+                              {heldSale
+                                .customer
+                                ?.name ||
+                                "Walk-in Customer"}
+                            </p>
+
+                            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+
+                              <Clock3
+                                size={13}
+                              />
+
+                              {formatTime(
+                                heldSale.createdAt
+                              )}
+
+                            </div>
+
+                          </div>
+
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              deleteHeldSale(
+                                heldSale.id
+                              )
+                            }
+                            className="rounded-lg p-2 text-slate-300 hover:bg-red-50 hover:text-red-600"
+                            title="Delete held sale"
+                          >
+                            <Trash2
+                              size={17}
+                            />
+                          </button>
+
+                        </div>
+
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+
+                          <div className="rounded-xl bg-slate-50 p-3">
+
+                            <p className="text-[10px] font-bold uppercase text-slate-400">
+                              Items
+                            </p>
+
+                            <p className="mt-1 font-black text-slate-800">
+                              {
+                                heldSale
+                                  .cart
+                                  ?.length ||
+                                0
+                              }
+                            </p>
+
+                          </div>
+
+
+                          <div className="rounded-xl bg-slate-50 p-3">
+
+                            <p className="text-[10px] font-bold uppercase text-slate-400">
+                              Total
+                            </p>
+
+                            <p className="mt-1 text-sm font-black text-blue-600">
+                              {formatCurrency(
+                                heldSale.total
+                              )}
+                            </p>
+
+                          </div>
+
+
+                          <div className="rounded-xl bg-slate-50 p-3">
+
+                            <p className="text-[10px] font-bold uppercase text-slate-400">
+                              Payment
+                            </p>
+
+                            <p className="mt-1 text-xs font-black text-slate-700">
+                              {
+                                heldSale.paymentMethod
+                              }
+                            </p>
+
+                          </div>
+
+                        </div>
+
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            resumeHeldSale(
+                              heldSale
+                            )
+                          }
+                          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-black text-white hover:bg-blue-700"
+                        >
+
+                          <PlayCircle
+                            size={18}
+                          />
+
+                          Resume Sale
+
+                        </button>
+
+                      </div>
+                    )
+                  )}
+
+                </div>
+              )}
+
+            </div>
+
+
+            {/* FOOTER */}
+
+            <div className="border-t border-slate-200 bg-slate-50 p-4">
+
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+
+                <Keyboard
+                  size={15}
+                />
+
+                <span>
+                  Press F8 to open or
+                  close this panel.
+                </span>
+
+              </div>
+
+            </div>
+
+          </aside>
+
+        </>
+      )}
+
     </div>
   );
 };
+
 
 export default POS;

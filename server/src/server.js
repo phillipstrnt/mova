@@ -32,8 +32,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 const CLIENT_URL =
-  process.env.CLIENT_URL ||
-  "http://localhost:5173";
+  process.env.CLIENT_URL || "http://localhost:5173";
 
 /*
 |--------------------------------------------------------------------------
@@ -60,8 +59,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message:
-      "Too many requests. Please try again later.",
+    message: "Too many requests. Please try again later.",
   },
 });
 
@@ -121,10 +119,9 @@ app.get("/", (req, res) => {
 */
 
 app.get("/api/health", (req, res) => {
-  const databaseState =
-    mongoose.connection.readyState;
+  const databaseState = mongoose.connection.readyState;
 
-  res.json({
+  res.status(200).json({
     success: true,
     server: "online",
     database:
@@ -140,133 +137,56 @@ app.get("/api/health", (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-/*
- * Authentication
- */
-app.use(
-  "/api/auth",
-  authRoutes
-);
+// Authentication
+app.use("/api/auth", authRoutes);
 
-/*
- * Business
- */
-app.use(
-  "/api/business",
-  businessRoutes
-);
+// Business
+app.use("/api/business", businessRoutes);
 
-/*
- * Branches
- */
-app.use(
-  "/api/branches",
-  branchRoutes
-);
+// Branches
+app.use("/api/branches", branchRoutes);
 
-/*
- * Receipt settings
- */
-app.use(
-  "/api/receipt-settings",
-  receiptRoutes
-);
+// Receipt settings
+app.use("/api/receipt-settings", receiptRoutes);
 
-/*
- * Categories
- */
-app.use(
-  "/api/categories",
-  categoryRoutes
-);
+// Categories
+app.use("/api/categories", categoryRoutes);
 
-/*
- * Products
- */
-app.use(
-  "/api/products",
-  productRoutes
-);
+// Products
+app.use("/api/products", productRoutes);
 
-/*
- * Sales
- */
-app.use(
-  "/api/sales",
-  saleRoutes
-);
+// Sales
+app.use("/api/sales", saleRoutes);
 
-/*
- * Inventory transactions
- */
+// Inventory transactions
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
 
-/*
- * Customers
- */
-app.use(
-  "/api/customers",
-  customerRoutes
-);
+// Customers
+app.use("/api/customers", customerRoutes);
 
-/*
- * Returns
- */
-app.use(
-  "/api/returns",
-  returnRoutes
-);
+// Returns
+app.use("/api/returns", returnRoutes);
 
-/*
- * Suppliers
- */
-app.use(
-  "/api/suppliers",
-  supplierRoutes
-);
+// Suppliers
+app.use("/api/suppliers", supplierRoutes);
 
-/*
- * Purchases
- */
-app.use(
-  "/api/purchases",
-  purchaseRoutes
-);
+// Purchases
+app.use("/api/purchases", purchaseRoutes);
 
-/*
- * Expenses
- */
-app.use(
-  "/api/expenses",
-  expenseRoutes
-);
+// Expenses
+app.use("/api/expenses", expenseRoutes);
 
-/*
- * Payments
- */
-app.use(
-  "/api/payments",
-  paymentRoutes
-);
+// Payments and payment transactions
+app.use("/api/payments", paymentRoutes);
 
-/*
- * Dashboard
- */
-app.use(
-  "/api/dashboard",
-  dashboardRoutes
-);
+// Dashboard
+app.use("/api/dashboard", dashboardRoutes);
 
-/*
- * Reports
- */
-app.use(
-  "/api/reports",
-  reportRoutes
-);
+// Reports
+app.use("/api/reports", reportRoutes);
 
 /*
 |--------------------------------------------------------------------------
@@ -275,9 +195,7 @@ app.use(
 */
 
 app.use((req, res, next) => {
-  if (
-    req.originalUrl.startsWith("/api/")
-  ) {
+  if (req.originalUrl.startsWith("/api/")) {
     return res.status(404).json({
       success: false,
       message: `API route not found: ${req.method} ${req.originalUrl}`,
@@ -306,52 +224,67 @@ app.use((req, res) => {
 |--------------------------------------------------------------------------
 */
 
-app.use(
-  (error, req, res, next) => {
-    console.error(
-      "Unhandled server error:",
-      error
-    );
+app.use((error, req, res, next) => {
+  console.error("Unhandled server error:", error);
 
-    res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      message:
-        error.message ||
-        "Internal server error",
-    });
+  if (res.headersSent) {
+    return next(error);
   }
-);
+
+  res.status(error.status || 500).json({
+    success: false,
+    message:
+      error.message || "Internal server error",
+  });
+});
 
 /*
 |--------------------------------------------------------------------------
-| DATABASE CONNECTION
+| MONGODB CONNECTION
 |--------------------------------------------------------------------------
+|
+| Some MongoDB-compatible deployments do not support retryable writes.
+| This connection string helper explicitly disables them.
+|
 */
+
+const getMongoConnectionString = (uri) => {
+  if (!uri) {
+    throw new Error(
+      "MONGO_URI is missing from the server environment."
+    );
+  }
+
+  // Replace an existing retryWrites setting.
+  if (/[?&]retryWrites=/i.test(uri)) {
+    return uri.replace(
+      /([?&])retryWrites=[^&]*/i,
+      "$1retryWrites=false"
+    );
+  }
+
+  // Preserve existing query parameters.
+  const separator = uri.includes("?") ? "&" : "?";
+
+  return `${uri}${separator}retryWrites=false`;
+};
 
 const connectDatabase = async () => {
   try {
-    if (!process.env.MONGO_URI) {
-      throw new Error(
-        "MONGO_URI is missing from the server environment."
-      );
-    }
-
-    await mongoose.connect(
+    const mongoUri = getMongoConnectionString(
       process.env.MONGO_URI
     );
 
-    console.log(
-      "MongoDB connected successfully"
-    );
+    await mongoose.connect(mongoUri);
+
+    console.log("MongoDB connected successfully");
   } catch (error) {
     console.error(
       "MongoDB connection failed:",
       error.message
     );
 
-    process.exit(1);
+    throw error;
   }
 };
 
@@ -365,14 +298,15 @@ const startServer = async () => {
   try {
     await connectDatabase();
 
-    app.listen(
-      PORT,
-      () => {
-        console.log(
-          `MOVA server running on http://localhost:${PORT}`
-        );
-      }
-    );
+    app.listen(PORT, () => {
+      console.log(
+        `MOVA server running on http://localhost:${PORT}`
+      );
+
+      console.log(
+        `MOVA health check: http://localhost:${PORT}/api/health`
+      );
+    });
   } catch (error) {
     console.error(
       "Server startup failed:",

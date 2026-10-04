@@ -1,9 +1,10 @@
 import express from "express";
 
 import {
-  createPayment,
-  getPayments,
-  getPaymentById,
+  createPaymentTransaction,
+  getPaymentTransaction,
+  getPaymentProviders,
+  updatePaymentStatus,
 } from "../controllers/paymentController.js";
 
 import {
@@ -13,33 +14,38 @@ import {
 const router =
   express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| AUTHENTICATION
-|--------------------------------------------------------------------------
-*/
-
 router.use(protect);
 
 /*
 |--------------------------------------------------------------------------
-| PAYMENTS
+| PAYMENT PROVIDERS
 |--------------------------------------------------------------------------
 */
 
 router.get(
-  "/",
-  getPayments
+  "/providers",
+  getPaymentProviders
+);
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENT TRANSACTIONS
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/transactions",
+  createPaymentTransaction
 );
 
 router.get(
-  "/:id",
-  getPaymentById
+  "/transactions/:id",
+  getPaymentTransaction
 );
 
-router.post(
-  "/",
-  createPayment
+router.patch(
+  "/transactions/:id/status",
+  updatePaymentStatus
 );
 
 export default router;
