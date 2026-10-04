@@ -1,522 +1,185 @@
 import mongoose from "mongoose";
 
-import PaymentTransaction from "../models/PaymentTransaction.js";
-import PaymentProvider from "../models/PaymentProvider.js";
-import Branch from "../models/Branch.js";
-import {
-  createPaymentRequest,
-} from "../services/payment/paymentProvider.js";
+const paymentTransactionSchema = new mongoose.Schema(
+  {
+    businessId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      required: true,
+      index: true,
+    },
 
-const resolveBranch = async (req) => {
-  const businessId = req.user.businessId;
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      required: true,
+      index: true,
+    },
 
-  const branchId =
-    req.user.activeBranchId ||
-    req.user.branchId;
+    saleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Sale",
+      default: null,
+      index: true,
+    },
 
-  if (!branchId) {
-    return null;
-  }
+    cashierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
 
-  if (
-    !mongoose.Types.ObjectId.isValid(
-      branchId
-    )
-  ) {
-    return null;
-  }
-
-  const branch = await Branch.findOne({
-    _id: branchId,
-    businessId,
-    isActive: true,
-  });
-
-  if (!branch) {
-    return null;
-  }
-
-  const isOwnerOrAdmin =
-    req.user.role === "OWNER" ||
-    req.user.role === "ADMIN";
-
-  if (isOwnerOrAdmin) {
-    return branch;
-  }
-
-  const branchIds = Array.isArray(
-    req.user.branchIds
-  )
-    ? req.user.branchIds.map((id) =>
-        String(id)
-      )
-    : [];
-
-  if (
-    !branchIds.includes(
-      String(branch._id)
-    )
-  ) {
-    return null;
-  }
-
-  return branch;
-};
-
-/*
-|--------------------------------------------------------------------------
-| CREATE PAYMENT TRANSACTION
-|--------------------------------------------------------------------------
-*/
-
-export const createPaymentTransaction =
-  async (req, res) => {
-    try {
-      const {
-        amount,
-        method,
-        provider,
-        currency = "UGX",
-        terminalId = "",
-        terminalName = "",
-        metadata = {},
-      } = req.body;
-
-      const businessId =
-        req.user.businessId;
-
-      const cashierId =
-        req.user._id;
-
-      const branch =
-        await resolveBranch(req);
-
-      if (!branch) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "No valid active branch is selected.",
-        });
-      }
-
-      const numericAmount =
-        Number(amount);
-
-      if (
-        !Number.isFinite(
-          numericAmount
-        ) ||
-        numericAmount <= 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Payment amount must be greater than zero.",
-        });
-      }
-
-      const allowedMethods = [
+    method: {
+      type: String,
+      enum: [
+        "CASH",
         "CARD",
         "MOBILE_MONEY",
         "BANK_TRANSFER",
-      ];
+      ],
+      required: true,
+      index: true,
+    },
 
-      if (
-        !allowedMethods.includes(
-          method
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "This endpoint is for electronic payments only.",
-        });
-      }
+    provider: {
+      type: String,
+      enum: [
+        "NONE",
+        "PESAPAL",
+        "STANBIC",
+        "ABSA",
+        "FLUTTERWAVE",
+        "MTN",
+        "AIRTEL",
+        "OTHER",
+      ],
+      default: "NONE",
+      index: true,
+    },
 
-      const request =
-        await createPaymentRequest({
-          businessId,
-          branchId: branch._id,
-          amount: numericAmount,
-          currency,
-          method,
-          provider,
-          cashierId,
-        });
+    terminalId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      const paymentTransaction =
-        await PaymentTransaction.create({
-          businessId,
-          branchId:
-            branch._id,
-          cashierId,
-          method,
-          provider:
-            request.provider || "NONE",
-          terminalId:
-            terminalId ||
-            request.terminalId ||
-            "",
-          terminalName:
-            terminalName ||
-            request.terminalName ||
-            "",
-          amount:
-            numericAmount,
-          currency,
-          status:
-            request.status ||
-            "PENDING",
-          metadata,
-        });
+    terminalName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      return res.status(201).json({
-        success: true,
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
 
-        message:
-          request.message ||
-          "Payment transaction created.",
+    currency: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "UGX",
+    },
 
-        paymentTransaction: {
-          id:
-            paymentTransaction._id,
-
-          businessId:
-            paymentTransaction.businessId,
-
-          branchId:
-            paymentTransaction.branchId,
-
-          method:
-            paymentTransaction.method,
-
-          provider:
-            paymentTransaction.provider,
-
-          terminalId:
-            paymentTransaction.terminalId,
-
-          terminalName:
-            paymentTransaction.terminalName,
-
-          amount:
-            paymentTransaction.amount,
-
-          currency:
-            paymentTransaction.currency,
-
-          status:
-            paymentTransaction.status,
-
-          transactionReference:
-            paymentTransaction.transactionReference,
-
-          createdAt:
-            paymentTransaction.createdAt,
-        },
-
-        terminal: {
-          ready:
-            Boolean(
-              request.readyForTerminal
-            ),
-
-          provider:
-            request.provider ||
-            null,
-
-          terminalId:
-            request.terminalId ||
-            null,
-
-          terminalName:
-            request.terminalName ||
-            null,
-        },
-      });
-    } catch (error) {
-      console.error(
-        "Create payment transaction error:",
-        error
-      );
-
-      return res.status(400).json({
-        success: false,
-        message:
-          error.message ||
-          "Unable to create payment transaction.",
-      });
-    }
-  };
-
-/*
-|--------------------------------------------------------------------------
-| GET PAYMENT TRANSACTION
-|--------------------------------------------------------------------------
-*/
-
-export const getPaymentTransaction =
-  async (req, res) => {
-    try {
-      const { id } =
-        req.params;
-
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          id
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid payment transaction ID.",
-        });
-      }
-
-      const transaction =
-        await PaymentTransaction.findOne({
-          _id: id,
-          businessId:
-            req.user.businessId,
-        })
-          .populate(
-            "cashierId",
-            "name email role"
-          )
-          .populate(
-            "branchId",
-            "name code"
-          )
-          .populate(
-            "saleId",
-            "receiptNumber total status"
-          );
-
-      if (!transaction) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Payment transaction not found.",
-        });
-      }
-
-      return res.json({
-        success: true,
-        paymentTransaction:
-          transaction,
-      });
-    } catch (error) {
-      console.error(
-        "Get payment transaction error:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Failed to fetch payment transaction.",
-      });
-    }
-  };
-
-/*
-|--------------------------------------------------------------------------
-| GET ACTIVE PAYMENT PROVIDERS
-|--------------------------------------------------------------------------
-*/
-
-export const getPaymentProviders =
-  async (req, res) => {
-    try {
-      const branch =
-        await resolveBranch(req);
-
-      if (!branch) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "No valid active branch is selected.",
-        });
-      }
-
-      const providers =
-        await PaymentProvider.find({
-          businessId:
-            req.user.businessId,
-
-          branchId:
-            branch._id,
-
-          isActive: true,
-        }).sort({
-          createdAt: 1,
-        });
-
-      return res.json({
-        success: true,
-        providers,
-      });
-    } catch (error) {
-      console.error(
-        "Get payment providers error:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Failed to fetch payment providers.",
-      });
-    }
-  };
-
-/*
-|--------------------------------------------------------------------------
-| PAYMENT STATUS
-|--------------------------------------------------------------------------
-*/
-
-export const updatePaymentStatus =
-  async (req, res) => {
-    try {
-      const { id } =
-        req.params;
-
-      const {
-        status,
-        transactionReference = "",
-        providerReference = "",
-        authorizationCode = "",
-        providerResponse = null,
-        failureReason = "",
-      } = req.body;
-
-      const allowedStatuses = [
+    status: {
+      type: String,
+      enum: [
+        "PENDING",
         "PROCESSING",
         "APPROVED",
         "DECLINED",
         "CANCELLED",
         "FAILED",
-      ];
+        "REFUNDED",
+      ],
+      default: "PENDING",
+      index: true,
+    },
 
-      if (
-        !allowedStatuses.includes(
-          status
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid payment status.",
-        });
-      }
+    transactionReference: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
 
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          id
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid payment transaction ID.",
-        });
-      }
+    providerReference: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      const transaction =
-        await PaymentTransaction.findOne({
-          _id: id,
-          businessId:
-            req.user.businessId,
-        });
+    authorizationCode: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      if (!transaction) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Payment transaction not found.",
-        });
-      }
+    paymentOption: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      transaction.status =
-        status;
+    providerResponse: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
 
-      if (
-        transactionReference
-      ) {
-        transaction.transactionReference =
-          String(
-            transactionReference
-          );
-      }
+    failureReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-      if (
-        providerReference
-      ) {
-        transaction.providerReference =
-          String(
-            providerReference
-          );
-      }
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
 
-      if (
-        authorizationCode
-      ) {
-        transaction.authorizationCode =
-          String(
-            authorizationCode
-          );
-      }
+    processedAt: {
+      type: Date,
+      default: null,
+    },
 
-      if (
-        providerResponse !==
-        null
-      ) {
-        transaction.providerResponse =
-          providerResponse;
-      }
+    verifiedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-      transaction.failureReason =
-        failureReason || "";
+paymentTransactionSchema.index({
+  businessId: 1,
+  branchId: 1,
+  createdAt: -1,
+});
 
-      if (
-        [
-          "APPROVED",
-          "DECLINED",
-          "CANCELLED",
-          "FAILED",
-        ].includes(status)
-      ) {
-        transaction.processedAt =
-          new Date();
-      }
+paymentTransactionSchema.index({
+  businessId: 1,
+  branchId: 1,
+  status: 1,
+  createdAt: -1,
+});
 
-      if (
-        status === "APPROVED"
-      ) {
-        transaction.verifiedAt =
-          new Date();
-      }
+paymentTransactionSchema.index({
+  businessId: 1,
+  saleId: 1,
+});
 
-      await transaction.save();
+paymentTransactionSchema.index({
+  businessId: 1,
+  transactionReference: 1,
+});
 
-      return res.json({
-        success: true,
-        message:
-          `Payment marked ${status.toLowerCase()}.`,
-        paymentTransaction:
-          transaction,
-      });
-    } catch (error) {
-      console.error(
-        "Update payment status error:",
-        error
-      );
+const PaymentTransaction = mongoose.model(
+  "PaymentTransaction",
+  paymentTransactionSchema
+);
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "Failed to update payment status.",
-      });
-    }
-  };
+export default PaymentTransaction;

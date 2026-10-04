@@ -205,14 +205,14 @@ const POS = () => {
    * We will connect this to the physical terminal
    * after the backend payment architecture is ready.
    */
-    const [cardPaymentStatus, setCardPaymentStatus] =
-  useState("IDLE");
+  const [cardPaymentStatus, setCardPaymentStatus] =
+    useState("IDLE");
 
-const [paymentTransaction, setPaymentTransaction] =
-  useState(null);
+  const [paymentTransaction, setPaymentTransaction] =
+    useState(null);
 
-const [paymentPolling, setPaymentPolling] =
-  useState(false);
+  const [paymentPolling, setPaymentPolling] =
+    useState(false);
 
 
   /* =======================================================
@@ -640,6 +640,8 @@ const [paymentPolling, setPaymentPolling] =
     setCustomers([]);
     setPaymentPanelOpen(false);
     setCardPaymentStatus("IDLE");
+    setPaymentTransaction(null);
+    setPaymentPolling(false);
   };
 
 
@@ -862,38 +864,244 @@ const [paymentPolling, setPaymentPolling] =
 
 
   /* =======================================================
-     CARD TERMINAL
+     ELECTRONIC PAYMENTS
   ======================================================= */
 
-  const beginCardPayment = () => {
-    if (total <= 0) {
-      setError(
-        "Add products before starting payment."
-      );
-
-      return;
+  const getElectronicPaymentMethod = (method) => {
+    if (method === "BANK") {
+      return "BANK_TRANSFER";
     }
 
-    /*
-     * DO NOT pretend the card was charged.
-     *
-     * This state will later be connected
-     * to the real physical card terminal.
-     */
-    setCardPaymentStatus(
-      "PROCESSING"
-    );
-
-    setError("");
+    return method;
   };
 
+  const createElectronicPayment = async () => {
+    if (total <= 0) {
+      setError("Add products before starting payment.");
+      return null;
+    }
 
-  const cancelCardPayment =
-    () => {
-      setCardPaymentStatus(
-        "IDLE"
+    if (paymentMethod === "CASH") {
+      return null;
+    }
+
+    try {
+      setError("");
+      setPaymentPolling(true);
+      setCardPaymentStatus("PROCESSING");
+
+      const response = await api.post("/payments", {
+        amount: total,
+        method: getElectronicPaymentMethod(paymentMethod),
+        currency: "UGX",
+        metadata: {
+          source: "MOVA_POS",
+          customerId: selectedCustomer?._id || null,
+          cartItems: cart.map((item) => ({
+            productId: item._id,
+            quantity: item.quantity,
+          })),
+        },
+      });
+
+      const transaction =
+        response.data?.paymentTransaction ||
+        response.data?.data;
+
+      if (!transaction?.id && !transaction?._id) {
+        throw new Error(
+          "The payment server did not return a payment transaction."
+        );
+      }
+
+      const normalizedTransaction = {
+        ...transaction,
+        id: transaction.id || transaction._id,
+      };
+
+      setPaymentTransaction(normalizedTransaction);
+
+      const initialStatus =
+        normalizedTransaction.status || "PENDING";
+
+      if (initialStatus === "APPROVED") {
+        setCardPaymentStatus("APPROVED");
+        setPaymentPolling(false);
+        return normalizedTransaction;
+      }
+
+      if (
+        [
+          "DECLINED",
+          "FAILED",
+          "CANCELLED",
+        ].includes(initialStatus)
+      ) {
+        setCardPaymentStatus(initialStatus);
+        setPaymentPolling(false);
+
+        throw new Error(
+          `Payment ${initialStatus.toLowerCase()}.`
+        );
+      }
+
+      return normalizedTransaction;
+    } catch (requestError) {
+      console.error(
+        "Electronic payment failed to start:",
+        requestError
       );
+
+      setPaymentPolling(false);
+      setCardPaymentStatus("IDLE");
+      setPaymentTransaction(null);
+
+      setError(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          "Unable to start electronic payment."
+      );
+
+      return null;
+    }
+  };
+
+  const beginCardPayment = () => {
+    createElectronicPayment();
+  };
+
+  const beginElectronicPayment = () => {
+    createElectronicPayment();
+  };
+
+  const cancelCardPayment = async () => {
+    const transactionId =
+      paymentTransaction?.id ||
+      paymentTransaction?._id;
+
+    if (transactionId) {
+      try {
+        await api.patch(
+          `/payments/${transactionId}/status`,
+          {
+            status: "CANCELLED",
+            failureReason:
+              "Cancelled by cashier before sale completion.",
+          }
+        );
+      } catch (requestError) {
+        console.error(
+          "Failed to cancel payment transaction:",
+          requestError
+        );
+      }
+    }
+
+    setCardPaymentStatus("IDLE");
+    setPaymentTransaction(null);
+    setPaymentPolling(false);
+  };
+
+  useEffect(() => {
+    const transactionId =
+      paymentTransaction?.id ||
+      paymentTransaction?._id;
+
+    if (
+      !transactionId ||
+      cardPaymentStatus !== "PROCESSING"
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const pollPayment = async () => {
+      try {
+        const response = await api.get(
+          `/payments/${transactionId}`
+        );
+
+        const transaction =
+          response.data?.paymentTransaction ||
+          response.data?.data;
+
+        if (!transaction || cancelled) {
+          return;
+        }
+
+        setPaymentTransaction({
+          ...transaction,
+          id: transaction.id || transaction._id,
+        });
+
+        const status = transaction.status;
+
+        if (status === "APPROVED") {
+          setCardPaymentStatus("APPROVED");
+          setPaymentPolling(false);
+          return;
+        }
+
+        if (
+          [
+            "DECLINED",
+            "FAILED",
+            "CANCELLED",
+          ].includes(status)
+        ) {
+          setCardPaymentStatus(status);
+          setPaymentPolling(false);
+
+          setError(
+            transaction.failureReason ||
+              `Payment ${status.toLowerCase()}.`
+          );
+        }
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Payment status check failed:",
+          requestError
+        );
+
+        setPaymentPolling(false);
+        setError(
+          requestError.response?.data?.message ||
+            "Unable to check payment status."
+        );
+      }
     };
+
+    pollPayment();
+
+    const interval = window.setInterval(
+      pollPayment,
+      2000
+    );
+
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) {
+        setPaymentPolling(false);
+        setError(
+          "Payment is still pending. Complete or approve the payment on the provider/terminal, then try again."
+        );
+      }
+    }, 120000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [
+    paymentTransaction?.id,
+    paymentTransaction?._id,
+    cardPaymentStatus,
+  ]);
 
 
   /* =======================================================
@@ -903,14 +1111,14 @@ const [paymentPolling, setPaymentPolling] =
   const changePaymentMethod = (
     method
   ) => {
+    if (method !== paymentMethod) {
+      setCardPaymentStatus("IDLE");
+      setPaymentTransaction(null);
+      setPaymentPolling(false);
+    }
+
     setPaymentMethod(method);
     setError("");
-
-    if (method !== "CARD") {
-      setCardPaymentStatus(
-        "IDLE"
-      );
-    }
   };
 
 
@@ -962,23 +1170,21 @@ const [paymentPolling, setPaymentPolling] =
       }
 
       /*
-       * A CARD sale cannot be completed
-       * until the physical terminal approves it.
+       * Every electronic payment must be approved
+       * before MOVA creates the sale.
        */
+      const isElectronicPayment =
+        paymentMethod !== "CASH";
+
       if (
-        paymentMethod ===
-          "CARD" &&
-        cardPaymentStatus !==
-          "APPROVED"
+        isElectronicPayment &&
+        cardPaymentStatus !== "APPROVED"
       ) {
         setError(
-          "Card payment has not been approved by a payment terminal yet."
+          "The electronic payment must be approved before the sale can be completed."
         );
 
-        setPaymentPanelOpen(
-          true
-        );
-
+        setPaymentPanelOpen(true);
         return;
       }
 
@@ -1005,6 +1211,13 @@ const [paymentPolling, setPaymentPolling] =
           customerId:
             selectedCustomer?._id ||
             null,
+
+          paymentTransactionId:
+            isElectronicPayment
+              ? paymentTransaction?.id ||
+                paymentTransaction?._id ||
+                null
+              : null,
         };
 
         const response =
@@ -1021,6 +1234,31 @@ const [paymentPolling, setPaymentPolling] =
           throw new Error(
             "Sale was created but the server did not return the sale."
           );
+        }
+
+        if (isElectronicPayment) {
+          const transactionId =
+            paymentTransaction?.id ||
+            paymentTransaction?._id;
+
+          if (transactionId) {
+            try {
+              await api.patch(
+                `/payments/${transactionId}/status`,
+                {
+                  status: "APPROVED",
+                  providerResponse: {
+                    saleId: sale._id,
+                  },
+                }
+              );
+            } catch (paymentUpdateError) {
+              console.error(
+                "Payment transaction could not be linked after sale creation:",
+                paymentUpdateError
+              );
+            }
+          }
         }
 
         const customer =
@@ -1113,6 +1351,9 @@ const [paymentPolling, setPaymentPolling] =
     );
     setShowReceipt(false);
     setError("");
+    setPaymentTransaction(null);
+    setPaymentPolling(false);
+    setCardPaymentStatus("IDLE");
   };
 
 
@@ -2576,6 +2817,17 @@ const [paymentPolling, setPaymentPolling] =
                         </div>
                       )}
 
+                      {cardPaymentStatus === "APPROVED" && (
+                        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+                          <p className="font-black text-emerald-700">
+                            Card payment approved
+                          </p>
+                          <p className="mt-1 text-sm text-emerald-600">
+                            You can now complete the sale.
+                          </p>
+                        </div>
+                      )}
+
                     </div>
                   )}
 
@@ -2612,13 +2864,43 @@ const [paymentPolling, setPaymentPolling] =
                       </div>
 
 
-                      <p className="mt-3 text-sm text-slate-500">
-                        Mobile-money gateway
-                        integration will
-                        confirm the payment
-                        before the sale is
-                        completed.
-                      </p>
+                      {cardPaymentStatus === "APPROVED" ? (
+                        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                          <p className="font-black text-emerald-700">
+                            Payment approved
+                          </p>
+                          <p className="mt-1 text-xs text-emerald-600">
+                            The sale can now be completed.
+                          </p>
+                        </div>
+                      ) : cardPaymentStatus === "PROCESSING" ? (
+                        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-center">
+                          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+                          <p className="mt-3 font-bold text-blue-900">
+                            Waiting for Mobile Money approval...
+                          </p>
+                          {paymentTransaction?.transactionReference && (
+                            <p className="mt-1 text-xs text-blue-700">
+                              Ref: {paymentTransaction.transactionReference}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={cancelCardPayment}
+                            className="mt-3 text-sm font-bold text-red-600"
+                          >
+                            Cancel payment
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={beginElectronicPayment}
+                          className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 font-black text-white hover:bg-blue-700"
+                        >
+                          Start Mobile Money Payment
+                        </button>
+                      )}
 
                     </div>
                   )}
@@ -2656,12 +2938,38 @@ const [paymentPolling, setPaymentPolling] =
                       </div>
 
 
-                      <p className="mt-3 text-sm text-slate-500">
-                        Bank-payment
-                        integration will be
-                        connected through
-                        the selected provider.
-                      </p>
+                      {cardPaymentStatus === "APPROVED" ? (
+                        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                          <p className="font-black text-emerald-700">
+                            Payment approved
+                          </p>
+                          <p className="mt-1 text-xs text-emerald-600">
+                            The sale can now be completed.
+                          </p>
+                        </div>
+                      ) : cardPaymentStatus === "PROCESSING" ? (
+                        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-center">
+                          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+                          <p className="mt-3 font-bold text-blue-900">
+                            Waiting for bank payment approval...
+                          </p>
+                          <button
+                            type="button"
+                            onClick={cancelCardPayment}
+                            className="mt-3 text-sm font-bold text-red-600"
+                          >
+                            Cancel payment
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={beginElectronicPayment}
+                          className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 font-black text-white hover:bg-blue-700"
+                        >
+                          Start Bank Payment
+                        </button>
+                      )}
 
                     </div>
                   )}
@@ -2743,10 +3051,8 @@ const [paymentPolling, setPaymentPolling] =
                 cart.length ===
                   0 ||
                 !cashIsEnough ||
-                (paymentMethod ===
-                  "CARD" &&
-                  cardPaymentStatus !==
-                    "APPROVED")
+                (paymentMethod !== "CASH" &&
+                  cardPaymentStatus !== "APPROVED")
               }
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-4 font-black text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
