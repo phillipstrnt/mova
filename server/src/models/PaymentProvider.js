@@ -1,147 +1,91 @@
-import PaymentProvider from "../../models/PaymentProvider.js";
+import mongoose from "mongoose";
 
-const getActiveProvider = async ({
-  businessId,
-  branchId,
-  provider,
-}) => {
-  if (!businessId || !branchId) {
-    throw new Error(
-      "Business and branch are required to select a payment provider."
-    );
+const paymentProviderSchema = new mongoose.Schema(
+  {
+    businessId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      required: true,
+      index: true,
+    },
+
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      required: true,
+      index: true,
+    },
+
+    provider: {
+      type: String,
+      enum: [
+        "PESAPAL",
+        "STANBIC",
+        "ABSA",
+        "FLUTTERWAVE",
+        "MTN",
+        "AIRTEL",
+        "OTHER",
+      ],
+      required: true,
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
+
+    displayName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    terminalId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    supportsCard: {
+      type: Boolean,
+      default: false,
+    },
+
+    supportsMobileMoney: {
+      type: Boolean,
+      default: false,
+    },
+
+    supportsBankTransfer: {
+      type: Boolean,
+      default: false,
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+  },
+  {
+    timestamps: true,
   }
+);
 
-  const filter = {
-    businessId,
-    branchId,
-    isActive: true,
-  };
+paymentProviderSchema.index({
+  businessId: 1,
+  branchId: 1,
+  provider: 1,
+});
 
-  if (provider) {
-    filter.provider = provider;
-  }
+paymentProviderSchema.index({
+  businessId: 1,
+  branchId: 1,
+  isActive: 1,
+});
 
-  const paymentProvider =
-    await PaymentProvider.findOne(filter).sort({
-      createdAt: 1,
-    });
+const PaymentProvider = mongoose.model(
+  "PaymentProvider",
+  paymentProviderSchema
+);
 
-  return paymentProvider;
-};
-
-const createPaymentRequest = async ({
-  businessId,
-  branchId,
-  amount,
-  currency = "UGX",
-  method,
-  provider,
-  saleId = null,
-  cashierId,
-}) => {
-  if (!amount || Number(amount) <= 0) {
-    throw new Error(
-      "Payment amount must be greater than zero."
-    );
-  }
-
-  if (!method) {
-    throw new Error(
-      "Payment method is required."
-    );
-  }
-
-  if (method === "CASH") {
-    return {
-      success: true,
-      handledInternally: true,
-      status: "APPROVED",
-      provider: "NONE",
-      message: "Cash payment accepted.",
-    };
-  }
-
-  const configuredProvider =
-    await getActiveProvider({
-      businessId,
-      branchId,
-      provider,
-    });
-
-  if (!configuredProvider) {
-    throw new Error(
-      `No active payment provider is configured for ${method}.`
-    );
-  }
-
-  if (method === "CARD") {
-    if (!configuredProvider.supportsCard) {
-      throw new Error(
-        `${configuredProvider.displayName} is not configured to accept card payments.`
-      );
-    }
-
-    return {
-      success: false,
-      readyForTerminal: true,
-      status: "PENDING",
-      provider:
-        configuredProvider.provider,
-      terminalId:
-        configuredProvider.terminalId,
-      terminalName:
-        configuredProvider.displayName,
-      message:
-        "Payment request is ready for the configured card terminal.",
-    };
-  }
-
-  if (method === "MOBILE_MONEY") {
-    if (
-      !configuredProvider.supportsMobileMoney
-    ) {
-      throw new Error(
-        `${configuredProvider.displayName} is not configured for mobile money.`
-      );
-    }
-
-    return {
-      success: false,
-      readyForMobileMoney: true,
-      status: "PENDING",
-      provider:
-        configuredProvider.provider,
-      message:
-        "Mobile money payment request is ready.",
-    };
-  }
-
-  if (method === "BANK_TRANSFER") {
-    if (
-      !configuredProvider.supportsBankTransfer
-    ) {
-      throw new Error(
-        `${configuredProvider.displayName} is not configured for bank transfer.`
-      );
-    }
-
-    return {
-      success: false,
-      readyForBankTransfer: true,
-      status: "PENDING",
-      provider:
-        configuredProvider.provider,
-      message:
-        "Bank transfer payment request is ready.",
-    };
-  }
-
-  throw new Error(
-    `Unsupported payment method: ${method}`
-  );
-};
-
-export {
-  getActiveProvider,
-  createPaymentRequest,
-};
+export default PaymentProvider;

@@ -196,7 +196,7 @@ const POS = () => {
     useState("");
 
   const [paymentPanelOpen, setPaymentPanelOpen] =
-    useState(false);
+    useState(true);
 
   /*
    * IMPORTANT:
@@ -890,7 +890,7 @@ const POS = () => {
       setPaymentPolling(true);
       setCardPaymentStatus("PROCESSING");
 
-      const response = await api.post("/payments", {
+      const response = await api.post("/payments/transactions", {
         amount: total,
         method: getElectronicPaymentMethod(paymentMethod),
         currency: "UGX",
@@ -974,6 +974,61 @@ const POS = () => {
     createElectronicPayment();
   };
 
+  const approveDemoPayment = async () => {
+    const transactionId =
+      paymentTransaction?.id ||
+      paymentTransaction?._id;
+
+    if (!transactionId) {
+      setError("Start the payment first, then approve it.");
+      return;
+    }
+
+    try {
+      setError("");
+
+      const demoReference =
+        paymentTransaction?.transactionReference ||
+        `MOVA-DEMO-${Date.now()}`;
+
+      const response = await api.patch(
+        `/payments/transactions/${transactionId}/status`,
+        {
+          status: "APPROVED",
+          transactionReference: demoReference,
+          providerReference: demoReference,
+          providerResponse: {
+            mode: "DEMO",
+            source: "MOVA_POS",
+            approvedAt: new Date().toISOString(),
+          },
+        }
+      );
+
+      const transaction =
+        response.data?.paymentTransaction ||
+        response.data?.data;
+
+      if (transaction) {
+        setPaymentTransaction({
+          ...transaction,
+          id: transaction.id || transaction._id,
+        });
+      }
+
+      setCardPaymentStatus("APPROVED");
+      setPaymentPolling(false);
+    } catch (requestError) {
+      console.error("Demo payment approval failed:", requestError);
+      setError(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          "Unable to approve the demo payment."
+      );
+    }
+  };
+
+
   const cancelCardPayment = async () => {
     const transactionId =
       paymentTransaction?.id ||
@@ -982,7 +1037,7 @@ const POS = () => {
     if (transactionId) {
       try {
         await api.patch(
-          `/payments/${transactionId}/status`,
+          `/payments/transactions/${transactionId}/status`,
           {
             status: "CANCELLED",
             failureReason:
@@ -1019,7 +1074,7 @@ const POS = () => {
     const pollPayment = async () => {
       try {
         const response = await api.get(
-          `/payments/${transactionId}`
+          `/payments/transactions/${transactionId}`
         );
 
         const transaction =
@@ -1118,7 +1173,12 @@ const POS = () => {
     }
 
     setPaymentMethod(method);
+    setPaymentPanelOpen(true);
     setError("");
+
+    if (method === "CASH") {
+      setCashReceived("");
+    }
   };
 
 
@@ -1234,31 +1294,6 @@ const POS = () => {
           throw new Error(
             "Sale was created but the server did not return the sale."
           );
-        }
-
-        if (isElectronicPayment) {
-          const transactionId =
-            paymentTransaction?.id ||
-            paymentTransaction?._id;
-
-          if (transactionId) {
-            try {
-              await api.patch(
-                `/payments/${transactionId}/status`,
-                {
-                  status: "APPROVED",
-                  providerResponse: {
-                    saleId: sale._id,
-                  },
-                }
-              );
-            } catch (paymentUpdateError) {
-              console.error(
-                "Payment transaction could not be linked after sale creation:",
-                paymentUpdateError
-              );
-            }
-          }
         }
 
         const customer =
@@ -2634,6 +2669,24 @@ const POS = () => {
 
               {paymentPanelOpen && (
                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+
+                  {paymentMethod !== "CASH" && paymentTransaction && cardPaymentStatus === "PROCESSING" && (
+                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+                        MOVA Demo / Test Mode
+                      </p>
+                      <p className="mt-1 text-sm text-amber-800">
+                        No live provider is connected yet. Use this button to simulate a successful provider approval.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={approveDemoPayment}
+                        className="mt-3 w-full rounded-xl bg-amber-600 px-4 py-3 font-black text-white hover:bg-amber-700"
+                      >
+                        Approve Payment (Demo)
+                      </button>
+                    </div>
+                  )}
 
                   {/* CASH */}
 

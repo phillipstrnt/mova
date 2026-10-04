@@ -6,6 +6,7 @@ import ProductBranchStock from "../models/ProductBranchStock.js";
 import Customer from "../models/Customer.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
 import Payment from "../models/Payment.js";
+import PaymentTransaction from "../models/PaymentTransaction.js";
 import Branch from "../models/Branch.js";
 
 /*
@@ -43,7 +44,8 @@ const VALID_SALE_STATUSES = [
 const generateReceiptNumber = () => {
   const now = new Date();
 
-  const year = now.getFullYear();
+  const year =
+    now.getFullYear();
 
   const month = String(
     now.getMonth() + 1
@@ -54,7 +56,8 @@ const generateReceiptNumber = () => {
   ).padStart(2, "0");
 
   const random = Math.floor(
-    100000 + Math.random() * 900000
+    100000 +
+      Math.random() * 900000
   );
 
   return `MOVA-${year}${month}${day}-${random}`;
@@ -64,79 +67,68 @@ const generateReceiptNumber = () => {
 |--------------------------------------------------------------------------
 | RESOLVE ACTIVE BRANCH
 |--------------------------------------------------------------------------
-|
-| The branch is taken from the user's active branch.
-|
-| We intentionally do NOT trust branchId sent by the browser.
-|
 */
 
-const resolveActiveBranch = async (req) => {
-  const businessId =
-    req.user.businessId;
+const resolveActiveBranch =
+  async (req) => {
+    const businessId =
+      req.user.businessId;
 
-  const activeBranchId =
-    req.user.activeBranchId ||
-    req.user.branchId;
+    const activeBranchId =
+      req.user.activeBranchId ||
+      req.user.branchId;
 
-  if (!activeBranchId) {
-    return null;
-  }
+    if (!activeBranchId) {
+      return null;
+    }
 
-  if (
-    !mongoose.Types.ObjectId.isValid(
-      activeBranchId
-    )
-  ) {
-    return null;
-  }
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        activeBranchId
+      )
+    ) {
+      return null;
+    }
 
-  const branch =
-    await Branch.findOne({
-      _id: activeBranchId,
-      businessId,
-      isActive: true,
-    });
+    const branch =
+      await Branch.findOne({
+        _id: activeBranchId,
+        businessId,
+        isActive: true,
+      });
 
-  if (!branch) {
-    return null;
-  }
+    if (!branch) {
+      return null;
+    }
 
-  /*
-   * Verify branch access.
-   *
-   * OWNER and ADMIN can work across
-   * the business branches.
-   */
+    const isOwnerOrAdmin =
+      req.user.role === "OWNER" ||
+      req.user.role === "ADMIN";
 
-  const isOwnerOrAdmin =
-    req.user.role === "OWNER" ||
-    req.user.role === "ADMIN";
+    if (isOwnerOrAdmin) {
+      return branch;
+    }
 
-  if (isOwnerOrAdmin) {
+    const assignedBranches =
+      Array.isArray(
+        req.user.branchIds
+      )
+        ? req.user.branchIds.map(
+            (id) => String(id)
+          )
+        : [];
+
+    const hasAccess =
+      assignedBranches.includes(
+        String(branch._id)
+      );
+
+    if (!hasAccess) {
+      return null;
+    }
+
     return branch;
-  }
-
-  const assignedBranches =
-    Array.isArray(
-      req.user.branchIds
-    )
-      ? req.user.branchIds.map(
-          (id) => String(id)
-        )
-      : [];
-
-  const hasAccess =
-    assignedBranches.includes(
-      String(branch._id)
-    );
-
-  if (!hasAccess) {
-    return null;
-  }
-
-  return branch;
-};
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -144,662 +136,733 @@ const resolveActiveBranch = async (req) => {
 |--------------------------------------------------------------------------
 */
 
-export const createSale = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      items,
-      discount = 0,
-      paymentMethod,
-      customerId = null,
-      notes = "",
-    } = req.body;
+export const createSale =
+  async (req, res) => {
+    try {
+      const {
+        items,
+        discount = 0,
+        paymentMethod,
+        paymentTransactionId =
+          null,
+        customerId = null,
+        notes = "",
+      } = req.body;
 
-    const businessId =
-      req.user.businessId;
+      const businessId =
+        req.user.businessId;
 
-    const cashierId =
-      req.user._id;
+      const cashierId =
+        req.user._id;
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESOLVE BRANCH
-    |--------------------------------------------------------------------------
-    */
+      /*
+      |--------------------------------------------------------------------------
+      | RESOLVE BRANCH
+      |--------------------------------------------------------------------------
+      */
 
-    const branch =
-      await resolveActiveBranch(req);
+      const branch =
+        await resolveActiveBranch(
+          req
+        );
 
-    if (!branch) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "No valid active branch is selected. Please select a branch before making a sale.",
-      });
-    }
-
-    const branchId =
-      branch._id;
-
-    /*
-    |--------------------------------------------------------------------------
-    | BASIC VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      !Array.isArray(items) ||
-      items.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "A sale must contain at least one product.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAYMENT METHOD VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      !VALID_PAYMENT_METHODS.includes(
-        paymentMethod
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Invalid payment method.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | DISCOUNT VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
-    const numericDiscount =
-      Number(discount);
-
-    if (
-      !Number.isFinite(
-        numericDiscount
-      ) ||
-      numericDiscount < 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Discount must be a valid non-negative number.",
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | CUSTOMER VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
-    let customer = null;
-
-    if (customerId) {
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          customerId
-        )
-      ) {
+      if (!branch) {
         return res.status(400).json({
           success: false,
           message:
-            "Invalid customer ID.",
+            "No valid active branch is selected. Please select a branch before making a sale.",
         });
       }
 
-      customer =
-        await Customer.findOne({
-          _id: customerId,
-          businessId,
-          isActive: true,
-        });
+      const branchId =
+        branch._id;
 
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Customer not found or inactive.",
-        });
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | NORMALIZE CART
-    |--------------------------------------------------------------------------
-    */
-
-    const normalizedItems = [];
-
-    let subtotal = 0;
-
-    for (const item of items) {
       /*
       |--------------------------------------------------------------------------
-      | PRODUCT ID
+      | BASIC VALIDATION
       |--------------------------------------------------------------------------
       */
 
       if (
-        !item.productId ||
-        !mongoose.Types.ObjectId.isValid(
-          item.productId
-        )
+        !Array.isArray(items) ||
+        items.length === 0
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "One or more products have an invalid ID.",
+            "A sale must contain at least one product.",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | QUANTITY
+      | PAYMENT METHOD VALIDATION
       |--------------------------------------------------------------------------
       */
 
-      const quantity =
-        Number(item.quantity);
+      if (
+        !VALID_PAYMENT_METHODS.includes(
+          paymentMethod
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid payment method.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | ELECTRONIC PAYMENT TRANSACTION VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
+      let paymentTransaction =
+        null;
 
       if (
-        !Number.isInteger(
-          quantity
+        paymentMethod !== "CASH"
+      ) {
+        if (
+          !paymentTransactionId
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "An approved payment transaction is required for electronic payments.",
+          });
+        }
+
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            paymentTransactionId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid payment transaction ID.",
+          });
+        }
+
+        paymentTransaction =
+          await PaymentTransaction.findOne(
+            {
+              _id:
+                paymentTransactionId,
+
+              businessId,
+
+              branchId,
+
+              cashierId,
+            }
+          );
+
+        if (
+          !paymentTransaction
+        ) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "Payment transaction was not found for this cashier and branch.",
+          });
+        }
+
+        const expectedMethod =
+          paymentMethod ===
+          "BANK"
+            ? "BANK_TRANSFER"
+            : paymentMethod;
+
+        if (
+          paymentTransaction.method !==
+          expectedMethod
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Payment transaction method does not match the selected payment method.",
+          });
+        }
+
+        if (
+          paymentTransaction.status !==
+          "APPROVED"
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Electronic payment has not been approved. Current status: ${paymentTransaction.status}.`,
+          });
+        }
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | DISCOUNT VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
+      const numericDiscount =
+        Number(discount);
+
+      if (
+        !Number.isFinite(
+          numericDiscount
         ) ||
-        quantity <= 0
+        numericDiscount < 0
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Product quantity must be a positive whole number.",
+            "Discount must be a valid non-negative number.",
         });
       }
 
       /*
       |--------------------------------------------------------------------------
-      | FIND PRODUCT
+      | CUSTOMER VALIDATION
       |--------------------------------------------------------------------------
       */
 
-      const product =
-        await Product.findOne({
-          _id: item.productId,
-          businessId,
-          isActive: true,
-        });
+      let customer = null;
 
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "One or more products could not be found.",
-        });
-      }
+      if (customerId) {
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            customerId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid customer ID.",
+          });
+        }
 
-      /*
-      |--------------------------------------------------------------------------
-      | FIND BRANCH STOCK
-      |--------------------------------------------------------------------------
-      */
-
-      let branchStock =
-        await ProductBranchStock.findOne({
-          businessId,
-          branchId,
-          productId: product._id,
-          isActive: true,
-        });
-
-      /*
-      |--------------------------------------------------------------------------
-      | LEGACY STOCK MIGRATION FALLBACK
-      |--------------------------------------------------------------------------
-      |
-      | Older products may not yet have a
-      | ProductBranchStock record.
-      |
-      | We only use the old Product.stockQuantity
-      | when the business has exactly ONE active branch.
-      |
-      | This prevents accidentally duplicating old
-      | stock into multiple branches.
-      |
-      */
-
-      if (!branchStock) {
-        const activeBranchCount =
-          await Branch.countDocuments({
+        customer =
+          await Customer.findOne({
+            _id: customerId,
             businessId,
             isActive: true,
           });
 
-        if (
-          activeBranchCount === 1
-        ) {
-          branchStock =
-            await ProductBranchStock.create(
-              {
-                businessId,
-                branchId,
-                productId:
-                  product._id,
-                stockQuantity:
-                  Number(
-                    product.stockQuantity || 0
-                  ),
-                minimumStock:
-                  Number(
-                    product.minimumStock || 0
-                  ),
-                isActive: true,
-              }
-            );
-        } else {
-          branchStock =
-            await ProductBranchStock.create(
-              {
-                businessId,
-                branchId,
-                productId:
-                  product._id,
-                stockQuantity: 0,
-                minimumStock:
-                  Number(
-                    product.minimumStock || 0
-                  ),
-                isActive: true,
-              }
-            );
+        if (!customer) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "Customer not found or inactive.",
+          });
         }
       }
 
       /*
       |--------------------------------------------------------------------------
-      | STOCK CHECK
+      | NORMALIZE CART
       |--------------------------------------------------------------------------
       */
 
-      if (
-        product.trackStock &&
-        Number(
-          branchStock.stockQuantity
-        ) < quantity
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            `Insufficient stock for ${product.name} at ${branch.name}. ` +
-            `Available: ${branchStock.stockQuantity}.`,
-        });
-      }
+      const normalizedItems = [];
 
-      /*
-      |--------------------------------------------------------------------------
-      | SERVER-SIDE SELLING PRICE
-      |--------------------------------------------------------------------------
-      */
+      let subtotal = 0;
 
-      const unitPrice =
-        Number(
-          product.sellingPrice
-        );
+      for (const item of items) {
+        if (
+          !item.productId ||
+          !mongoose.Types.ObjectId.isValid(
+            item.productId
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "One or more products have an invalid ID.",
+          });
+        }
 
-      if (
-        !Number.isFinite(
-          unitPrice
-        ) ||
-        unitPrice < 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            `Invalid selling price for ${product.name}.`,
-        });
-      }
+        const quantity =
+          Number(item.quantity);
 
-      /*
-      |--------------------------------------------------------------------------
-      | ITEM SUBTOTAL
-      |--------------------------------------------------------------------------
-      */
+        if (
+          !Number.isInteger(
+            quantity
+          ) ||
+          quantity <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Product quantity must be a positive whole number.",
+          });
+        }
 
-      const itemSubtotal =
-        unitPrice * quantity;
+        const product =
+          await Product.findOne({
+            _id: item.productId,
+            businessId,
+            isActive: true,
+          });
 
-      subtotal += itemSubtotal;
+        if (!product) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "One or more products could not be found.",
+          });
+        }
 
-      /*
-      |--------------------------------------------------------------------------
-      | STORE NORMALIZED ITEM
-      |--------------------------------------------------------------------------
-      */
+        let branchStock =
+          await ProductBranchStock.findOne(
+            {
+              businessId,
+              branchId,
+              productId:
+                product._id,
+              isActive: true,
+            }
+          );
 
-      normalizedItems.push({
-        product,
+        /*
+        |--------------------------------------------------------------------------
+        | LEGACY STOCK MIGRATION FALLBACK
+        |--------------------------------------------------------------------------
+        */
 
-        branchStock,
+        if (!branchStock) {
+          const activeBranchCount =
+            await Branch.countDocuments({
+              businessId,
+              isActive: true,
+            });
 
-        productId:
-          product._id,
+          if (
+            activeBranchCount === 1
+          ) {
+            branchStock =
+              await ProductBranchStock.create(
+                {
+                  businessId,
+                  branchId,
+                  productId:
+                    product._id,
 
-        name:
-          product.name,
+                  stockQuantity:
+                    Number(
+                      product.stockQuantity ||
+                        0
+                    ),
 
-        sku:
-          product.sku,
+                  minimumStock:
+                    Number(
+                      product.minimumStock ||
+                        0
+                    ),
 
-        quantity,
+                  isActive: true,
+                }
+              );
+          } else {
+            branchStock =
+              await ProductBranchStock.create(
+                {
+                  businessId,
+                  branchId,
+                  productId:
+                    product._id,
 
-        unitPrice,
+                  stockQuantity: 0,
 
-        buyingPrice:
-          product.buyingPrice,
+                  minimumStock:
+                    Number(
+                      product.minimumStock ||
+                        0
+                    ),
 
-        subtotal:
-          itemSubtotal,
-      });
-    }
+                  isActive: true,
+                }
+              );
+          }
+        }
 
-    /*
-    |--------------------------------------------------------------------------
-    | DISCOUNT CHECK
-    |--------------------------------------------------------------------------
-    */
+        /*
+        |--------------------------------------------------------------------------
+        | STOCK CHECK
+        |--------------------------------------------------------------------------
+        */
 
-    if (
-      numericDiscount >
-      subtotal
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Discount cannot be greater than the sale subtotal.",
-      });
-    }
+        if (
+          product.trackStock &&
+          Number(
+            branchStock.stockQuantity
+          ) < quantity
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Insufficient stock for ${product.name} at ${branch.name}. Available: ${branchStock.stockQuantity}.`,
+          });
+        }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CALCULATE TOTAL
-    |--------------------------------------------------------------------------
-    */
+        /*
+        |--------------------------------------------------------------------------
+        | SERVER-SIDE SELLING PRICE
+        |--------------------------------------------------------------------------
+        */
 
-    const total =
-      subtotal -
-      numericDiscount;
+        const unitPrice =
+          Number(
+            product.sellingPrice
+          );
 
-    /*
-    |--------------------------------------------------------------------------
-    | PREPARE SALE ITEMS
-    |--------------------------------------------------------------------------
-    */
+        if (
+          !Number.isFinite(
+            unitPrice
+          ) ||
+          unitPrice < 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Invalid selling price for ${product.name}.`,
+          });
+        }
 
-    const saleItems =
-      normalizedItems.map(
-        (item) => ({
+        const itemSubtotal =
+          unitPrice * quantity;
+
+        subtotal +=
+          itemSubtotal;
+
+        normalizedItems.push({
+          product,
+          branchStock,
+
           productId:
-            item.productId,
+            product._id,
 
           name:
-            item.name,
+            product.name,
 
           sku:
-            item.sku,
+            product.sku,
 
-          quantity:
-            item.quantity,
+          quantity,
 
-          unitPrice:
-            item.unitPrice,
+          unitPrice,
 
           buyingPrice:
-            item.buyingPrice,
+            product.buyingPrice,
 
           subtotal:
-            item.subtotal,
-        })
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | GENERATE RECEIPT
-    |--------------------------------------------------------------------------
-    */
-
-    const receiptNumber =
-      generateReceiptNumber();
-
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE BRANCH STOCK
-    |--------------------------------------------------------------------------
-    |
-    | We use an optimistic stock check:
-    |
-    | "Only subtract if the current stock is
-    | still what we originally read."
-    |
-    | This helps prevent two cashiers selling
-    | the same final unit simultaneously.
-    |
-    */
-
-    const inventoryEntries = [];
-
-    for (
-      const item of normalizedItems
-    ) {
-      const product =
-        item.product;
-
-      if (
-        !product.trackStock
-      ) {
-        continue;
+            itemSubtotal,
+        });
       }
 
-      const stockBefore =
-        Number(
-          item.branchStock
-            .stockQuantity
-        );
-
-      const updatedBranchStock =
-        await ProductBranchStock.findOneAndUpdate(
-          {
-            _id:
-              item.branchStock
-                ._id,
-
-            businessId,
-
-            branchId,
-
-            productId:
-              product._id,
-
-            isActive: true,
-
-            stockQuantity:
-              stockBefore >=
-              item.quantity
-                ? stockBefore
-                : {
-                    $gte:
-                      item.quantity,
-                  },
-          },
-
-          {
-            $inc: {
-              stockQuantity:
-                -item.quantity,
-            },
-          },
-
-          {
-            new: true,
-          }
-        );
+      /*
+      |--------------------------------------------------------------------------
+      | DISCOUNT CHECK
+      |--------------------------------------------------------------------------
+      */
 
       if (
-        !updatedBranchStock
+        numericDiscount >
+        subtotal
       ) {
         return res.status(400).json({
           success: false,
           message:
-            `Insufficient stock for ${product.name} at ${branch.name}. ` +
-            `The stock may have changed because another sale was completed.`,
+            "Discount cannot be greater than the sale subtotal.",
         });
       }
 
-      inventoryEntries.push({
-        businessId,
-
-        branchId,
-
-        productId:
-          product._id,
-
-        userId:
-          cashierId,
-
-        type:
-          "SALE",
-
-        quantity:
-          item.quantity,
-
-        stockBefore,
-
-        stockAfter:
-          updatedBranchStock.stockQuantity,
-
-        reason:
-          "Product sold",
-
-        referenceType:
-          "SALE",
-
-        notes:
-          `Sale of ${item.quantity} ${product.unit}(s) at ${branch.name}.`,
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE SALE
-    |--------------------------------------------------------------------------
-    */
-
-    let sale;
-
-    try {
-      sale =
-        await Sale.create({
-          businessId,
-
-          branchId,
-
-          cashierId,
-
-          customerId:
-            customer
-              ? customer._id
-              : null,
-
-          receiptNumber,
-
-          items:
-            saleItems,
-
-          subtotal,
-
-          discount:
-            numericDiscount,
-
-          total,
-
-          paymentMethod,
-
-          paymentStatus:
-            "PAID",
-
-          status:
-            "COMPLETED",
-
-          notes:
-            typeof notes ===
-            "string"
-              ? notes.trim()
-              : "",
-        });
-    } catch (saleError) {
       /*
       |--------------------------------------------------------------------------
-      | ROLLBACK STOCK IF SALE CREATION FAILS
+      | CALCULATE TOTAL
       |--------------------------------------------------------------------------
       */
+
+      const total =
+        subtotal -
+        numericDiscount;
+
+      /*
+      |--------------------------------------------------------------------------
+      | VERIFY ELECTRONIC PAYMENT AMOUNT
+      |--------------------------------------------------------------------------
+      */
+
+      if (paymentTransaction) {
+        if (
+          Number(
+            paymentTransaction.amount
+          ) !== Number(total)
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Payment amount (${paymentTransaction.amount}) does not match the sale total (${total}).`,
+          });
+        }
+
+        if (
+          paymentTransaction.saleId &&
+          String(
+            paymentTransaction.saleId
+          ) !==
+            String(
+              paymentTransaction._id
+            )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "This payment transaction is already associated with another sale.",
+          });
+        }
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | PREPARE SALE ITEMS
+      |--------------------------------------------------------------------------
+      */
+
+      const saleItems =
+        normalizedItems.map(
+          (item) => ({
+            productId:
+              item.productId,
+
+            name:
+              item.name,
+
+            sku:
+              item.sku,
+
+            quantity:
+              item.quantity,
+
+            unitPrice:
+              item.unitPrice,
+
+            buyingPrice:
+              item.buyingPrice,
+
+            subtotal:
+              item.subtotal,
+          })
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | GENERATE RECEIPT
+      |--------------------------------------------------------------------------
+      */
+
+      const receiptNumber =
+        generateReceiptNumber();
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE BRANCH STOCK
+      |--------------------------------------------------------------------------
+      */
+
+      const inventoryEntries = [];
 
       for (
         const item of normalizedItems
       ) {
+        const product =
+          item.product;
+
         if (
-          !item.product.trackStock
+          !product.trackStock
         ) {
           continue;
         }
 
-        await ProductBranchStock.updateOne(
-          {
-            _id:
-              item.branchStock
-                ._id,
+        const stockBefore =
+          Number(
+            item.branchStock
+              .stockQuantity
+          );
 
+        const updatedBranchStock =
+          await ProductBranchStock.findOneAndUpdate(
+            {
+              _id:
+                item.branchStock
+                  ._id,
+
+              businessId,
+
+              branchId,
+
+              productId:
+                product._id,
+
+              isActive: true,
+
+              stockQuantity: {
+                $gte:
+                  item.quantity,
+              },
+            },
+            {
+              $inc: {
+                stockQuantity:
+                  -item.quantity,
+              },
+            },
+            {
+              new: true,
+            }
+          );
+
+        if (
+          !updatedBranchStock
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Insufficient stock for ${product.name} at ${branch.name}. The stock may have changed because another sale was completed.`,
+          });
+        }
+
+        inventoryEntries.push({
+          businessId,
+
+          branchId,
+
+          productId:
+            product._id,
+
+          userId:
+            cashierId,
+
+          type:
+            "SALE",
+
+          quantity:
+            item.quantity,
+
+          stockBefore,
+
+          stockAfter:
+            updatedBranchStock.stockQuantity,
+
+          reason:
+            "Product sold",
+
+          referenceType:
+            "SALE",
+
+          notes:
+            `Sale of ${item.quantity} ${product.unit}(s) at ${branch.name}.`,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE SALE
+      |--------------------------------------------------------------------------
+      */
+
+      let sale;
+
+      try {
+        sale =
+          await Sale.create({
             businessId,
 
             branchId,
 
-            productId:
-              item.product._id,
-          },
+            cashierId,
 
-          {
-            $inc: {
-              stockQuantity:
-                item.quantity,
-            },
+            customerId:
+              customer
+                ? customer._id
+                : null,
+
+            receiptNumber,
+
+            items:
+              saleItems,
+
+            subtotal,
+
+            discount:
+              numericDiscount,
+
+            total,
+
+            paymentMethod,
+
+            paymentStatus:
+              "PAID",
+
+            status:
+              "COMPLETED",
+
+            notes:
+              typeof notes ===
+              "string"
+                ? notes.trim()
+                : "",
+          });
+      } catch (saleError) {
+        /*
+        |--------------------------------------------------------------------------
+        | ROLLBACK STOCK
+        |--------------------------------------------------------------------------
+        */
+
+        for (
+          const item of normalizedItems
+        ) {
+          if (
+            !item.product
+              .trackStock
+          ) {
+            continue;
           }
-        );
+
+          await ProductBranchStock.updateOne(
+            {
+              _id:
+                item.branchStock
+                  ._id,
+
+              businessId,
+
+              branchId,
+
+              productId:
+                item.product
+                  ._id,
+            },
+            {
+              $inc: {
+                stockQuantity:
+                  item.quantity,
+              },
+            }
+          );
+        }
+
+        throw saleError;
       }
 
-      throw saleError;
-    }
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE INVENTORY LEDGER
+      |--------------------------------------------------------------------------
+      */
 
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE INVENTORY LEDGER
-    |--------------------------------------------------------------------------
-    */
-
-    try {
-      if (
-        inventoryEntries.length >
-        0
-      ) {
+      try {
         for (
           const entry of
             inventoryEntries
@@ -813,292 +876,346 @@ export const createSale = async (
             }
           );
         }
+      } catch (inventoryError) {
+        await Sale.deleteOne({
+          _id:
+            sale._id,
+
+          businessId,
+        });
+
+        for (
+          const item of normalizedItems
+        ) {
+          if (
+            !item.product
+              .trackStock
+          ) {
+            continue;
+          }
+
+          await ProductBranchStock.updateOne(
+            {
+              _id:
+                item.branchStock
+                  ._id,
+
+              businessId,
+
+              branchId,
+
+              productId:
+                item.product
+                  ._id,
+            },
+            {
+              $inc: {
+                stockQuantity:
+                  item.quantity,
+              },
+            }
+          );
+        }
+
+        throw inventoryError;
       }
-    } catch (inventoryError) {
+
       /*
       |--------------------------------------------------------------------------
-      | ROLLBACK SALE AND STOCK
+      | CREATE PAYMENT
       |--------------------------------------------------------------------------
       */
 
-      await Sale.deleteOne({
-        _id:
-          sale._id,
-        businessId,
-      });
+      let payment;
 
-      for (
-        const item of normalizedItems
-      ) {
-        if (
-          !item.product.trackStock
-        ) {
-          continue;
-        }
-
-        await ProductBranchStock.updateOne(
-          {
-            _id:
-              item.branchStock
-                ._id,
-
+      try {
+        payment =
+          await Payment.create({
             businessId,
 
             branchId,
 
-            productId:
-              item.product._id,
-          },
+            saleId:
+              sale._id,
 
-          {
-            $inc: {
-              stockQuantity:
-                item.quantity,
-            },
-          }
-        );
-      }
+            customerId:
+              customer
+                ? customer._id
+                : null,
 
-      throw inventoryError;
-    }
+            receivedBy:
+              cashierId,
 
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE PAYMENT
-    |--------------------------------------------------------------------------
-    */
+            amount:
+              total,
 
-    let payment;
+            paymentMethod,
 
-    try {
-      payment =
-        await Payment.create({
-          businessId,
+            reference:
+              paymentTransaction
+                ? paymentTransaction
+                    .transactionReference ||
+                  paymentTransaction
+                    .providerReference ||
+                  ""
+                : "",
 
-          branchId,
+            notes:
+              `Payment for receipt ${receiptNumber}`,
 
+            status:
+              "COMPLETED",
+
+            paymentDate:
+              new Date(),
+          });
+      } catch (paymentError) {
+        /*
+        |--------------------------------------------------------------------------
+        | ROLLBACK PAYMENT FAILURE
+        |--------------------------------------------------------------------------
+        */
+
+        await Payment.deleteMany({
           saleId:
             sale._id,
 
-          customerId:
-            customer
-              ? customer._id
-              : null,
-
-          receivedBy:
-            cashierId,
-
-          amount:
-            total,
-
-          paymentMethod,
-
-          reference:
-            "",
-
-          notes:
-            `Payment for receipt ${receiptNumber}`,
-
-          status:
-            "COMPLETED",
-
-          paymentDate:
-            new Date(),
+          businessId,
         });
-    } catch (paymentError) {
-      /*
-      |--------------------------------------------------------------------------
-      | IMPORTANT
-      |--------------------------------------------------------------------------
-      |
-      | We do not silently leave an unpaid
-      | completed sale.
-      |
-      */
 
-      await Payment.deleteMany({
-        saleId:
-          sale._id,
-        businessId,
-      });
+        await InventoryTransaction.deleteMany(
+          {
+            referenceId:
+              sale._id,
 
-      await InventoryTransaction.deleteMany(
-        {
-          referenceId:
+            businessId,
+
+            branchId,
+          }
+        );
+
+        await Sale.deleteOne({
+          _id:
             sale._id,
 
           businessId,
+        });
 
-          branchId,
-        }
-      );
-
-      await Sale.deleteOne({
-        _id:
-          sale._id,
-        businessId,
-      });
-
-      for (
-        const item of normalizedItems
-      ) {
-        if (
-          !item.product.trackStock
+        for (
+          const item of normalizedItems
         ) {
-          continue;
+          if (
+            !item.product
+              .trackStock
+          ) {
+            continue;
+          }
+
+          await ProductBranchStock.updateOne(
+            {
+              _id:
+                item.branchStock
+                  ._id,
+
+              businessId,
+
+              branchId,
+
+              productId:
+                item.product
+                  ._id,
+            },
+            {
+              $inc: {
+                stockQuantity:
+                  item.quantity,
+              },
+            }
+          );
         }
 
-        await ProductBranchStock.updateOne(
+        throw paymentError;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | LINK ELECTRONIC PAYMENT TRANSACTION TO SALE
+      |--------------------------------------------------------------------------
+      */
+
+      if (paymentTransaction) {
+        await PaymentTransaction.updateOne(
           {
             _id:
-              item.branchStock
-                ._id,
+              paymentTransaction._id,
 
             businessId,
 
             branchId,
 
-            productId:
-              item.product._id,
-          },
+            cashierId,
 
+            status:
+              "APPROVED",
+          },
           {
-            $inc: {
-              stockQuantity:
-                item.quantity,
+            $set: {
+              saleId:
+                sale._id,
+
+              verifiedAt:
+                paymentTransaction
+                  .verifiedAt ||
+                new Date(),
             },
           }
         );
       }
 
-      throw paymentError;
-    }
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE CUSTOMER STATISTICS
+      |--------------------------------------------------------------------------
+      */
 
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE CUSTOMER STATISTICS
-    |--------------------------------------------------------------------------
-    */
+      if (customer) {
+        await Customer.updateOne(
+          {
+            _id:
+              customer._id,
 
-    if (customer) {
-      await Customer.updateOne(
-        {
-          _id:
-            customer._id,
+            businessId,
+          },
+          {
+            $inc: {
+              totalOrders:
+                1,
 
-          businessId,
+              totalSpent:
+                total,
+            },
+          }
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | SUCCESS RESPONSE
+      |--------------------------------------------------------------------------
+      */
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          "Sale completed successfully.",
+
+        sale: {
+          id:
+            sale._id,
+
+          receiptNumber:
+            sale.receiptNumber,
+
+          businessId:
+            sale.businessId,
+
+          branchId:
+            sale.branchId,
+
+          customerId:
+            sale.customerId,
+
+          items:
+            sale.items,
+
+          subtotal:
+            sale.subtotal,
+
+          discount:
+            sale.discount,
+
+          total:
+            sale.total,
+
+          paymentMethod:
+            sale.paymentMethod,
+
+          paymentStatus:
+            sale.paymentStatus,
+
+          status:
+            sale.status,
+
+          createdAt:
+            sale.createdAt,
         },
 
-        {
-          $inc: {
-            totalOrders:
-              1,
+        payment: {
+          id:
+            payment._id,
 
-            totalSpent:
-              total,
-          },
-        }
+          saleId:
+            payment.saleId,
+
+          amount:
+            payment.amount,
+
+          paymentMethod:
+            payment.paymentMethod,
+
+          status:
+            payment.status,
+
+          reference:
+            payment.reference,
+
+          paymentDate:
+            payment.paymentDate,
+        },
+
+        paymentTransaction:
+          paymentTransaction
+            ? {
+                id:
+                  paymentTransaction._id,
+
+                transactionReference:
+                  paymentTransaction.transactionReference,
+
+                provider:
+                  paymentTransaction.provider,
+
+                status:
+                  paymentTransaction.status,
+              }
+            : null,
+
+        branch: {
+          id:
+            branch._id,
+
+          name:
+            branch.name,
+
+          code:
+            branch.code,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Create sale error:",
+        error
       );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Failed to complete sale.",
+      });
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SUCCESS RESPONSE
-    |--------------------------------------------------------------------------
-    */
-
-    return res.status(201).json({
-      success: true,
-
-      message:
-        "Sale completed successfully.",
-
-      sale: {
-        id:
-          sale._id,
-
-        receiptNumber:
-          sale.receiptNumber,
-
-        businessId:
-          sale.businessId,
-
-        branchId:
-          sale.branchId,
-
-        customerId:
-          sale.customerId,
-
-        items:
-          sale.items,
-
-        subtotal:
-          sale.subtotal,
-
-        discount:
-          sale.discount,
-
-        total:
-          sale.total,
-
-        paymentMethod:
-          sale.paymentMethod,
-
-        paymentStatus:
-          sale.paymentStatus,
-
-        status:
-          sale.status,
-
-        createdAt:
-          sale.createdAt,
-      },
-
-      payment: {
-        id:
-          payment._id,
-
-        saleId:
-          payment.saleId,
-
-        amount:
-          payment.amount,
-
-        paymentMethod:
-          payment.paymentMethod,
-
-        status:
-          payment.status,
-
-        paymentDate:
-          payment.paymentDate,
-      },
-
-      branch: {
-        id:
-          branch._id,
-
-        name:
-          branch.name,
-
-        code:
-          branch.code,
-      },
-    });
-  } catch (error) {
-    console.error(
-      "Create sale error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        error.message ||
-        "Failed to complete sale.",
-    });
-  }
-};
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -1127,14 +1244,10 @@ export const getSales = async (
     const businessId =
       req.user.businessId;
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESOLVE BRANCH
-    |--------------------------------------------------------------------------
-    */
-
     const branch =
-      await resolveActiveBranch(req);
+      await resolveActiveBranch(
+        req
+      );
 
     if (!branch) {
       return res.status(400).json({
@@ -1147,22 +1260,10 @@ export const getSales = async (
     const branchId =
       branch._id;
 
-    /*
-    |--------------------------------------------------------------------------
-    | BASE FILTER
-    |--------------------------------------------------------------------------
-    */
-
     const filter = {
       businessId,
       branchId,
     };
-
-    /*
-    |--------------------------------------------------------------------------
-    | SEARCH
-    |--------------------------------------------------------------------------
-    */
 
     if (
       typeof search === "string" &&
@@ -1172,16 +1273,9 @@ export const getSales = async (
         $regex:
           search.trim(),
 
-        $options:
-          "i",
+        $options: "i",
       };
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAYMENT METHOD
-    |--------------------------------------------------------------------------
-    */
 
     if (paymentMethod) {
       if (
@@ -1200,12 +1294,6 @@ export const getSales = async (
         paymentMethod;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PAYMENT STATUS
-    |--------------------------------------------------------------------------
-    */
-
     if (paymentStatus) {
       if (
         !VALID_PAYMENT_STATUSES.includes(
@@ -1222,12 +1310,6 @@ export const getSales = async (
       filter.paymentStatus =
         paymentStatus;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SALE STATUS
-    |--------------------------------------------------------------------------
-    */
 
     if (status) {
       if (
@@ -1246,12 +1328,6 @@ export const getSales = async (
         status;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CASHIER
-    |--------------------------------------------------------------------------
-    */
-
     if (cashierId) {
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -1269,12 +1345,6 @@ export const getSales = async (
         cashierId;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CUSTOMER
-    |--------------------------------------------------------------------------
-    */
-
     if (customerId) {
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -1291,12 +1361,6 @@ export const getSales = async (
       filter.customerId =
         customerId;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | DATE FILTER
-    |--------------------------------------------------------------------------
-    */
 
     if (
       startDate ||
@@ -1349,12 +1413,6 @@ export const getSales = async (
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PAGINATION
-    |--------------------------------------------------------------------------
-    */
-
     const parsedPage =
       Number(page);
 
@@ -1388,12 +1446,6 @@ export const getSales = async (
       (pageNumber - 1) *
       limitNumber;
 
-    /*
-    |--------------------------------------------------------------------------
-    | FETCH SALES
-    |--------------------------------------------------------------------------
-    */
-
     const [
       sales,
       total,
@@ -1412,8 +1464,7 @@ export const getSales = async (
           "name code phone address"
         )
         .sort({
-          createdAt:
-            -1,
+          createdAt: -1,
         })
         .skip(skip)
         .limit(
@@ -1424,12 +1475,6 @@ export const getSales = async (
         filter
       ),
     ]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE
-    |--------------------------------------------------------------------------
-    */
 
     return res.json({
       success: true,
@@ -1492,12 +1537,6 @@ export const getSaleById =
       const { id } =
         req.params;
 
-      /*
-      |--------------------------------------------------------------------------
-      | VALIDATE ID
-      |--------------------------------------------------------------------------
-      */
-
       if (
         !mongoose.Types.ObjectId.isValid(
           id
@@ -1510,14 +1549,10 @@ export const getSaleById =
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | RESOLVE BRANCH
-      |--------------------------------------------------------------------------
-      */
-
       const branch =
-        await resolveActiveBranch(req);
+        await resolveActiveBranch(
+          req
+        );
 
       if (!branch) {
         return res.status(400).json({
@@ -1526,12 +1561,6 @@ export const getSaleById =
             "No valid active branch is selected.",
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | FIND SALE
-      |--------------------------------------------------------------------------
-      */
 
       const sale =
         await Sale.findOne({
@@ -1556,12 +1585,6 @@ export const getSaleById =
             "name code phone address"
           );
 
-      /*
-      |--------------------------------------------------------------------------
-      | SALE NOT FOUND
-      |--------------------------------------------------------------------------
-      */
-
       if (!sale) {
         return res.status(404).json({
           success: false,
@@ -1569,12 +1592,6 @@ export const getSaleById =
             "Sale not found in the selected branch.",
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | FETCH PAYMENTS
-      |--------------------------------------------------------------------------
-      */
 
       const payments =
         await Payment.find({
@@ -1592,15 +1609,8 @@ export const getSaleById =
             "name email role"
           )
           .sort({
-            paymentDate:
-              -1,
+            paymentDate: -1,
           });
-
-      /*
-      |--------------------------------------------------------------------------
-      | CALCULATE PAYMENT SUMMARY
-      |--------------------------------------------------------------------------
-      */
 
       const completedPayments =
         payments.filter(
@@ -1611,7 +1621,10 @@ export const getSaleById =
 
       const totalPaid =
         completedPayments.reduce(
-          (sum, payment) =>
+          (
+            sum,
+            payment
+          ) =>
             sum +
             Number(
               payment.amount
@@ -1626,24 +1639,10 @@ export const getSaleById =
           0
         );
 
-      /*
-      |--------------------------------------------------------------------------
-      | PAYMENT STATUS
-      |--------------------------------------------------------------------------
-      */
-
       const calculatedPaymentStatus =
         balance === 0
           ? "PAID"
-          : totalPaid > 0
-          ? "PENDING"
           : "PENDING";
-
-      /*
-      |--------------------------------------------------------------------------
-      | RESPONSE
-      |--------------------------------------------------------------------------
-      */
 
       return res.json({
         success: true,
