@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import api from "../../services/api";
 import jsPDF from "jspdf";
@@ -49,6 +49,20 @@ const statusClasses = {
   CANCELLED: "bg-red-50 text-red-700",
   PARTIALLY_REFUNDED: "bg-orange-50 text-orange-700",
   REFUNDED: "bg-purple-50 text-purple-700",
+};
+
+// ==========================================
+// RECEIPT SETTINGS
+// ==========================================
+
+const DEFAULT_RECEIPT_SETTINGS = {
+  afterSaleAction: "SHOW",
+  returnToPOS: false,
+  showAmountPaid: true,
+  showChange: true,
+  showCashier: true,
+  showCustomer: true,
+  showLogo: true,
 };
 
 // ==========================================
@@ -241,12 +255,21 @@ const Receipts = ({
   payment: paymentProp = null,
   onClose,
   onNewSale,
+  autoPrint = false,
+  receiptSettings: receiptSettingsProp = null,
 }) => {
   // ========================================
   // RECEIPT MODAL MODE
   // ========================================
 
   const isReceiptModal = Boolean(saleProp);
+
+  const receiptSettings = {
+    ...DEFAULT_RECEIPT_SETTINGS,
+    ...(receiptSettingsProp || {}),
+  };
+
+  const autoPrintTriggeredRef = useRef(false);
 
   // ========================================
   // BUSINESS
@@ -369,6 +392,44 @@ const Receipts = ({
 
   useEffect(() => {
     fetchBusiness(saleProp);
+  }, [saleProp?._id]);
+
+  // ========================================
+  // AUTOMATIC PRINT
+  // ========================================
+
+  useEffect(() => {
+    if (
+      !autoPrint ||
+      !saleProp ||
+      !isReceiptModal ||
+      loadingBusiness ||
+      autoPrintTriggeredRef.current
+    ) {
+      return undefined;
+    }
+
+    autoPrintTriggeredRef.current = true;
+
+    const timer = window.setTimeout(() => {
+      handlePrintReceipt(
+        saleProp,
+        paymentProp
+      );
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    autoPrint,
+    saleProp?._id,
+    loadingBusiness,
+    isReceiptModal,
+  ]);
+
+  useEffect(() => {
+    autoPrintTriggeredRef.current = false;
   }, [saleProp?._id]);
 
   // ========================================
@@ -622,6 +683,7 @@ const Receipts = ({
       );
 
     const businessLogoHtml =
+      receiptSettings.showLogo &&
       receiptBusinessData.logo
         ? `
           <div class="logo-container">
@@ -654,8 +716,7 @@ const Receipts = ({
       .join("");
 
     const customerHtml =
-      customer.name ||
-      customer.phone
+      receiptSettings.showCustomer
         ? `
           <div>
             <strong>Customer:</strong>
@@ -686,12 +747,15 @@ const Receipts = ({
         `;
 
     const paymentDetailsHtml =
-      paymentDetails.hasAmountPaid ||
-      paymentDetails.hasChange
+      (receiptSettings.showAmountPaid &&
+        paymentDetails.hasAmountPaid) ||
+      (receiptSettings.showChange &&
+        paymentDetails.hasChange)
         ? `
           <hr />
 
           ${
+            receiptSettings.showAmountPaid &&
             paymentDetails.hasAmountPaid
               ? `
                 <div class="row">
@@ -707,6 +771,7 @@ const Receipts = ({
           }
 
           ${
+            receiptSettings.showChange &&
             paymentDetails.hasChange
               ? `
                 <div class="row change-row">
@@ -994,8 +1059,9 @@ const Receipts = ({
               </div>
 
               ${
-                sale.cashier?.name ||
-                sale.cashierName
+                receiptSettings.showCashier &&
+                (sale.cashier?.name ||
+                sale.cashierName)
                   ? `
                     <div>
                       <strong>Cashier:</strong>
@@ -1156,7 +1222,7 @@ const Receipts = ({
     // LOGO
     // ======================================
 
-    if (receiptBusinessData.logo) {
+    if (receiptSettings.showLogo && receiptBusinessData.logo) {
       try {
         doc.addImage(
           receiptBusinessData.logo,
@@ -1281,8 +1347,9 @@ const Receipts = ({
     y += 5;
 
     if (
-      sale.cashier?.name ||
-      sale.cashierName
+      receiptSettings.showCashier &&
+      (sale.cashier?.name ||
+        sale.cashierName)
     ) {
       doc.text(
         `Cashier: ${
@@ -1327,8 +1394,9 @@ const Receipts = ({
     y += 5;
 
     if (
-      customer.name ||
-      customer.phone
+      receiptSettings.showCustomer &&
+      (customer.name ||
+        customer.phone)
     ) {
       doc.text(
         `Customer: ${
@@ -1453,6 +1521,7 @@ const Receipts = ({
     ];
 
     if (
+      receiptSettings.showAmountPaid &&
       paymentDetails.hasAmountPaid
     ) {
       totals.push([
@@ -1464,6 +1533,7 @@ const Receipts = ({
     }
 
     if (
+      receiptSettings.showChange &&
       paymentDetails.hasChange
     ) {
       totals.push([
@@ -1966,16 +2036,18 @@ const Receipts = ({
                   </p>
                 </div>
 
-                <div>
-                  <p className="text-slate-400">
-                    Customer
-                  </p>
+                {receiptSettings.showCustomer && (
+                  <div>
+                    <p className="text-slate-400">
+                      Customer
+                    </p>
 
-                  <p className="font-bold text-slate-900">
-                    {customer.name ||
-                      "Walk-in Customer"}
-                  </p>
-                </div>
+                    <p className="font-bold text-slate-900">
+                      {customer.name ||
+                        "Walk-in Customer"}
+                    </p>
+                  </div>
+                )}
 
                 {(saleProp.branch?.name ||
                   saleProp.branchName) && (
@@ -1992,8 +2064,9 @@ const Receipts = ({
                   </div>
                 )}
 
-                {(saleProp.cashier?.name ||
-                  saleProp.cashierName) && (
+                {receiptSettings.showCashier &&
+                  (saleProp.cashier?.name ||
+                    saleProp.cashierName) && (
                   <div>
                     <p className="text-slate-400">
                       Cashier
@@ -2009,7 +2082,8 @@ const Receipts = ({
 
               </div>
 
-              {customer.phone && (
+              {receiptSettings.showCustomer &&
+                customer.phone && (
                 <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs">
 
                   <span className="text-slate-400">
@@ -2114,7 +2188,8 @@ const Receipts = ({
 
                 </div>
 
-                {paymentDetails.hasAmountPaid && (
+                {receiptSettings.showAmountPaid &&
+                  paymentDetails.hasAmountPaid && (
                   <div className="flex justify-between text-sm">
 
                     <span className="text-slate-500">
@@ -2130,7 +2205,8 @@ const Receipts = ({
                   </div>
                 )}
 
-                {paymentDetails.hasChange && (
+                {receiptSettings.showChange &&
+                  paymentDetails.hasChange && (
                   <div className="flex justify-between rounded-xl bg-emerald-50 px-3 py-3 text-sm">
 
                     <span className="font-bold text-emerald-700">
@@ -3199,7 +3275,8 @@ const Receipts = ({
 
                   return (
                     <>
-                      {paymentDetails.hasAmountPaid && (
+                      {receiptSettings.showAmountPaid &&
+                        paymentDetails.hasAmountPaid && (
                         <div className="flex justify-between text-sm">
 
                           <span className="text-slate-500">
@@ -3215,7 +3292,8 @@ const Receipts = ({
                         </div>
                       )}
 
-                      {paymentDetails.hasChange && (
+                      {receiptSettings.showChange &&
+                        paymentDetails.hasChange && (
                         <div className="flex justify-between text-sm">
 
                           <span className="text-slate-500">

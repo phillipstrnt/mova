@@ -57,6 +57,35 @@ const PAYMENT_METHODS = [
 ];
 
 const HELD_SALES_KEY = "mova_held_sales";
+const RECEIPT_SETTINGS_KEY = "mova_receipt_settings";
+
+const DEFAULT_RECEIPT_SETTINGS = {
+  afterSaleAction: "SHOW",
+  returnToPOS: false,
+  showAmountPaid: true,
+  showChange: true,
+  showCashier: true,
+  showCustomer: true,
+  showLogo: true,
+};
+
+const loadReceiptSettings = () => {
+  try {
+    const stored = localStorage.getItem(RECEIPT_SETTINGS_KEY);
+
+    if (!stored) {
+      return DEFAULT_RECEIPT_SETTINGS;
+    }
+
+    return {
+      ...DEFAULT_RECEIPT_SETTINGS,
+      ...JSON.parse(stored),
+    };
+  } catch (error) {
+    console.error("Failed to load receipt settings:", error);
+    return DEFAULT_RECEIPT_SETTINGS;
+  }
+};
 
 
 /* =========================================================
@@ -245,6 +274,12 @@ const POS = () => {
   const [showReceipt, setShowReceipt] =
     useState(false);
 
+  const [receiptAutoPrint, setReceiptAutoPrint] =
+    useState(false);
+
+  const [receiptSettings, setReceiptSettings] =
+    useState(() => loadReceiptSettings());
+
   const [error, setError] =
     useState("");
 
@@ -314,6 +349,29 @@ const POS = () => {
   useEffect(() => {
     saveHeldSales(heldSales);
   }, [heldSales]);
+
+
+  /* =======================================================
+     RECEIPT SETTINGS
+  ======================================================= */
+
+  useEffect(() => {
+    const refreshReceiptSettings = () => {
+      setReceiptSettings(loadReceiptSettings());
+    };
+
+    window.addEventListener(
+      "mova:receipt-settings-changed",
+      refreshReceiptSettings
+    );
+
+    return () => {
+      window.removeEventListener(
+        "mova:receipt-settings-changed",
+        refreshReceiptSettings
+      );
+    };
+  }, []);
 
 
   /* =======================================================
@@ -1351,6 +1409,27 @@ const POS = () => {
               : null,
         });
 
+        const afterSaleAction =
+          receiptSettings.afterSaleAction ||
+          "SHOW";
+
+        const shouldOpenReceipt =
+          afterSaleAction === "SHOW" ||
+          afterSaleAction === "PRINT" ||
+          afterSaleAction === "SHOW_AND_PRINT";
+
+        const shouldAutoPrint =
+          afterSaleAction === "PRINT" ||
+          afterSaleAction === "SHOW_AND_PRINT";
+
+        setReceiptAutoPrint(
+          shouldAutoPrint
+        );
+
+        setShowReceipt(
+          shouldOpenReceipt
+        );
+
         clearCart();
 
         await fetchProducts();
@@ -1385,6 +1464,7 @@ const POS = () => {
       null
     );
     setShowReceipt(false);
+    setReceiptAutoPrint(false);
     setError("");
     setPaymentTransaction(null);
     setPaymentPolling(false);
@@ -1698,6 +1778,12 @@ const POS = () => {
               }
               onNewSale={
                 startNewSale
+              }
+              autoPrint={
+                receiptAutoPrint
+              }
+              receiptSettings={
+                receiptSettings
               }
             />
           )}
