@@ -2,7 +2,6 @@ import Sale from "../models/Sale.js";
 import Payment from "../models/Payment.js";
 import Expense from "../models/Expense.js";
 import Product from "../models/Product.js";
-import InventoryTransaction from "../models/InventoryTransaction.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -10,65 +9,85 @@ import InventoryTransaction from "../models/InventoryTransaction.js";
 |--------------------------------------------------------------------------
 */
 
-export const getDashboardOverview = async (
-  req,
-  res
-) => {
+export const getDashboardOverview = async (req, res) => {
   try {
-    const businessId =
-      req.user.businessId;
-
-    const now = new Date();
-
     /*
     |--------------------------------------------------------------------------
-    | TODAY RANGE
+    | USER / BUSINESS / BRANCH
     |--------------------------------------------------------------------------
     */
 
-    const startOfToday =
-      new Date(now);
+    const businessId = req.user.businessId;
 
-    startOfToday.setHours(
+    /*
+     * MOVA supports branches.
+     *
+     * Depending on the authentication structure, the active branch may be
+     * stored as activeBranchId or branchId.
+     */
+    const branchId =
+      req.user.activeBranchId ||
+      req.user.branchId ||
+      null;
+
+    /*
+    |--------------------------------------------------------------------------
+    | COMMON FILTERS
+    |--------------------------------------------------------------------------
+    */
+
+    const saleFilter = {
+      businessId,
+      ...(branchId ? { branchId } : {}),
+    };
+
+    const paymentFilter = {
+      businessId,
+      ...(branchId ? { branchId } : {}),
+    };
+
+    const expenseFilter = {
+      businessId,
+      ...(branchId ? { branchId } : {}),
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | DATE RANGES
+    |--------------------------------------------------------------------------
+    */
+
+    const now = new Date();
+
+    // Start of today
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    // End of today
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // Start of current month
+    const startOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
       0,
       0,
       0,
       0
     );
 
-    const endOfToday =
-      new Date(now);
-
-    endOfToday.setHours(
+    // End of current month
+    const endOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
       23,
       59,
       59,
       999
     );
-
-    /*
-    |--------------------------------------------------------------------------
-    | MONTH RANGE
-    |--------------------------------------------------------------------------
-    */
-
-    const startOfMonth =
-      new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        1
-      );
-
-    const endOfMonth =
-      new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999
-      );
 
     /*
     |--------------------------------------------------------------------------
@@ -82,13 +101,15 @@ export const getDashboardOverview = async (
       totalSales,
     ] = await Promise.all([
       Sale.find({
-        businessId,
+        ...saleFilter,
+
         status: {
           $in: [
             "COMPLETED",
             "PARTIALLY_REFUNDED",
           ],
         },
+
         createdAt: {
           $gte: startOfToday,
           $lte: endOfToday,
@@ -96,13 +117,15 @@ export const getDashboardOverview = async (
       }),
 
       Sale.find({
-        businessId,
+        ...saleFilter,
+
         status: {
           $in: [
             "COMPLETED",
             "PARTIALLY_REFUNDED",
           ],
         },
+
         createdAt: {
           $gte: startOfMonth,
           $lte: endOfMonth,
@@ -110,7 +133,8 @@ export const getDashboardOverview = async (
       }),
 
       Sale.countDocuments({
-        businessId,
+        ...saleFilter,
+
         status: {
           $in: [
             "COMPLETED",
@@ -126,21 +150,25 @@ export const getDashboardOverview = async (
     |--------------------------------------------------------------------------
     */
 
-    const todaySalesAmount =
-      todaySales.reduce(
-        (sum, sale) =>
+    const todaySalesAmount = todaySales.reduce(
+      (sum, sale) => {
+        return (
           sum +
-          Number(sale.total || 0),
-        0
-      );
+          Number(sale.total || 0)
+        );
+      },
+      0
+    );
 
-    const monthSalesAmount =
-      monthSales.reduce(
-        (sum, sale) =>
+    const monthSalesAmount = monthSales.reduce(
+      (sum, sale) => {
+        return (
           sum +
-          Number(sale.total || 0),
-        0
-      );
+          Number(sale.total || 0)
+        );
+      },
+      0
+    );
 
     /*
     |--------------------------------------------------------------------------
@@ -148,53 +176,53 @@ export const getDashboardOverview = async (
     |--------------------------------------------------------------------------
     */
 
-    const todayPayments =
-      await Payment.find({
-        businessId,
+    const todayPayments = await Payment.find({
+      ...paymentFilter,
 
-        status: "COMPLETED",
+      status: "COMPLETED",
 
-        paymentDate: {
-          $gte: startOfToday,
-          $lte: endOfToday,
-        },
-      });
+      paymentDate: {
+        $gte: startOfToday,
+        $lte: endOfToday,
+      },
+    });
 
-    const todayPaymentAmount =
-      todayPayments.reduce(
-        (sum, payment) =>
-          sum +
-          Number(
-            payment.amount || 0
-          ),
-        0
-      );
+    const monthPayments = await Payment.find({
+      ...paymentFilter,
+
+      status: "COMPLETED",
+
+      paymentDate: {
+        $gte: startOfMonth,
+        $lte: endOfMonth,
+      },
+    });
 
     /*
     |--------------------------------------------------------------------------
-    | MONTH PAYMENTS
+    | PAYMENT TOTALS
     |--------------------------------------------------------------------------
     */
 
-    const monthPayments =
-      await Payment.find({
-        businessId,
-
-        status: "COMPLETED",
-
-        paymentDate: {
-          $gte: startOfMonth,
-          $lte: endOfMonth,
+    const todayPaymentAmount =
+      todayPayments.reduce(
+        (sum, payment) => {
+          return (
+            sum +
+            Number(payment.amount || 0)
+          );
         },
-      });
+        0
+      );
 
     const monthPaymentAmount =
       monthPayments.reduce(
-        (sum, payment) =>
-          sum +
-          Number(
-            payment.amount || 0
-          ),
+        (sum, payment) => {
+          return (
+            sum +
+            Number(payment.amount || 0)
+          );
+        },
         0
       );
 
@@ -204,47 +232,53 @@ export const getDashboardOverview = async (
     |--------------------------------------------------------------------------
     */
 
-    const todayExpenses =
-      await Expense.find({
-        businessId,
+    const todayExpenses = await Expense.find({
+      ...expenseFilter,
 
-        status: "ACTIVE",
+      status: "ACTIVE",
 
-        expenseDate: {
-          $gte: startOfToday,
-          $lte: endOfToday,
-        },
-      });
+      expenseDate: {
+        $gte: startOfToday,
+        $lte: endOfToday,
+      },
+    });
 
-    const monthExpenses =
-      await Expense.find({
-        businessId,
+    const monthExpenses = await Expense.find({
+      ...expenseFilter,
 
-        status: "ACTIVE",
+      status: "ACTIVE",
 
-        expenseDate: {
-          $gte: startOfMonth,
-          $lte: endOfMonth,
-        },
-      });
+      expenseDate: {
+        $gte: startOfMonth,
+        $lte: endOfMonth,
+      },
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | EXPENSE TOTALS
+    |--------------------------------------------------------------------------
+    */
 
     const todayExpenseAmount =
       todayExpenses.reduce(
-        (sum, expense) =>
-          sum +
-          Number(
-            expense.amount || 0
-          ),
+        (sum, expense) => {
+          return (
+            sum +
+            Number(expense.amount || 0)
+          );
+        },
         0
       );
 
     const monthExpenseAmount =
       monthExpenses.reduce(
-        (sum, expense) =>
-          sum +
-          Number(
-            expense.amount || 0
-          ),
+        (sum, expense) => {
+          return (
+            sum +
+            Number(expense.amount || 0)
+          );
+        },
         0
       );
 
@@ -254,69 +288,48 @@ export const getDashboardOverview = async (
     |--------------------------------------------------------------------------
     */
 
-    const todayGrossProfit =
-      todaySales.reduce(
+    const calculateGrossProfit = (sales) => {
+      return sales.reduce(
         (sum, sale) => {
-          const cost =
-            sale.items.reduce(
-              (
-                itemSum,
-                item
-              ) =>
+          const items = Array.isArray(
+            sale.items
+          )
+            ? sale.items
+            : [];
+
+          const cost = items.reduce(
+            (itemSum, item) => {
+              return (
                 itemSum +
                 Number(
-                  item.buyingPrice ||
-                    0
+                  item.buyingPrice || 0
                 ) *
                   Number(
-                    item.quantity ||
-                      0
-                  ),
-              0
-            );
+                    item.quantity || 0
+                  )
+              );
+            },
+            0
+          );
+
+          const revenue = Number(
+            sale.total || 0
+          );
 
           return (
             sum +
-            (Number(
-              sale.total || 0
-            ) -
-              cost)
+            (revenue - cost)
           );
         },
         0
       );
+    };
+
+    const todayGrossProfit =
+      calculateGrossProfit(todaySales);
 
     const monthGrossProfit =
-      monthSales.reduce(
-        (sum, sale) => {
-          const cost =
-            sale.items.reduce(
-              (
-                itemSum,
-                item
-              ) =>
-                itemSum +
-                Number(
-                  item.buyingPrice ||
-                    0
-                ) *
-                  Number(
-                    item.quantity ||
-                      0
-                  ),
-              0
-            );
-
-          return (
-            sum +
-            (Number(
-              sale.total || 0
-            ) -
-              cost)
-          );
-        },
-        0
-      );
+      calculateGrossProfit(monthSales);
 
     /*
     |--------------------------------------------------------------------------
@@ -334,38 +347,68 @@ export const getDashboardOverview = async (
 
     /*
     |--------------------------------------------------------------------------
-    | INVENTORY
+    | PRODUCTS
+    |--------------------------------------------------------------------------
+    |
+    | NOTE:
+    | The current Product.stockQuantity is retained here temporarily.
+    |
+    | Your POS is using branch stock, so we will replace this section with
+    | ProductBranchStock once we connect the exact branch-stock model.
+    |
+    */
+
+    const products = await Product.find({
+      businessId,
+      isActive: true,
+    }).select(
+      "name sku buyingPrice sellingPrice stockQuantity minimumStock trackStock"
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | INVENTORY VALUE
     |--------------------------------------------------------------------------
     */
 
-    const products =
-      await Product.find({
-        businessId,
-        isActive: true,
-      }).select(
-        "name sku buyingPrice sellingPrice stockQuantity minimumStock trackStock"
-      );
-
     const inventoryValue =
       products.reduce(
-        (sum, product) =>
-          sum +
-          Number(
-            product.buyingPrice || 0
-          ) *
+        (sum, product) => {
+          return (
+            sum +
             Number(
-              product.stockQuantity ||
-                0
-            ),
+              product.buyingPrice || 0
+            ) *
+              Number(
+                product.stockQuantity || 0
+              )
+          );
+        },
         0
       );
 
+    /*
+    |--------------------------------------------------------------------------
+    | LOW STOCK
+    |--------------------------------------------------------------------------
+    */
+
     const lowStockProducts =
       products.filter(
-        (product) =>
-          product.trackStock &&
-          product.stockQuantity <=
-            product.minimumStock
+        (product) => {
+          if (!product.trackStock) {
+            return false;
+          }
+
+          return (
+            Number(
+              product.stockQuantity || 0
+            ) <=
+            Number(
+              product.minimumStock || 0
+            )
+          );
+        }
       );
 
     /*
@@ -376,19 +419,28 @@ export const getDashboardOverview = async (
 
     const productsSoldToday =
       todaySales.reduce(
-        (sum, sale) =>
-          sum +
-          sale.items.reduce(
-            (
-              itemSum,
-              item
-            ) =>
-              itemSum +
-              Number(
-                item.quantity || 0
-              ),
-            0
-          ),
+        (sum, sale) => {
+          const items = Array.isArray(
+            sale.items
+          )
+            ? sale.items
+            : [];
+
+          const quantity =
+            items.reduce(
+              (itemSum, item) => {
+                return (
+                  itemSum +
+                  Number(
+                    item.quantity || 0
+                  )
+                );
+              },
+              0
+            );
+
+          return sum + quantity;
+        },
         0
       );
 
@@ -407,16 +459,19 @@ export const getDashboardOverview = async (
 
     todayPayments.forEach(
       (payment) => {
+        const method =
+          payment.paymentMethod;
+
         if (
-          paymentBreakdown[
-            payment.paymentMethod
-          ] !== undefined
+          Object.prototype.hasOwnProperty.call(
+            paymentBreakdown,
+            method
+          )
         ) {
-          paymentBreakdown[
-            payment.paymentMethod
-          ] += Number(
-            payment.amount || 0
-          );
+          paymentBreakdown[method] +=
+            Number(
+              payment.amount || 0
+            );
         }
       }
     );
@@ -429,7 +484,7 @@ export const getDashboardOverview = async (
 
     const recentSales =
       await Sale.find({
-        businessId,
+        ...saleFilter,
       })
         .populate(
           "customerId",
@@ -538,8 +593,15 @@ export const getDashboardOverview = async (
 
     return res.status(500).json({
       success: false,
+
       message:
         "Failed to load dashboard data.",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? error.message
+          : undefined,
     });
   }
 };

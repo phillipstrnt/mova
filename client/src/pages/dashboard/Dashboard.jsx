@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   AlertTriangle,
@@ -90,72 +95,211 @@ const Dashboard = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchDashboard = async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  /*
+  |--------------------------------------------------------------------------
+  | FETCH DASHBOARD
+  |--------------------------------------------------------------------------
+  */
+
+  const fetchDashboard = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        setError("");
+
+        const response = await api.get(
+          "/dashboard/overview"
+        );
+
+        const overview =
+          response?.data?.overview ||
+          response?.data?.data ||
+          response?.data ||
+          {};
+
+        setData(overview);
+      } catch (err) {
+        console.error(
+          "Dashboard error:",
+          err
+        );
+
+        const message =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load dashboard.";
+
+        setError(message);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    },
+    []
+  );
 
-      setError("");
-
-      const response = await api.get("/dashboard/overview");
-
-      const overview =
-        response?.data?.overview ||
-        response?.data?.data ||
-        response?.data ||
-        {};
-
-      setData(overview);
-    } catch (err) {
-      console.error("Dashboard error:", err);
-
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        "Failed to load dashboard.";
-
-      setError(message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  /*
+  |--------------------------------------------------------------------------
+  | INITIAL DASHBOARD LOAD
+  |--------------------------------------------------------------------------
+  */
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LISTEN FOR MOVA DATA UPDATES
+  |--------------------------------------------------------------------------
+  |
+  | POS.jsx dispatches:
+  |
+  | window.dispatchEvent(
+  |   new CustomEvent("mova:data-updated", ...)
+  | )
+  |
+  | Whenever a sale is successfully completed.
+  |
+  */
+
+  useEffect(() => {
+    const handleMovaDataUpdate = (event) => {
+      console.log(
+        "MOVA dashboard update received:",
+        event?.detail
+      );
+
+      fetchDashboard(true);
+    };
+
+    window.addEventListener(
+      "mova:data-updated",
+      handleMovaDataUpdate
+    );
+
+    return () => {
+      window.removeEventListener(
+        "mova:data-updated",
+        handleMovaDataUpdate
+      );
+    };
+  }, [fetchDashboard]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | REFRESH WHEN USER RETURNS TO THE APP
+  |--------------------------------------------------------------------------
+  |
+  | This helps when the user completes a transaction elsewhere
+  | and then returns to the dashboard.
+  |
+  */
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      fetchDashboard(true);
+    };
+
+    window.addEventListener(
+      "focus",
+      handleWindowFocus
+    );
+
+    return () => {
+      window.removeEventListener(
+        "focus",
+        handleWindowFocus
+      );
+    };
+  }, [fetchDashboard]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | REFRESH WHEN TAB BECOMES VISIBLE
+  |--------------------------------------------------------------------------
+  */
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible"
+      ) {
+        fetchDashboard(true);
+      }
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [fetchDashboard]);
 
   const today = data?.today || {};
   const month = data?.month || {};
   const inventory = data?.inventory || {};
-  const paymentBreakdown = data?.paymentBreakdown || {};
-  const recentSales = Array.isArray(data?.recentSales)
+  const paymentBreakdown =
+    data?.paymentBreakdown || {};
+
+  const recentSales = Array.isArray(
+    data?.recentSales
+  )
     ? data.recentSales
     : [];
 
   const salesTrend = useMemo(() => {
     const sales = Number(today.sales) || 0;
-    const payments = Number(today.payments) || 0;
+    const payments =
+      Number(today.payments) || 0;
 
     if (sales <= 0) {
       return 0;
     }
 
-    return Math.round((payments / sales) * 100);
-  }, [today.sales, today.payments]);
-
-  const totalPaymentBreakdown = useMemo(() => {
-    return (
-      Number(paymentBreakdown.CASH || 0) +
-      Number(paymentBreakdown.MOBILE_MONEY || 0) +
-      Number(paymentBreakdown.CARD || 0) +
-      Number(paymentBreakdown.BANK || 0)
+    return Math.round(
+      (payments / sales) * 100
     );
-  }, [paymentBreakdown]);
+  }, [
+    today.sales,
+    today.payments,
+  ]);
+
+  const totalPaymentBreakdown =
+    useMemo(() => {
+      return (
+        Number(
+          paymentBreakdown.CASH || 0
+        ) +
+        Number(
+          paymentBreakdown.MOBILE_MONEY || 0
+        ) +
+        Number(
+          paymentBreakdown.CARD || 0
+        ) +
+        Number(
+          paymentBreakdown.BANK || 0
+        )
+      );
+    }, [paymentBreakdown]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOADING
+  |--------------------------------------------------------------------------
+  */
 
   if (loading) {
     return (
@@ -177,6 +321,7 @@ const Dashboard = () => {
   return (
     <div className="space-y-6">
       {/* HEADER */}
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-sm font-bold text-blue-600">
@@ -195,7 +340,9 @@ const Dashboard = () => {
 
         <button
           type="button"
-          onClick={() => fetchDashboard(true)}
+          onClick={() =>
+            fetchDashboard(true)
+          }
           disabled={refreshing}
           className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -208,17 +355,21 @@ const Dashboard = () => {
             }
           />
 
-          {refreshing ? "Refreshing..." : "Refresh"}
+          {refreshing
+            ? "Refreshing..."
+            : "Refresh"}
         </button>
       </div>
 
       {/* ERROR */}
+
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-bold text-red-800">
-                Dashboard data could not be loaded
+                Dashboard data could not be
+                loaded
               </p>
 
               <p className="mt-1 text-sm text-red-600">
@@ -228,10 +379,13 @@ const Dashboard = () => {
 
             <button
               type="button"
-              onClick={() => fetchDashboard(true)}
+              onClick={() =>
+                fetchDashboard(true)
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-700"
             >
               <RefreshCw size={16} />
+
               Try Again
             </button>
           </div>
@@ -239,28 +393,39 @@ const Dashboard = () => {
       )}
 
       {/* PRIMARY METRICS */}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Today's Sales"
-          value={formatCurrency(today.sales)}
+          value={formatCurrency(
+            today.sales
+          )}
           description={`${formatNumber(
             today.productsSold
           )} products sold`}
-          icon={<ShoppingCart size={21} />}
+          icon={
+            <ShoppingCart size={21} />
+          }
           iconClass="bg-blue-50 text-blue-600"
         />
 
         <MetricCard
           title="Today's Payments"
-          value={formatCurrency(today.payments)}
+          value={formatCurrency(
+            today.payments
+          )}
           description={`${salesTrend}% of today's sales collected`}
-          icon={<Banknote size={21} />}
+          icon={
+            <Banknote size={21} />
+          }
           iconClass="bg-emerald-50 text-emerald-600"
         />
 
         <MetricCard
           title="Today's Expenses"
-          value={formatCurrency(today.expenses)}
+          value={formatCurrency(
+            today.expenses
+          )}
           description="Recorded business expenses"
           icon={<Wallet size={21} />}
           iconClass="bg-orange-50 text-orange-600"
@@ -268,37 +433,54 @@ const Dashboard = () => {
 
         <MetricCard
           title="Today's Net Profit"
-          value={formatCurrency(today.netProfit)}
+          value={formatCurrency(
+            today.netProfit
+          )}
           description="Gross profit less expenses"
-          icon={<TrendingUp size={21} />}
+          icon={
+            <TrendingUp size={21} />
+          }
           iconClass="bg-purple-50 text-purple-600"
         />
       </div>
 
       {/* MONTH PERFORMANCE */}
+
       <div className="grid gap-4 md:grid-cols-3">
         <PerformanceCard
           title="Monthly Sales"
-          value={formatCurrency(month.sales)}
+          value={formatCurrency(
+            month.sales
+          )}
           icon={<BarChart3 size={20} />}
         />
 
         <PerformanceCard
           title="Monthly Gross Profit"
-          value={formatCurrency(month.grossProfit)}
-          icon={<ArrowUpRight size={20} />}
+          value={formatCurrency(
+            month.grossProfit
+          )}
+          icon={
+            <ArrowUpRight size={20} />
+          }
         />
 
         <PerformanceCard
           title="Monthly Net Profit"
-          value={formatCurrency(month.netProfit)}
-          icon={<TrendingUp size={20} />}
+          value={formatCurrency(
+            month.netProfit
+          )}
+          icon={
+            <TrendingUp size={20} />
+          }
         />
       </div>
 
       {/* INVENTORY + PAYMENTS */}
+
       <div className="grid gap-6 lg:grid-cols-2">
         {/* INVENTORY */}
+
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
@@ -330,7 +512,9 @@ const Dashboard = () => {
               value={formatCurrency(
                 inventory.inventoryValue
               )}
-              icon={<Banknote size={18} />}
+              icon={
+                <Banknote size={18} />
+              }
             />
           </div>
 
@@ -359,62 +543,68 @@ const Dashboard = () => {
           {Array.isArray(
             inventory.lowStockProducts
           ) &&
-            inventory.lowStockProducts.length >
-              0 && (
+            inventory.lowStockProducts
+              .length > 0 && (
               <div className="mt-4 space-y-2">
                 {inventory.lowStockProducts
                   .slice(0, 5)
-                  .map((product, index) => (
-                    <div
-                      key={
-                        product._id ||
-                        product.id ||
-                        product.sku ||
-                        index
-                      }
-                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-slate-700">
-                          {product.name ||
-                            "Unnamed Product"}
-                        </p>
+                  .map(
+                    (
+                      product,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          product._id ||
+                          product.id ||
+                          product.sku ||
+                          index
+                        }
+                        className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-700">
+                            {product.name ||
+                              "Unnamed Product"}
+                          </p>
 
-                        <p className="mt-1 text-xs text-slate-400">
-                          {product.sku ||
-                            "No SKU"}
-                        </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {product.sku ||
+                              "No SKU"}
+                          </p>
+                        </div>
+
+                        <span className="ml-4 shrink-0 text-sm font-black text-orange-600">
+                          {formatNumber(
+                            product.stock
+                          )}
+                        </span>
                       </div>
-
-                      <span className="ml-4 shrink-0 text-sm font-black text-orange-600">
-                        {formatNumber(
-                          product.stock
-                        )}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  )}
               </div>
             )}
 
           {(!Array.isArray(
             inventory.lowStockProducts
           ) ||
-            inventory.lowStockProducts.length ===
-              0) && (
+            inventory.lowStockProducts
+              .length === 0) && (
             <div className="mt-4 rounded-xl bg-emerald-50 p-4">
               <p className="text-sm font-bold text-emerald-700">
                 Inventory looks healthy
               </p>
 
               <p className="mt-1 text-xs text-emerald-600">
-                No low-stock products are currently
-                reported.
+                No low-stock products are
+                currently reported.
               </p>
             </div>
           )}
         </section>
 
         {/* PAYMENT BREAKDOWN */}
+
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
@@ -435,7 +625,9 @@ const Dashboard = () => {
           <div className="mt-6 space-y-5">
             <PaymentBar
               label="Cash"
-              value={paymentBreakdown.CASH}
+              value={
+                paymentBreakdown.CASH
+              }
               total={
                 totalPaymentBreakdown ||
                 today.payments
@@ -455,7 +647,9 @@ const Dashboard = () => {
 
             <PaymentBar
               label="Card"
-              value={paymentBreakdown.CARD}
+              value={
+                paymentBreakdown.CARD
+              }
               total={
                 totalPaymentBreakdown ||
                 today.payments
@@ -464,7 +658,9 @@ const Dashboard = () => {
 
             <PaymentBar
               label="Bank"
-              value={paymentBreakdown.BANK}
+              value={
+                paymentBreakdown.BANK
+              }
               total={
                 totalPaymentBreakdown ||
                 today.payments
@@ -478,13 +674,16 @@ const Dashboard = () => {
             </span>
 
             <span className="text-sm font-black text-slate-950">
-              {formatCurrency(today.payments)}
+              {formatCurrency(
+                today.payments
+              )}
             </span>
           </div>
         </section>
       </div>
 
       {/* RECENT SALES */}
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -502,6 +701,7 @@ const Dashboard = () => {
             className="inline-flex w-fit items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700"
           >
             View all
+
             <ArrowUpRight size={15} />
           </a>
         </div>
@@ -533,7 +733,8 @@ const Dashboard = () => {
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {recentSales.length === 0 ? (
+              {recentSales.length ===
+              0 ? (
                 <tr>
                   <td
                     colSpan="5"
@@ -541,72 +742,85 @@ const Dashboard = () => {
                   >
                     <div className="mx-auto flex max-w-sm flex-col items-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-                        <ShoppingCart size={22} />
+                        <ShoppingCart
+                          size={22}
+                        />
                       </div>
 
                       <p className="mt-3 text-sm font-bold text-slate-600">
-                        No sales recorded yet
+                        No sales recorded
+                        yet
                       </p>
 
                       <p className="mt-1 text-xs text-slate-400">
-                        Completed POS transactions will
+                        Completed POS
+                        transactions will
                         appear here.
                       </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                recentSales.map((sale, index) => (
-                  <tr
-                    key={
-                      sale?._id ||
-                      sale?.id ||
-                      sale?.receiptNumber ||
-                      index
-                    }
-                    className="transition hover:bg-slate-50"
-                  >
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-bold text-slate-800">
-                        {sale?.receiptNumber ||
-                          sale?.receiptNo ||
-                          "—"}
-                      </p>
+                recentSales.map(
+                  (
+                    sale,
+                    index
+                  ) => (
+                    <tr
+                      key={
+                        sale?._id ||
+                        sale?.id ||
+                        sale?.receiptNumber ||
+                        index
+                      }
+                      className="transition hover:bg-slate-50"
+                    >
+                      <td className="px-6 py-4">
+                        <p className="text-sm font-bold text-slate-800">
+                          {sale?.receiptNumber ||
+                            sale?.receiptNo ||
+                            "—"}
+                        </p>
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        {formatDate(
-                          sale?.createdAt ||
-                            sale?.date
+                        <p className="mt-1 text-xs text-slate-400">
+                          {formatDate(
+                            sale?.createdAt ||
+                              sale?.date
+                          )}
+                        </p>
+                      </td>
+
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {getCustomerName(
+                          sale
                         )}
-                      </p>
-                    </td>
+                      </td>
 
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {getCustomerName(sale)}
-                    </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {getCashierName(
+                          sale
+                        )}
+                      </td>
 
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {getCashierName(sale)}
-                    </td>
+                      <td className="px-6 py-4 text-right text-sm font-black text-slate-900">
+                        {formatCurrency(
+                          sale?.total
+                        )}
+                      </td>
 
-                    <td className="px-6 py-4 text-right text-sm font-black text-slate-900">
-                      {formatCurrency(
-                        sale?.total
-                      )}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <span
-                        className={`rounded-full px-3 py-1.5 text-xs font-bold ${getStatusClass(
-                          sale?.status
-                        )}`}
-                      >
-                        {sale?.status ||
-                          "UNKNOWN"}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                      <td className="px-6 py-4">
+                        <span
+                          className={`rounded-full px-3 py-1.5 text-xs font-bold ${getStatusClass(
+                            sale?.status
+                          )}`}
+                        >
+                          {sale?.status ||
+                            "UNKNOWN"}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                )
               )}
             </tbody>
           </table>
@@ -615,6 +829,12 @@ const Dashboard = () => {
     </div>
   );
 };
+
+/*
+|--------------------------------------------------------------------------
+| METRIC CARD
+|--------------------------------------------------------------------------
+*/
 
 const MetricCard = ({
   title,
@@ -650,6 +870,12 @@ const MetricCard = ({
   );
 };
 
+/*
+|--------------------------------------------------------------------------
+| PERFORMANCE CARD
+|--------------------------------------------------------------------------
+*/
+
 const PerformanceCard = ({
   title,
   value,
@@ -676,6 +902,12 @@ const PerformanceCard = ({
   );
 };
 
+/*
+|--------------------------------------------------------------------------
+| INVENTORY STAT
+|--------------------------------------------------------------------------
+*/
+
 const InventoryStat = ({
   label,
   value,
@@ -698,18 +930,29 @@ const InventoryStat = ({
   );
 };
 
+/*
+|--------------------------------------------------------------------------
+| PAYMENT BAR
+|--------------------------------------------------------------------------
+*/
+
 const PaymentBar = ({
   label,
   value,
   total,
 }) => {
-  const numericValue = Number(value) || 0;
-  const numericTotal = Number(total) || 0;
+  const numericValue =
+    Number(value) || 0;
+
+  const numericTotal =
+    Number(total) || 0;
 
   const percentage =
     numericTotal > 0
       ? Math.min(
-          (numericValue / numericTotal) * 100,
+          (numericValue /
+            numericTotal) *
+            100,
           100
         )
       : 0;
@@ -722,7 +965,9 @@ const PaymentBar = ({
         </span>
 
         <span className="text-sm font-black text-slate-900">
-          {formatCurrency(numericValue)}
+          {formatCurrency(
+            numericValue
+          )}
         </span>
       </div>
 
