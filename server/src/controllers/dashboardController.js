@@ -3,13 +3,61 @@ import Payment from "../models/Payment.js";
 import Expense from "../models/Expense.js";
 import Product from "../models/Product.js";
 
-/*
-|--------------------------------------------------------------------------
-| DASHBOARD OVERVIEW
-|--------------------------------------------------------------------------
-*/
+/* =======================================================
+   HELPERS
+======================================================= */
 
-export const getDashboardOverview = async (req, res) => {
+const toNumber = (value) => {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+};
+
+const getStartOfDay = (date = new Date()) => {
+  const start = new Date(date);
+
+  start.setHours(0, 0, 0, 0);
+
+  return start;
+};
+
+const getEndOfDay = (date = new Date()) => {
+  const end = new Date(date);
+
+  end.setHours(23, 59, 59, 999);
+
+  return end;
+};
+
+const getStartOfMonth = (date = new Date()) => {
+  const start = new Date(date);
+
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+
+  return start;
+};
+
+const getEndOfMonth = (date = new Date()) => {
+  const end = new Date(date);
+
+  end.setMonth(end.getMonth() + 1);
+  end.setDate(0);
+  end.setHours(23, 59, 59, 999);
+
+  return end;
+};
+
+/* =======================================================
+   DASHBOARD OVERVIEW
+======================================================= */
+
+export const getDashboardOverview = async (
+  req,
+  res
+) => {
   try {
     /*
     |--------------------------------------------------------------------------
@@ -17,39 +65,21 @@ export const getDashboardOverview = async (req, res) => {
     |--------------------------------------------------------------------------
     */
 
-    const businessId = req.user.businessId;
+    const businessId =
+      req.user?.businessId;
 
-    /*
-     * MOVA supports branches.
-     *
-     * Depending on the authentication structure, the active branch may be
-     * stored as activeBranchId or branchId.
-     */
     const branchId =
-      req.user.activeBranchId ||
-      req.user.branchId ||
+      req.user?.activeBranchId ||
+      req.user?.branchId ||
       null;
 
-    /*
-    |--------------------------------------------------------------------------
-    | COMMON FILTERS
-    |--------------------------------------------------------------------------
-    */
-
-    const saleFilter = {
-      businessId,
-      ...(branchId ? { branchId } : {}),
-    };
-
-    const paymentFilter = {
-      businessId,
-      ...(branchId ? { branchId } : {}),
-    };
-
-    const expenseFilter = {
-      businessId,
-      ...(branchId ? { branchId } : {}),
-    };
+    if (!businessId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Your account is not associated with a business.",
+      });
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -59,356 +89,273 @@ export const getDashboardOverview = async (req, res) => {
 
     const now = new Date();
 
-    // Start of today
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
+    const todayStart =
+      getStartOfDay(now);
 
-    // End of today
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
+    const todayEnd =
+      getEndOfDay(now);
 
-    // Start of current month
-    const startOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0
-    );
+    const monthStart =
+      getStartOfMonth(now);
 
-    // End of current month
-    const endOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999
-    );
+    const monthEnd =
+      getEndOfMonth(now);
 
     /*
     |--------------------------------------------------------------------------
-    | SALES
+    | SALE FILTERS
     |--------------------------------------------------------------------------
+    |
+    | POS creates:
+    |
+    | businessId
+    | branchId
+    | status = COMPLETED
+    |
+    */
+
+    const todaySaleFilter = {
+      businessId,
+      status: "COMPLETED",
+
+      createdAt: {
+        $gte: todayStart,
+        $lte: todayEnd,
+      },
+    };
+
+    const monthSaleFilter = {
+      businessId,
+      status: "COMPLETED",
+
+      createdAt: {
+        $gte: monthStart,
+        $lte: monthEnd,
+      },
+    };
+
+    /*
+    |--------------------------------------------------------------------------
+    | BRANCH FILTER
+    |--------------------------------------------------------------------------
+    |
+    | If the logged-in user has an active branch,
+    | only that branch's transactions are shown.
+    |
+    */
+
+    if (branchId) {
+      todaySaleFilter.branchId =
+        branchId;
+
+      monthSaleFilter.branchId =
+        branchId;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT FILTERS
+    |--------------------------------------------------------------------------
+    */
+
+    const todayPaymentFilter = {
+      businessId,
+
+      status: "COMPLETED",
+
+      paymentDate: {
+        $gte: todayStart,
+        $lte: todayEnd,
+      },
+    };
+
+    const monthPaymentFilter = {
+      businessId,
+
+      status: "COMPLETED",
+
+      paymentDate: {
+        $gte: monthStart,
+        $lte: monthEnd,
+      },
+    };
+
+    if (branchId) {
+      todayPaymentFilter.branchId =
+        branchId;
+
+      monthPaymentFilter.branchId =
+        branchId;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | EXPENSE FILTERS
+    |--------------------------------------------------------------------------
+    */
+
+    const todayExpenseFilter = {
+      businessId,
+
+      createdAt: {
+        $gte: todayStart,
+        $lte: todayEnd,
+      },
+    };
+
+    const monthExpenseFilter = {
+      businessId,
+
+      createdAt: {
+        $gte: monthStart,
+        $lte: monthEnd,
+      },
+    };
+
+    if (branchId) {
+      todayExpenseFilter.branchId =
+        branchId;
+
+      monthExpenseFilter.branchId =
+        branchId;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOAD DATA
+    |--------------------------------------------------------------------------
+    |
+    | We intentionally load the actual completed sales and payments.
+    | This makes the dashboard use the same records created by POS.
+    |
     */
 
     const [
       todaySales,
       monthSales,
-      totalSales,
+      todayPayments,
+      monthPayments,
+      todayExpenses,
+      monthExpenses,
     ] = await Promise.all([
-      Sale.find({
-        ...saleFilter,
+      Sale.find(todaySaleFilter)
+        .populate(
+          "customerId",
+          "name phone"
+        )
+        .populate(
+          "cashierId",
+          "name email"
+        )
+        .sort({
+          createdAt: -1,
+        }),
 
-        status: {
-          $in: [
-            "COMPLETED",
-            "PARTIALLY_REFUNDED",
-          ],
-        },
+      Sale.find(monthSaleFilter),
 
-        createdAt: {
-          $gte: startOfToday,
-          $lte: endOfToday,
-        },
-      }),
+      Payment.find(
+        todayPaymentFilter
+      ),
 
-      Sale.find({
-        ...saleFilter,
+      Payment.find(
+        monthPaymentFilter
+      ),
 
-        status: {
-          $in: [
-            "COMPLETED",
-            "PARTIALLY_REFUNDED",
-          ],
-        },
+      Expense.find(
+        todayExpenseFilter
+      ),
 
-        createdAt: {
-          $gte: startOfMonth,
-          $lte: endOfMonth,
-        },
-      }),
-
-      Sale.countDocuments({
-        ...saleFilter,
-
-        status: {
-          $in: [
-            "COMPLETED",
-            "PARTIALLY_REFUNDED",
-          ],
-        },
-      }),
+      Expense.find(
+        monthExpenseFilter
+      ),
     ]);
 
     /*
     |--------------------------------------------------------------------------
-    | SALES TOTALS
+    | TODAY'S SALES
     |--------------------------------------------------------------------------
     */
 
-    const todaySalesAmount = todaySales.reduce(
-      (sum, sale) => {
-        return (
+    const todaySalesTotal =
+      todaySales.reduce(
+        (sum, sale) =>
           sum +
-          Number(sale.total || 0)
-        );
-      },
-      0
-    );
-
-    const monthSalesAmount = monthSales.reduce(
-      (sum, sale) => {
-        return (
-          sum +
-          Number(sale.total || 0)
-        );
-      },
-      0
-    );
+          toNumber(sale.total),
+        0
+      );
 
     /*
     |--------------------------------------------------------------------------
-    | PAYMENTS
+    | MONTH'S SALES
     |--------------------------------------------------------------------------
     */
 
-    const todayPayments = await Payment.find({
-      ...paymentFilter,
-
-      status: "COMPLETED",
-
-      paymentDate: {
-        $gte: startOfToday,
-        $lte: endOfToday,
-      },
-    });
-
-    const monthPayments = await Payment.find({
-      ...paymentFilter,
-
-      status: "COMPLETED",
-
-      paymentDate: {
-        $gte: startOfMonth,
-        $lte: endOfMonth,
-      },
-    });
+    const monthSalesTotal =
+      monthSales.reduce(
+        (sum, sale) =>
+          sum +
+          toNumber(sale.total),
+        0
+      );
 
     /*
     |--------------------------------------------------------------------------
-    | PAYMENT TOTALS
+    | TODAY'S PAYMENTS
     |--------------------------------------------------------------------------
     */
 
-    const todayPaymentAmount =
+    const todayPaymentsTotal =
       todayPayments.reduce(
-        (sum, payment) => {
-          return (
-            sum +
-            Number(payment.amount || 0)
-          );
-        },
+        (sum, payment) =>
+          sum +
+          toNumber(payment.amount),
         0
       );
 
-    const monthPaymentAmount =
+    /*
+    |--------------------------------------------------------------------------
+    | MONTH'S PAYMENTS
+    |--------------------------------------------------------------------------
+    */
+
+    const monthPaymentsTotal =
       monthPayments.reduce(
-        (sum, payment) => {
-          return (
-            sum +
-            Number(payment.amount || 0)
-          );
-        },
+        (sum, payment) =>
+          sum +
+          toNumber(payment.amount),
         0
       );
 
     /*
     |--------------------------------------------------------------------------
-    | EXPENSES
+    | TODAY'S EXPENSES
     |--------------------------------------------------------------------------
     */
 
-    const todayExpenses = await Expense.find({
-      ...expenseFilter,
-
-      status: "ACTIVE",
-
-      expenseDate: {
-        $gte: startOfToday,
-        $lte: endOfToday,
-      },
-    });
-
-    const monthExpenses = await Expense.find({
-      ...expenseFilter,
-
-      status: "ACTIVE",
-
-      expenseDate: {
-        $gte: startOfMonth,
-        $lte: endOfMonth,
-      },
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | EXPENSE TOTALS
-    |--------------------------------------------------------------------------
-    */
-
-    const todayExpenseAmount =
+    const todayExpensesTotal =
       todayExpenses.reduce(
-        (sum, expense) => {
-          return (
-            sum +
-            Number(expense.amount || 0)
-          );
-        },
+        (sum, expense) =>
+          sum +
+          toNumber(
+            expense.amount
+          ),
         0
       );
 
-    const monthExpenseAmount =
+    /*
+    |--------------------------------------------------------------------------
+    | MONTH'S EXPENSES
+    |--------------------------------------------------------------------------
+    */
+
+    const monthExpensesTotal =
       monthExpenses.reduce(
-        (sum, expense) => {
-          return (
-            sum +
-            Number(expense.amount || 0)
-          );
-        },
+        (sum, expense) =>
+          sum +
+          toNumber(
+            expense.amount
+          ),
         0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | GROSS PROFIT
-    |--------------------------------------------------------------------------
-    */
-
-    const calculateGrossProfit = (sales) => {
-      return sales.reduce(
-        (sum, sale) => {
-          const items = Array.isArray(
-            sale.items
-          )
-            ? sale.items
-            : [];
-
-          const cost = items.reduce(
-            (itemSum, item) => {
-              return (
-                itemSum +
-                Number(
-                  item.buyingPrice || 0
-                ) *
-                  Number(
-                    item.quantity || 0
-                  )
-              );
-            },
-            0
-          );
-
-          const revenue = Number(
-            sale.total || 0
-          );
-
-          return (
-            sum +
-            (revenue - cost)
-          );
-        },
-        0
-      );
-    };
-
-    const todayGrossProfit =
-      calculateGrossProfit(todaySales);
-
-    const monthGrossProfit =
-      calculateGrossProfit(monthSales);
-
-    /*
-    |--------------------------------------------------------------------------
-    | NET PROFIT
-    |--------------------------------------------------------------------------
-    */
-
-    const todayNetProfit =
-      todayGrossProfit -
-      todayExpenseAmount;
-
-    const monthNetProfit =
-      monthGrossProfit -
-      monthExpenseAmount;
-
-    /*
-    |--------------------------------------------------------------------------
-    | PRODUCTS
-    |--------------------------------------------------------------------------
-    |
-    | NOTE:
-    | The current Product.stockQuantity is retained here temporarily.
-    |
-    | Your POS is using branch stock, so we will replace this section with
-    | ProductBranchStock once we connect the exact branch-stock model.
-    |
-    */
-
-    const products = await Product.find({
-      businessId,
-      isActive: true,
-    }).select(
-      "name sku buyingPrice sellingPrice stockQuantity minimumStock trackStock"
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | INVENTORY VALUE
-    |--------------------------------------------------------------------------
-    */
-
-    const inventoryValue =
-      products.reduce(
-        (sum, product) => {
-          return (
-            sum +
-            Number(
-              product.buyingPrice || 0
-            ) *
-              Number(
-                product.stockQuantity || 0
-              )
-          );
-        },
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOW STOCK
-    |--------------------------------------------------------------------------
-    */
-
-    const lowStockProducts =
-      products.filter(
-        (product) => {
-          if (!product.trackStock) {
-            return false;
-          }
-
-          return (
-            Number(
-              product.stockQuantity || 0
-            ) <=
-            Number(
-              product.minimumStock || 0
-            )
-          );
-        }
       );
 
     /*
@@ -420,33 +367,123 @@ export const getDashboardOverview = async (req, res) => {
     const productsSoldToday =
       todaySales.reduce(
         (sum, sale) => {
-          const items = Array.isArray(
-            sale.items
-          )
-            ? sale.items
-            : [];
+          const items =
+            Array.isArray(
+              sale.items
+            )
+              ? sale.items
+              : [];
 
-          const quantity =
+          return (
+            sum +
             items.reduce(
-              (itemSum, item) => {
-                return (
-                  itemSum +
-                  Number(
-                    item.quantity || 0
-                  )
-                );
-              },
+              (
+                itemTotal,
+                item
+              ) =>
+                itemTotal +
+                toNumber(
+                  item.quantity
+                ),
               0
-            );
-
-          return sum + quantity;
+            )
+          );
         },
         0
       );
 
     /*
     |--------------------------------------------------------------------------
-    | PAYMENT METHOD BREAKDOWN
+    | GROSS PROFIT
+    |--------------------------------------------------------------------------
+    |
+    | Gross profit:
+    |
+    | Selling value - buying value
+    |
+    | The sale items already contain buyingPrice
+    | when the sale is created.
+    |
+    */
+
+    const calculateGrossProfit = (
+      sales
+    ) => {
+      return sales.reduce(
+        (salesTotal, sale) => {
+          const items =
+            Array.isArray(
+              sale.items
+            )
+              ? sale.items
+              : [];
+
+          const cost =
+            items.reduce(
+              (
+                itemTotal,
+                item
+              ) => {
+                const buyingPrice =
+                  toNumber(
+                    item.buyingPrice
+                  );
+
+                const quantity =
+                  toNumber(
+                    item.quantity
+                  );
+
+                return (
+                  itemTotal +
+                  buyingPrice *
+                    quantity
+                );
+              },
+              0
+            );
+
+          const saleTotal =
+            toNumber(
+              sale.total
+            );
+
+          return (
+            salesTotal +
+            (saleTotal - cost)
+          );
+        },
+        0
+      );
+    };
+
+    const todayGrossProfit =
+      calculateGrossProfit(
+        todaySales
+      );
+
+    const monthGrossProfit =
+      calculateGrossProfit(
+        monthSales
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | NET PROFIT
+    |--------------------------------------------------------------------------
+    */
+
+    const todayNetProfit =
+      todayGrossProfit -
+      todayExpensesTotal;
+
+    const monthNetProfit =
+      monthGrossProfit -
+      monthExpensesTotal;
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT BREAKDOWN
     |--------------------------------------------------------------------------
     */
 
@@ -460,7 +497,15 @@ export const getDashboardOverview = async (req, res) => {
     todayPayments.forEach(
       (payment) => {
         const method =
-          payment.paymentMethod;
+          String(
+            payment.paymentMethod ||
+              ""
+          ).toUpperCase();
+
+        const amount =
+          toNumber(
+            payment.amount
+          );
 
         if (
           Object.prototype.hasOwnProperty.call(
@@ -468,36 +513,148 @@ export const getDashboardOverview = async (req, res) => {
             method
           )
         ) {
-          paymentBreakdown[method] +=
-            Number(
-              payment.amount || 0
-            );
+          paymentBreakdown[
+            method
+          ] += amount;
         }
       }
     );
 
     /*
     |--------------------------------------------------------------------------
-    | RECENT SALES
+    | INVENTORY
+    |--------------------------------------------------------------------------
+    |
+    | This part currently uses Product.stockQuantity because
+    | the exact branch-stock model has not yet been supplied.
+    |
+    | We will replace this section with the actual branch-stock
+    | collection once that model is provided.
+    |
+    */
+
+    const productFilter = {
+      businessId,
+    };
+
+    const products =
+      await Product.find(
+        productFilter
+      ).lean();
+
+    const totalProducts =
+      products.length;
+
+    const inventoryValue =
+      products.reduce(
+        (sum, product) => {
+          const stock =
+            toNumber(
+              product.stockQuantity
+            );
+
+          const buyingPrice =
+            toNumber(
+              product.buyingPrice
+            );
+
+          return (
+            sum +
+            stock * buyingPrice
+          );
+        },
+        0
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOW STOCK PRODUCTS
     |--------------------------------------------------------------------------
     */
 
-    const recentSales =
-      await Sale.find({
-        ...saleFilter,
-      })
-        .populate(
-          "customerId",
-          "name phone"
-        )
-        .populate(
-          "cashierId",
-          "name"
-        )
-        .sort({
-          createdAt: -1,
+    const lowStockProducts =
+      products
+        .filter((product) => {
+          const stock =
+            toNumber(
+              product.stockQuantity
+            );
+
+          const minimumStock =
+            toNumber(
+              product.minimumStock ??
+                product.minStock ??
+                0
+            );
+
+          return (
+            stock <= minimumStock
+          );
         })
-        .limit(8);
+        .sort(
+          (a, b) =>
+            toNumber(
+              a.stockQuantity
+            ) -
+            toNumber(
+              b.stockQuantity
+            )
+        )
+        .slice(0, 20)
+        .map((product) => ({
+          _id: product._id,
+          name: product.name,
+          sku: product.sku,
+
+          stock: toNumber(
+            product.stockQuantity
+          ),
+
+          minimumStock: toNumber(
+            product.minimumStock ??
+              product.minStock ??
+              0
+          ),
+        }));
+
+    /*
+    |--------------------------------------------------------------------------
+    | RECENT SALES
+    |--------------------------------------------------------------------------
+    |
+    | Return the latest completed sales.
+    |
+    */
+
+    const recentSales =
+      todaySales
+        .slice(0, 10)
+        .map((sale) => ({
+          _id: sale._id,
+
+          receiptNumber:
+            sale.receiptNumber,
+
+          total:
+            toNumber(
+              sale.total
+            ),
+
+          status:
+            sale.status,
+
+          paymentMethod:
+            sale.paymentMethod,
+
+          createdAt:
+            sale.createdAt,
+
+          customerId:
+            sale.customerId || null,
+
+          cashierId:
+            sale.cashierId || null,
+        }));
 
     /*
     |--------------------------------------------------------------------------
@@ -505,19 +662,19 @@ export const getDashboardOverview = async (req, res) => {
     |--------------------------------------------------------------------------
     */
 
-    return res.json({
+    return res.status(200).json({
       success: true,
 
       overview: {
         today: {
           sales:
-            todaySalesAmount,
+            todaySalesTotal,
 
           payments:
-            todayPaymentAmount,
+            todayPaymentsTotal,
 
           expenses:
-            todayExpenseAmount,
+            todayExpensesTotal,
 
           grossProfit:
             todayGrossProfit,
@@ -531,13 +688,13 @@ export const getDashboardOverview = async (req, res) => {
 
         month: {
           sales:
-            monthSalesAmount,
+            monthSalesTotal,
 
           payments:
-            monthPaymentAmount,
+            monthPaymentsTotal,
 
           expenses:
-            monthExpenseAmount,
+            monthExpensesTotal,
 
           grossProfit:
             monthGrossProfit,
@@ -547,40 +704,17 @@ export const getDashboardOverview = async (req, res) => {
         },
 
         inventory: {
-          totalProducts:
-            products.length,
+          totalProducts,
 
           inventoryValue,
 
           lowStockCount:
             lowStockProducts.length,
 
-          lowStockProducts:
-            lowStockProducts
-              .slice(0, 10)
-              .map(
-                (product) => ({
-                  id:
-                    product._id,
-
-                  name:
-                    product.name,
-
-                  sku:
-                    product.sku,
-
-                  stock:
-                    product.stockQuantity,
-
-                  minimumStock:
-                    product.minimumStock,
-                })
-              ),
+          lowStockProducts,
         },
 
         paymentBreakdown,
-
-        totalSales,
 
         recentSales,
       },
@@ -595,7 +729,7 @@ export const getDashboardOverview = async (req, res) => {
       success: false,
 
       message:
-        "Failed to load dashboard data.",
+        "Failed to load dashboard overview.",
 
       error:
         process.env.NODE_ENV ===
