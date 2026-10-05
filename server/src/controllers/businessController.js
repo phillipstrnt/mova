@@ -1,23 +1,35 @@
-
 import Business from "../models/Business.js";
 import Branch from "../models/Branch.js";
 import ReceiptSettings from "../models/ReceiptSettings.js";
 
-const getBusinessProfile = async (req, res) => {
+/*
+|--------------------------------------------------------------------------
+| GET BUSINESS PROFILE
+|--------------------------------------------------------------------------
+*/
+export const getBusinessProfile = async (req, res) => {
   try {
+    const businessId =
+      req.user?.businessId ||
+      req.businessId;
+
+    if (!businessId) {
+      return res.status(400).json({
+        message: "Business information is missing.",
+      });
+    }
+
     const business = await Business.findById(
-      req.user.businessId
-    );
+      businessId
+    ).lean();
 
     if (!business) {
       return res.status(404).json({
-        success: false,
-        message: "Business not found",
+        message: "Business not found.",
       });
     }
 
     return res.status(200).json({
-      success: true,
       business,
     });
   } catch (error) {
@@ -27,15 +39,31 @@ const getBusinessProfile = async (req, res) => {
     );
 
     return res.status(500).json({
-      success: false,
-      message: "Failed to load business profile",
+      message:
+        "Unable to retrieve business profile.",
     });
   }
 };
 
-const updateBusinessProfile = async (req, res) => {
+/*
+|--------------------------------------------------------------------------
+| UPDATE BUSINESS PROFILE
+|--------------------------------------------------------------------------
+*/
+export const updateBusinessProfile = async (
+  req,
+  res
+) => {
   try {
-    const businessId = req.user.businessId;
+    const businessId =
+      req.user?.businessId ||
+      req.businessId;
+
+    if (!businessId) {
+      return res.status(400).json({
+        message: "Business information is missing.",
+      });
+    }
 
     const {
       name,
@@ -51,55 +79,69 @@ const updateBusinessProfile = async (req, res) => {
 
     if (!name || !name.trim()) {
       return res.status(400).json({
-        success: false,
-        message: "Business name is required",
+        message: "Business name is required.",
       });
     }
 
     if (!businessType || !businessType.trim()) {
       return res.status(400).json({
-        success: false,
-        message: "Business type is required",
+        message: "Business type is required.",
       });
-    }
-
-    const updateData = {
-      name: name.trim(),
-      businessType: businessType.trim(),
-      phone: phone?.trim() || "",
-      email: email?.trim().toLowerCase() || "",
-      address: address?.trim() || "",
-      country: country?.trim() || "Uganda",
-      currency: currency?.trim() || "UGX",
-      timezone:
-        timezone?.trim() || "Africa/Kampala",
-    };
-
-    if (typeof logo === "string") {
-      updateData.logo = logo.trim();
     }
 
     const business =
-      await Business.findByIdAndUpdate(
-        businessId,
-        updateData,
-        {
-          new: true,
-          runValidators: true,
-        }
-      );
+      await Business.findById(businessId);
 
     if (!business) {
       return res.status(404).json({
-        success: false,
-        message: "Business not found",
+        message: "Business not found.",
       });
     }
 
+    business.name = name.trim();
+    business.businessType =
+      businessType.trim();
+
+    if (phone !== undefined) {
+      business.phone =
+        phone?.trim() || "";
+    }
+
+    if (email !== undefined) {
+      business.email =
+        email?.trim().toLowerCase() || "";
+    }
+
+    if (address !== undefined) {
+      business.address =
+        address?.trim() || "";
+    }
+
+    if (country !== undefined) {
+      business.country =
+        country?.trim() || "Uganda";
+    }
+
+    if (currency !== undefined) {
+      business.currency =
+        currency?.trim() || "UGX";
+    }
+
+    if (timezone !== undefined) {
+      business.timezone =
+        timezone?.trim() ||
+        "Africa/Kampala";
+    }
+
+    if (logo !== undefined) {
+      business.logo = logo || "";
+    }
+
+    await business.save();
+
     return res.status(200).json({
-      success: true,
       message:
-        "Business profile updated successfully",
+        "Business profile updated successfully.",
       business,
     });
   } catch (error) {
@@ -109,61 +151,110 @@ const updateBusinessProfile = async (req, res) => {
     );
 
     return res.status(500).json({
-      success: false,
-      message: "Failed to update business profile",
-      error: error.message,
+      message:
+        "Unable to update business profile.",
     });
   }
 };
 
-const getSetupStatus = async (req, res) => {
+/*
+|--------------------------------------------------------------------------
+| GET SETUP STATUS
+|--------------------------------------------------------------------------
+|
+| MOVA considers onboarding complete when:
+|
+| 1. Business details are complete
+| 2. At least one active branch exists
+| 3. Receipt settings exist
+|
+|--------------------------------------------------------------------------
+*/
+export const getSetupStatus = async (
+  req,
+  res
+) => {
   try {
-    const businessId = req.user.businessId;
+    const businessId =
+      req.user?.businessId ||
+      req.businessId;
 
-    const [
-      business,
-      branchCount,
-      receiptSettings,
-    ] = await Promise.all([
-      Business.findById(businessId).select(
-        "_id name businessType phone email address country currency timezone logo"
-      ),
-
-      Branch.countDocuments({
-        businessId,
-        isActive: true,
-      }),
-
-      ReceiptSettings.findOne({
-        businessId,
-      }).select("_id"),
-    ]);
-
-    if (!business) {
-      return res.status(404).json({
-        success: false,
-        message: "Business not found",
+    if (!businessId) {
+      return res.status(400).json({
+        message: "Business information is missing.",
       });
     }
 
+    const business =
+      await Business.findById(
+        businessId
+      ).lean();
+
+    if (!business) {
+      return res.status(404).json({
+        message: "Business not found.",
+      });
+    }
+
+    /*
+     * BUSINESS SETUP
+     */
     const businessComplete =
-      Boolean(business.name) &&
-      Boolean(business.businessType);
+      Boolean(
+        business.name?.trim() &&
+          business.businessType?.trim()
+      );
+
+    /*
+     * BRANCH SETUP
+     */
+    const activeBranchCount =
+      await Branch.countDocuments({
+        businessId,
+        status: {
+          $ne: "INACTIVE",
+        },
+      });
 
     const branchComplete =
-      branchCount > 0;
+      activeBranchCount > 0;
+
+    /*
+     * RECEIPT SETUP
+     */
+    const receiptSettings =
+      await ReceiptSettings.findOne({
+        businessId,
+      }).lean();
 
     const receiptComplete =
       Boolean(receiptSettings);
 
+    /*
+     * OVERALL STATUS
+     */
     const setupComplete =
       businessComplete &&
       branchComplete &&
       receiptComplete;
 
+    /*
+     * DETERMINE NEXT STEP
+     */
+    let nextStep = null;
+
+    if (!businessComplete) {
+      nextStep = "business";
+    } else if (!branchComplete) {
+      nextStep = "branch";
+    } else if (!receiptComplete) {
+      nextStep = "receipt";
+    }
+
     return res.status(200).json({
-      success: true,
       setupComplete,
+
+      nextStep,
 
       steps: {
         business: businessComplete,
@@ -171,7 +262,12 @@ const getSetupStatus = async (req, res) => {
         receipt: receiptComplete,
       },
 
-      business,
+      business: {
+        _id: business._id,
+        name: business.name,
+        businessType:
+          business.businessType,
+      },
     });
   } catch (error) {
     console.error(
@@ -180,16 +276,8 @@ const getSetupStatus = async (req, res) => {
     );
 
     return res.status(500).json({
-      success: false,
       message:
-        "Failed to determine setup status",
-      error: error.message,
+        "Unable to verify business setup.",
     });
   }
-};
-
-export {
-  getBusinessProfile,
-  updateBusinessProfile,
-  getSetupStatus,
 };

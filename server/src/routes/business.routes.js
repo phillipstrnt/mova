@@ -13,26 +13,18 @@ import {
 
 const router = express.Router();
 
-// ==========================================
-// GET BUSINESS PROFILE
-// ==========================================
-//
-// Any authenticated user in the business
-// can view the business profile.
-//
+/*
+|--------------------------------------------------------------------------
+| BUSINESS PROFILE
+|--------------------------------------------------------------------------
+*/
+
 router.get(
   "/profile",
   protect,
   getBusinessProfile
 );
 
-// ==========================================
-// UPDATE BUSINESS PROFILE
-// ==========================================
-//
-// Only OWNER and ADMIN can update
-// business information.
-//
 router.put(
   "/profile",
   protect,
@@ -40,18 +32,12 @@ router.put(
   updateBusinessProfile
 );
 
-// ==========================================
-// GET BUSINESS SETUP STATUS
-// ==========================================
-//
-// Used by MOVA to determine whether the
-// initial business setup is complete.
-//
-// Setup requires:
-// 1. Business information
-// 2. At least one active branch
-// 3. Receipt settings
-//
+/*
+|--------------------------------------------------------------------------
+| ONBOARDING / SETUP STATUS
+|--------------------------------------------------------------------------
+*/
+
 router.get(
   "/setup-status",
   protect,

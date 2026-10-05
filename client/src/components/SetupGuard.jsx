@@ -7,7 +7,9 @@ const SetupGuard = ({ children }) => {
   const location = useLocation();
 
   const [loading, setLoading] = useState(true);
-  const [setupComplete, setSetupComplete] = useState(false);
+  const [setupComplete, setSetupComplete] =
+    useState(false);
+  const [nextStep, setNextStep] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -34,20 +36,31 @@ const SetupGuard = ({ children }) => {
         setSetupComplete(
           data?.setupComplete === true
         );
-      } catch (error) {
+
+        setNextStep(
+          data?.nextStep || null
+        );
+      } catch (requestError) {
         console.error(
           "Setup status check failed:",
-          error
+          requestError
         );
 
         if (!mounted) return;
 
         setError(
-          error?.response?.data?.message ||
+          requestError?.response?.data
+            ?.message ||
             "Unable to verify business setup."
         );
 
         setSetupComplete(false);
+
+        /*
+         * If setup status cannot be checked,
+         * send the user to business setup.
+         */
+        setNextStep("business");
       } finally {
         if (mounted) {
           setLoading(false);
@@ -62,10 +75,6 @@ const SetupGuard = ({ children }) => {
     };
   }, []);
 
-  /*
-   * Show loading screen while MOVA checks
-   * whether the business setup is complete.
-   */
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -85,13 +94,35 @@ const SetupGuard = ({ children }) => {
   }
 
   /*
-   * If setup has not been completed,
-   * send the user back to the correct setup step.
+   * Setup is complete.
+   *
+   * Allow the dashboard to render.
    */
-  if (!setupComplete) {
+  if (setupComplete) {
+    return children;
+  }
+
+  /*
+   * Determine which setup page should
+   * be displayed next.
+   */
+  let setupPath = "/setup/business";
+
+  if (nextStep === "branch") {
+    setupPath = "/setup/branch";
+  }
+
+  if (nextStep === "receipt") {
+    setupPath = "/setup/receipt";
+  }
+
+  /*
+   * Prevent redirect loops.
+   */
+  if (location.pathname !== setupPath) {
     return (
       <Navigate
-        to="/setup/business"
+        to={setupPath}
         replace
         state={{
           from: location.pathname,
@@ -102,10 +133,10 @@ const SetupGuard = ({ children }) => {
   }
 
   /*
-   * Setup is complete.
-   * Render DashboardLayout and its children.
+   * If we're already on the correct setup page,
+   * don't redirect again.
    */
-  return children;
+  return null;
 };
 
 export default SetupGuard;

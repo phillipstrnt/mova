@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,6 +11,7 @@ import {
   Store,
   UserRound,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
 
 import api from "../../services/api";
@@ -30,6 +32,14 @@ const STEPS = [
   },
 ];
 
+const EMPTY_FORM = {
+  name: "",
+  code: "",
+  phone: "",
+  address: "",
+  managerId: "",
+};
+
 const BranchSetup = () => {
   const navigate = useNavigate();
 
@@ -41,77 +51,133 @@ const BranchSetup = () => {
     setBranches,
   } = useAuth();
 
-  const [formData, setFormData] = useState({
-    name: "",
-    code: "",
-    phone: "",
-    address: "",
-    managerId: "",
-  });
+  const [formData, setFormData] =
+    useState(EMPTY_FORM);
 
   const [users, setUsers] = useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
 
   useEffect(() => {
     loadSetupData();
   }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD BRANCH DATA
+  |--------------------------------------------------------------------------
+  */
 
   const loadSetupData = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const [branchesResponse, usersResponse] =
-        await Promise.all([
-          api.get("/branches"),
-          api.get("/branches/users"),
-        ]);
+      const branchesResponse =
+        await api.get("/branches");
 
       const loadedBranches =
-        branchesResponse?.data?.branches || [];
-
-      const loadedUsers =
-        usersResponse?.data?.users || [];
+        Array.isArray(
+          branchesResponse?.data?.branches
+        )
+          ? branchesResponse.data.branches
+          : [];
 
       setBranches(loadedBranches);
-      setUsers(loadedUsers);
 
       /*
-       * If the business already has a branch,
-       * load its details into the form.
+       * Registration already creates Main Branch.
        *
-       * This makes onboarding resumable.
+       * Prefer the branch stored in AuthContext.
+       * Otherwise use the first branch returned
+       * by the backend.
        */
+
       const existingBranch =
         branch ||
-        loadedBranches[0];
+        loadedBranches[0] ||
+        null;
+
+      /*
+       * Users are useful for assigning a manager,
+       * but failure to load them should NOT prevent
+       * the branch setup page from opening.
+       */
+
+      try {
+        const usersResponse =
+          await api.get("/branches/users");
+
+        const loadedUsers =
+          Array.isArray(
+            usersResponse?.data?.users
+          )
+            ? usersResponse.data.users
+            : [];
+
+        setUsers(loadedUsers);
+      } catch (userError) {
+        console.warn(
+          "Could not load branch users:",
+          userError
+        );
+
+        setUsers([]);
+      }
 
       if (existingBranch) {
         setFormData({
-          name: existingBranch.name || "",
-          code: existingBranch.code || "",
+          name:
+            existingBranch.name ||
+            "Main Branch",
+
+          code:
+            existingBranch.code ||
+            "MAIN",
+
           phone:
             existingBranch.phone ||
             business?.phone ||
             "",
+
           address:
             existingBranch.address ||
             business?.address ||
             "",
+
           managerId:
             existingBranch.managerId?._id ||
             existingBranch.managerId ||
             "",
         });
+
+        /*
+         * Make sure AuthContext knows about
+         * the existing branch.
+         */
+
+        setBranch(existingBranch);
+
+        localStorage.setItem(
+          "mova_branch",
+          JSON.stringify(existingBranch)
+        );
       } else {
         /*
-         * Default first branch.
+         * This is only used if somehow the
+         * registration did not create a branch.
          */
+
         setFormData({
           name: "Main Branch",
           code: "MAIN",
@@ -128,6 +194,7 @@ const BranchSetup = () => {
 
       setError(
         requestError?.response?.data?.message ||
+          requestError?.message ||
           "Failed to load branch setup information."
       );
     } finally {
@@ -135,8 +202,17 @@ const BranchSetup = () => {
     }
   };
 
+  /*
+  |--------------------------------------------------------------------------
+  | INPUT
+  |--------------------------------------------------------------------------
+  */
+
   const handleChange = (event) => {
-    const { name, value } = event.target;
+    const {
+      name,
+      value,
+    } = event.target;
 
     setFormData((current) => ({
       ...current,
@@ -147,6 +223,12 @@ const BranchSetup = () => {
     setSuccess("");
   };
 
+  /*
+  |--------------------------------------------------------------------------
+  | VALIDATION
+  |--------------------------------------------------------------------------
+  */
+
   const validate = () => {
     if (!formData.name.trim()) {
       return "Branch name is required.";
@@ -156,13 +238,27 @@ const BranchSetup = () => {
       return "Branch code is required.";
     }
 
+    if (
+      formData.code.trim().length >
+      15
+    ) {
+      return "Branch code must be 15 characters or fewer.";
+    }
+
     return "";
   };
+
+  /*
+  |--------------------------------------------------------------------------
+  | SAVE
+  |--------------------------------------------------------------------------
+  */
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    const validationError = validate();
+    const validationError =
+      validate();
 
     if (validationError) {
       setError(validationError);
@@ -174,96 +270,132 @@ const BranchSetup = () => {
       setError("");
       setSuccess("");
 
+      const payload = {
+        name: formData.name.trim(),
+
+        code: formData.code
+          .trim()
+          .toUpperCase(),
+
+        phone: formData.phone.trim(),
+
+        address:
+          formData.address.trim(),
+
+        managerId:
+          formData.managerId || null,
+      };
+
       let response;
 
       /*
-       * If a branch already exists, update it.
-       * Otherwise create the first branch.
+       * IMPORTANT:
+       *
+       * Registration already creates the first
+       * branch, so normally we UPDATE it.
        */
-      if (branch?._id) {
-        response = await api.put(
-          `/branches/${branch._id}`,
-          {
-            name: formData.name.trim(),
-            code: formData.code.trim().toUpperCase(),
-            phone: formData.phone.trim(),
-            address: formData.address.trim(),
-            managerId:
-              formData.managerId || null,
-          }
-        );
-      } else if (branches?.length > 0) {
-        /*
-         * Existing branch but AuthContext didn't have it.
-         */
-        const firstBranch = branches[0];
 
+      const branchToUpdate =
+        branch ||
+        branches?.[0] ||
+        null;
+
+      if (branchToUpdate?._id) {
         response = await api.put(
-          `/branches/${firstBranch._id}`,
-          {
-            name: formData.name.trim(),
-            code: formData.code.trim().toUpperCase(),
-            phone: formData.phone.trim(),
-            address: formData.address.trim(),
-            managerId:
-              formData.managerId || null,
-          }
+          `/branches/${branchToUpdate._id}`,
+          payload
         );
       } else {
+        /*
+         * Fallback in case the branch does not exist.
+         */
+
         response = await api.post(
           "/branches",
-          {
-            name: formData.name.trim(),
-            code: formData.code.trim().toUpperCase(),
-            phone: formData.phone.trim(),
-            address: formData.address.trim(),
-            managerId:
-              formData.managerId || null,
-          }
+          payload
         );
       }
 
       const savedBranch =
         response?.data?.branch;
 
-      if (savedBranch) {
-        setBranch(savedBranch);
-
-        const branchList =
-          branches || [];
-
-        const exists = branchList.some(
-          (item) =>
-            item._id === savedBranch._id
-        );
-
-        const updatedBranches = exists
-          ? branchList.map((item) =>
-              item._id === savedBranch._id
-                ? savedBranch
-                : item
-            )
-          : [...branchList, savedBranch];
-
-        setBranches(updatedBranches);
-
-        localStorage.setItem(
-          "mova_branch",
-          JSON.stringify(savedBranch)
-        );
-
-        localStorage.setItem(
-          "mova_branches",
-          JSON.stringify(updatedBranches)
+      if (!savedBranch) {
+        throw new Error(
+          "Branch was saved but the server did not return the branch."
         );
       }
+
+      /*
+       * Update AuthContext.
+       */
+
+      setBranch(savedBranch);
+
+      /*
+       * Update branch list.
+       */
+
+      const currentBranches =
+        Array.isArray(branches)
+          ? branches
+          : [];
+
+      const exists =
+        currentBranches.some(
+          (item) =>
+            item?._id ===
+            savedBranch?._id
+        );
+
+      const updatedBranches =
+        exists
+          ? currentBranches.map(
+              (item) =>
+                item?._id ===
+                savedBranch?._id
+                  ? savedBranch
+                  : item
+            )
+          : [
+              ...currentBranches,
+              savedBranch,
+            ];
+
+      setBranches(
+        updatedBranches
+      );
+
+      /*
+       * Persist locally.
+       */
+
+      localStorage.setItem(
+        "mova_branch",
+        JSON.stringify(savedBranch)
+      );
+
+      localStorage.setItem(
+        "mova_branches",
+        JSON.stringify(
+          updatedBranches
+        )
+      );
 
       setSuccess(
         "Branch information saved successfully."
       );
 
-      setTimeout(() => {
-        navigate("/setup/receipt");
+      /*
+       * Continue to Receipt Setup.
+       */
+
+      window.setTimeout(() => {
+        navigate(
+          "/setup/receipt",
+          {
+            replace: true,
+          }
+        );
       }, 700);
     } catch (requestError) {
       console.error(
@@ -273,6 +405,7 @@ const BranchSetup = () => {
 
       setError(
         requestError?.response?.data?.message ||
+          requestError?.message ||
           "Failed to save branch information."
       );
     } finally {
@@ -280,47 +413,88 @@ const BranchSetup = () => {
     }
   };
 
+  /*
+  |--------------------------------------------------------------------------
+  | NAVIGATION
+  |--------------------------------------------------------------------------
+  */
+
   const handleBack = () => {
-    navigate("/setup/business");
+    navigate(
+      "/setup/business"
+    );
   };
 
+  /*
+   * Do not send an incomplete user to /app.
+   *
+   * SetupGuard would simply redirect them back
+   * into setup.
+   */
+
   const handleSkip = () => {
-    navigate("/app");
+    navigate(
+      "/setup/receipt"
+    );
   };
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOADING
+  |--------------------------------------------------------------------------
+  */
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <div className="text-center">
+
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
 
           <p className="text-sm text-slate-500">
             Loading branch setup...
           </p>
+
         </div>
       </div>
     );
   }
 
+  /*
+  |--------------------------------------------------------------------------
+  | UI
+  |--------------------------------------------------------------------------
+  */
+
   return (
     <div className="min-h-screen bg-slate-50">
+
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        {/* Header */}
+
+        {/* HEADER */}
+
         <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+
           <div className="flex items-center gap-3">
+
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white">
               <Store size={22} />
             </div>
 
             <div>
+
               <p className="text-lg font-bold text-slate-900">
                 MOVA
               </p>
 
               <p className="text-xs text-slate-500">
-                {business?.name || "Business"} setup
+                {business?.name ||
+                  "Business"}{" "}
+                setup
               </p>
+
             </div>
+
           </div>
 
           <button
@@ -328,87 +502,115 @@ const BranchSetup = () => {
             onClick={handleSkip}
             className="text-sm font-medium text-slate-500 hover:text-slate-900"
           >
-            Set up later
+            Continue to receipt setup
           </button>
+
         </div>
 
-        {/* Progress */}
+        {/* PROGRESS */}
+
         <div className="mx-auto mb-8 max-w-3xl">
+
           <div className="flex items-center justify-between">
-            {STEPS.map((step, index) => (
-              <div
-                key={step.number}
-                className="flex flex-1 items-center"
-              >
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${
-                      step.number <= 2
-                        ? "bg-slate-900 text-white"
-                        : "bg-white text-slate-400 ring-1 ring-slate-200"
-                    }`}
-                  >
-                    {step.number < 2 ? (
-                      <Check size={17} />
-                    ) : (
-                      step.number
-                    )}
+
+            {STEPS.map(
+              (step, index) => (
+                <div
+                  key={step.number}
+                  className="flex flex-1 items-center"
+                >
+
+                  <div className="flex flex-col items-center">
+
+                    <div
+                      className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${
+                        step.number <= 2
+                          ? "bg-slate-900 text-white"
+                          : "bg-white text-slate-400 ring-1 ring-slate-200"
+                      }`}
+                    >
+                      {step.number <
+                      2 ? (
+                        <Check
+                          size={17}
+                        />
+                      ) : (
+                        step.number
+                      )}
+                    </div>
+
+                    <span
+                      className={`mt-2 text-xs font-medium ${
+                        step.number <= 2
+                          ? "text-slate-900"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {step.title}
+                    </span>
+
                   </div>
 
-                  <span
-                    className={`mt-2 text-xs font-medium ${
-                      step.number <= 2
-                        ? "text-slate-900"
-                        : "text-slate-400"
-                    }`}
-                  >
-                    {step.title}
-                  </span>
-                </div>
+                  {index <
+                    STEPS.length -
+                      1 && (
+                    <div
+                      className={`mx-3 mt-[-18px] h-px flex-1 ${
+                        step.number <
+                        2
+                          ? "bg-slate-900"
+                          : "bg-slate-200"
+                      }`}
+                    />
+                  )}
 
-                {index < STEPS.length - 1 && (
-                  <div
-                    className={`mx-3 mt-[-18px] h-px flex-1 ${
-                      step.number < 2
-                        ? "bg-slate-900"
-                        : "bg-slate-200"
-                    }`}
-                  />
-                )}
-              </div>
-            ))}
+                </div>
+              )
+            )}
+
           </div>
+
         </div>
 
-        {/* Card */}
+        {/* CARD */}
+
         <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+
           <div className="border-b border-slate-200 px-6 py-6 sm:px-8">
+
             <div className="flex items-start gap-4">
+
               <div className="rounded-xl bg-slate-100 p-3">
+
                 <Building2
                   size={24}
                   className="text-slate-700"
                 />
+
               </div>
 
               <div>
+
                 <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
                   Set up your branch
                 </h1>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Your first branch is usually your main
-                  business location. You can add more
-                  branches later.
+                  Configure the location where
+                  your business operates.
                 </p>
+
               </div>
+
             </div>
+
           </div>
 
           <form
             onSubmit={handleSubmit}
             className="p-6 sm:p-8"
           >
+
             {error && (
               <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
@@ -418,18 +620,23 @@ const BranchSetup = () => {
             {success && (
               <div className="mb-6 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
                 <Check size={17} />
+
                 {success}
               </div>
             )}
 
             <div className="grid gap-5 md:grid-cols-2">
-              {/* Branch name */}
+
+              {/* NAME */}
+
               <div>
+
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Branch name *
                 </label>
 
                 <div className="relative">
+
                   <Building2
                     size={18}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -438,16 +645,24 @@ const BranchSetup = () => {
                   <input
                     type="text"
                     name="name"
-                    value={formData.name}
-                    onChange={handleChange}
+                    value={
+                      formData.name
+                    }
+                    onChange={
+                      handleChange
+                    }
                     placeholder="e.g. Mukono Branch"
                     className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   />
+
                 </div>
+
               </div>
 
-              {/* Code */}
+              {/* CODE */}
+
               <div>
+
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Branch code *
                 </label>
@@ -455,24 +670,34 @@ const BranchSetup = () => {
                 <input
                   type="text"
                   name="code"
-                  value={formData.code}
-                  onChange={handleChange}
+                  value={
+                    formData.code
+                  }
+                  onChange={
+                    handleChange
+                  }
                   placeholder="e.g. MUK"
+                  maxLength={15}
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm uppercase outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                 />
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Short unique identifier for this branch.
+                  Short unique identifier
+                  for this branch.
                 </p>
+
               </div>
 
-              {/* Phone */}
+              {/* PHONE */}
+
               <div>
+
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Branch phone
                 </label>
 
                 <div className="relative">
+
                   <Phone
                     size={18}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -481,21 +706,30 @@ const BranchSetup = () => {
                   <input
                     type="tel"
                     name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
+                    value={
+                      formData.phone
+                    }
+                    onChange={
+                      handleChange
+                    }
                     placeholder="+256 7XX XXX XXX"
                     className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   />
+
                 </div>
+
               </div>
 
-              {/* Manager */}
+              {/* MANAGER */}
+
               <div>
+
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Branch manager
                 </label>
 
                 <div className="relative">
+
                   <UserRound
                     size={18}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -503,33 +737,51 @@ const BranchSetup = () => {
 
                   <select
                     name="managerId"
-                    value={formData.managerId}
-                    onChange={handleChange}
+                    value={
+                      formData.managerId
+                    }
+                    onChange={
+                      handleChange
+                    }
                     className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   >
+
                     <option value="">
                       No manager assigned
                     </option>
 
-                    {users.map((user) => (
-                      <option
-                        key={user._id}
-                        value={user._id}
-                      >
-                        {user.name} — {user.role}
-                      </option>
-                    ))}
+                    {users.map(
+                      (user) => (
+                        <option
+                          key={
+                            user._id
+                          }
+                          value={
+                            user._id
+                          }
+                        >
+                          {user.name} —{" "}
+                          {user.role}
+                        </option>
+                      )
+                    )}
+
                   </select>
+
                 </div>
+
               </div>
 
-              {/* Address */}
+              {/* ADDRESS */}
+
               <div className="md:col-span-2">
+
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Branch address
                 </label>
 
                 <div className="relative">
+
                   <MapPin
                     size={18}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -538,39 +790,56 @@ const BranchSetup = () => {
                   <input
                     type="text"
                     name="address"
-                    value={formData.address}
-                    onChange={handleChange}
+                    value={
+                      formData.address
+                    }
+                    onChange={
+                      handleChange
+                    }
                     placeholder="e.g. Mukono Town, Main Street"
                     className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                   />
+
                 </div>
+
               </div>
+
             </div>
 
-            {/* Multi branch explanation */}
+            {/* INFO */}
+
             <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-5">
+
               <h3 className="font-semibold text-slate-900">
-                More branches later?
+                Multiple branches?
               </h3>
 
               <p className="mt-1 text-sm leading-6 text-slate-500">
-                Yes. After completing setup, an OWNER or
-                ADMIN will be able to create additional
-                branches such as Kampala, Mukono, Jinja,
-                or any other location. Stock, sales,
-                employees and reports can then be managed
-                by branch.
+                You can add additional branches
+                after completing onboarding.
+                Each branch can have its own
+                stock, sales, employees and
+                reports.
               </p>
+
             </div>
 
-            {/* Footer */}
+            {/* FOOTER */}
+
             <div className="mt-8 flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
+
               <button
                 type="button"
-                onClick={handleBack}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={
+                  handleBack
+                }
+                disabled={saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               >
-                <ArrowLeft size={17} />
+                <ArrowLeft
+                  size={17}
+                />
+
                 Back
               </button>
 
@@ -579,6 +848,7 @@ const BranchSetup = () => {
                 disabled={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
+
                 <Save size={17} />
 
                 {saving
@@ -586,13 +856,21 @@ const BranchSetup = () => {
                   : "Save & Continue"}
 
                 {!saving && (
-                  <ArrowRight size={17} />
+                  <ArrowRight
+                    size={17}
+                  />
                 )}
+
               </button>
+
             </div>
+
           </form>
+
         </div>
+
       </div>
+
     </div>
   );
 };
