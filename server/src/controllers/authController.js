@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
 import Branch from "../models/Branch.js";
+import crypto from "crypto";
+import sendPasswordResetEmail from "../utils/emailService.js";
 
 import generateToken from "../utils/generateToken.js";
 
@@ -321,6 +323,254 @@ const login = async (req, res) => {
       });
     }
 
+    // ======================================================
+// FORGOT PASSWORD
+// ======================================================
+
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    /*
+     * Always return the same message.
+     *
+     * This prevents attackers from discovering
+     * which email addresses have MOVA accounts.
+     */
+    const genericMessage =
+      "If an account exists for that email, a password reset link has been sent.";
+
+    if (!email) {
+      return res.status(200).json({
+        success: true,
+        message: genericMessage,
+      });
+    }
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    const user =
+      await User.findOne({
+        email: normalizedEmail,
+      }).select(
+        "+passwordResetToken +passwordResetExpires"
+      );
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: genericMessage,
+      });
+    }
+
+    /*
+     * Generate a cryptographically secure
+     * random token.
+     *
+     * The raw token goes ONLY to the user.
+     */
+    const resetToken =
+      crypto.randomBytes(32).toString("hex");
+
+    /*
+     * Store only a SHA-256 hash of the token.
+     *
+     * If the database is compromised, the attacker
+     * cannot directly use the stored value as the
+     * reset token.
+     */
+    const resetTokenHash =
+      crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+
+    user.passwordResetToken =
+      resetTokenHash;
+
+    /*
+     * Reset link expires after 15 minutes.
+     */
+    user.passwordResetExpires =
+      new Date(
+        Date.now() + 15 * 60 * 1000
+      );
+
+    await user.save({
+      validateBeforeSave: false,
+    });
+
+    /*
+     * Frontend URL.
+     */
+    const clientUrl =
+      process.env.CLIENT_URL ||
+      "http://localhost:5173";
+
+    const resetUrl =
+      `${clientUrl}/reset-password/${resetToken}`;
+
+    try {
+      await sendPasswordResetEmail({
+        email: user.email,
+        name: user.name,
+        resetUrl,
+      });
+    } catch (emailError) {
+      /*
+       * If email delivery fails, invalidate
+       * the reset token so it cannot be used.
+       */
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+
+      await user.save({
+        validateBeforeSave: false,
+      });
+
+      console.error(
+        "Password reset email failed:",
+        emailError
+      );
+
+      /*
+       * Do not expose SMTP details to the client.
+       */
+      return res.status(200).json({
+        success: true,
+        message: genericMessage,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: genericMessage,
+    });
+  } catch (error) {
+    console.error(
+      "Forgot password error:",
+      error
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "If an account exists for that email, a password reset link has been sent.",
+    });
+  }
+};
+
+// ======================================================
+// RESET PASSWORD
+// ======================================================
+
+const resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password reset token is required.",
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "New password is required.",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must contain at least 6 characters.",
+      });
+    }
+
+    /*
+     * Hash the token received from the URL.
+     */
+    const tokenHash =
+      crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+    /*
+     * Find the account with:
+     *
+     * 1. Matching reset token
+     * 2. Token that has not expired
+     */
+    const user =
+      await User.findOne({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: {
+          $gt: new Date(),
+        },
+      }).select(
+        "+passwordResetToken +passwordResetExpires"
+      );
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This password reset link is invalid or has expired.",
+      });
+    }
+
+    /*
+     * Hash the new password using bcrypt.
+     */
+    const passwordHash =
+      await bcrypt.hash(
+        password,
+        12
+      );
+
+    user.passwordHash =
+      passwordHash;
+
+    /*
+     * Invalidate the reset token immediately.
+     *
+     * This makes the reset link one-time use.
+     */
+    user.passwordResetToken =
+      null;
+
+    user.passwordResetExpires =
+      null;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Your password has been reset successfully. You can now sign in.",
+    });
+  } catch (error) {
+    console.error(
+      "Reset password error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Unable to reset your password.",
+    });
+  }
+};
+
     // ------------------------------------------
     // GET USER BRANCHES
     // ------------------------------------------
@@ -627,5 +877,7 @@ const getMe = async (
 export {
   registerBusiness,
   login,
+  forgotPassword,
+  resetPassword,
   getMe,
 };

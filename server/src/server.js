@@ -31,8 +31,47 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-const CLIENT_URL =
-  process.env.CLIENT_URL || "http://localhost:5173";
+/*
+|--------------------------------------------------------------------------
+| CLIENT / CORS CONFIGURATION
+|--------------------------------------------------------------------------
+|
+| MOVA can run through:
+|
+| Development:
+| http://localhost:5173
+|
+| Vite Preview:
+| http://localhost:4173
+|
+| We allow both so switching between `npm run dev`
+| and `npm run preview` does not break authentication.
+|
+*/
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:4173",
+];
+
+// Add CLIENT_URL from .env if one exists.
+if (process.env.CLIENT_URL) {
+  const configuredOrigins = process.env.CLIENT_URL
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  for (const origin of configuredOrigins) {
+    if (!allowedOrigins.includes(origin)) {
+      allowedOrigins.push(origin);
+    }
+  }
+}
+
+console.log("Allowed CORS origins:");
+console.log(allowedOrigins);
 
 /*
 |--------------------------------------------------------------------------
@@ -73,8 +112,40 @@ app.use("/api", apiLimiter);
 
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: (origin, callback) => {
+      // Allow requests that do not contain an Origin header.
+      // Useful for direct server requests and some development tools.
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.warn(`CORS blocked origin: ${origin}`);
+
+      return callback(
+        new Error(`CORS blocked origin: ${origin}`)
+      );
+    },
+
     credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+    ],
   })
 );
 
@@ -179,7 +250,7 @@ app.use("/api/purchases", purchaseRoutes);
 // Expenses
 app.use("/api/expenses", expenseRoutes);
 
-// Payments and payment transactions
+// Payments
 app.use("/api/payments", paymentRoutes);
 
 // Dashboard
@@ -244,7 +315,7 @@ app.use((error, req, res, next) => {
 |--------------------------------------------------------------------------
 |
 | Some MongoDB-compatible deployments do not support retryable writes.
-| This connection string helper explicitly disables them.
+| This explicitly disables retryable writes.
 |
 */
 

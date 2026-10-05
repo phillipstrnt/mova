@@ -3,6 +3,8 @@ import express from "express";
 import {
   registerBusiness,
   login,
+  forgotPassword,
+  resetPassword,
   getMe,
 } from "../controllers/authController.js";
 
@@ -10,13 +12,60 @@ import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Register a new business and owner
-router.post("/register", registerBusiness);
+/*
+|--------------------------------------------------------------------------
+| REGISTER
+|--------------------------------------------------------------------------
+*/
 
-// Login
-router.post("/login", login);
+router.post(
+  "/register",
+  registerBusiness
+);
 
-// Current authenticated user
-router.get("/me", protect, getMe);
+/*
+|--------------------------------------------------------------------------
+| LOGIN
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/login",
+  login
+);
+
+/*
+|--------------------------------------------------------------------------
+| FORGOT PASSWORD
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/forgot-password",
+  forgotPassword
+);
+
+/*
+|--------------------------------------------------------------------------
+| RESET PASSWORD
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/reset-password/:token",
+  resetPassword
+);
+
+/*
+|--------------------------------------------------------------------------
+| CURRENT AUTHENTICATED USER
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  "/me",
+  protect,
+  getMe
+);
 
 export default router;

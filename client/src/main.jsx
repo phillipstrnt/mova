@@ -1,44 +1,30 @@
+
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
 import App from "./App.jsx";
+import { AuthProvider } from "./context/AuthContext.jsx";
 
 import {
   registerMovaServiceWorker,
-  initializeMovaNetworkStatus
+  initializeMovaNetworkStatus,
 } from "./pwa.js";
 
 import "./index.css";
 
-
-/*
-|--------------------------------------------------------------------------
-| MOVA PWA
-|--------------------------------------------------------------------------
-|
-| Register the service worker and initialize online/offline
-| detection.
-|
-| The service worker is only registered in production.
-|
-|--------------------------------------------------------------------------
-*/
-
+// Register MOVA PWA service worker
 registerMovaServiceWorker();
 
+// Initialize MOVA network status
 initializeMovaNetworkStatus();
 
-
-/*
-|--------------------------------------------------------------------------
-| React Application
-|--------------------------------------------------------------------------
-*/
-
-ReactDOM.createRoot(
-  document.getElementById("root")
-).render(
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

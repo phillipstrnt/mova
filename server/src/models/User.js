@@ -11,9 +11,6 @@ const userSchema = new mongoose.Schema(
 
     /*
      * Legacy single-branch field.
-     *
-     * We keep this because some existing MOVA modules
-     * may still depend on branchId.
      */
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -55,9 +52,30 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
 
+    /*
+     * NEVER store plain-text passwords.
+     */
     passwordHash: {
       type: String,
       required: true,
+    },
+
+    /*
+     * Password reset security.
+     *
+     * We store the HASH of the reset token here.
+     * The actual token is only sent to the user's email.
+     */
+    passwordResetToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    passwordResetExpires: {
+      type: Date,
+      default: null,
+      select: false,
     },
 
     role: {
@@ -101,17 +119,18 @@ const userSchema = new mongoose.Schema(
 
 /*
 |--------------------------------------------------------------------------
-| Indexes
+| INDEXES
 |--------------------------------------------------------------------------
 */
 
-/*
- * A user email only needs to be unique inside
- * a particular business.
- */
 userSchema.index(
-  { businessId: 1, email: 1 },
-  { unique: true }
+  {
+    businessId: 1,
+    email: 1,
+  },
+  {
+    unique: true,
+  }
 );
 
 userSchema.index({
@@ -123,6 +142,22 @@ userSchema.index({
   businessId: 1,
   activeBranchId: 1,
 });
+
+/*
+ * Automatically remove expired reset-token records
+ * after they are no longer useful.
+ *
+ * This is NOT the only security check.
+ * The controller also checks the expiration time.
+ */
+userSchema.index(
+  {
+    passwordResetExpires: 1,
+  },
+  {
+    expireAfterSeconds: 0,
+  }
+);
 
 const User = mongoose.model(
   "User",
