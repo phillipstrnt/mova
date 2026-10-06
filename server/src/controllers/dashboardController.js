@@ -5,7 +5,13 @@ import Expense from "../models/Expense.js";
 
 /*
 |--------------------------------------------------------------------------
-| HELPERS
+| MOVA DASHBOARD CONTROLLER
+|--------------------------------------------------------------------------
+*/
+
+/*
+|--------------------------------------------------------------------------
+| CONTEXT HELPERS
 |--------------------------------------------------------------------------
 */
 
@@ -25,12 +31,47 @@ const getBranchId = (req) => {
   );
 };
 
+/*
+|--------------------------------------------------------------------------
+| NUMBER HELPERS
+|--------------------------------------------------------------------------
+*/
+
 const toNumber = (value) => {
   const number = Number(value);
 
   return Number.isFinite(number)
     ? number
     : 0;
+};
+
+/*
+|--------------------------------------------------------------------------
+| DATE HELPERS
+|--------------------------------------------------------------------------
+*/
+
+const startOfDay = (date) => {
+  const result = new Date(date);
+
+  result.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  return result;
+};
+
+const endOfDay = (date) => {
+  const result = startOfDay(date);
+
+  result.setDate(
+    result.getDate() + 1
+  );
+
+  return result;
 };
 
 const getDateRange = (
@@ -43,14 +84,13 @@ const getDateRange = (
 
 /*
 |--------------------------------------------------------------------------
-| SALE STATUS
+| SALE HELPERS
 |--------------------------------------------------------------------------
-|
-| Cancelled sales should not contribute to revenue.
-|
 */
 
-const getSaleStatus = (sale) => {
+const getSaleStatus = (
+  sale
+) => {
   return (
     sale?.status ||
     "COMPLETED"
@@ -63,16 +103,11 @@ const isCancelledSale = (
   sale
 ) => {
   return (
-    getSaleStatus(sale) ===
-    "CANCELLED"
+    getSaleStatus(
+      sale
+    ) === "CANCELLED"
   );
 };
-
-/*
-|--------------------------------------------------------------------------
-| SALE TOTAL
-|--------------------------------------------------------------------------
-*/
 
 const getSaleTotal = (
   sale
@@ -83,12 +118,6 @@ const getSaleTotal = (
       sale?.amount
   );
 };
-
-/*
-|--------------------------------------------------------------------------
-| REVENUE
-|--------------------------------------------------------------------------
-*/
 
 const calculateRevenue = (
   sales
@@ -117,12 +146,6 @@ const calculateRevenue = (
   );
 };
 
-/*
-|--------------------------------------------------------------------------
-| TRANSACTIONS
-|--------------------------------------------------------------------------
-*/
-
 const calculateTransactions = (
   sales
 ) => {
@@ -136,26 +159,82 @@ const calculateTransactions = (
 
 /*
 |--------------------------------------------------------------------------
-| PROFIT DATA
+| PAYMENT BREAKDOWN
+|--------------------------------------------------------------------------
+*/
+
+const calculatePaymentBreakdown =
+  (
+    sales
+  ) => {
+    const result = {};
+
+    for (
+      const sale of sales
+    ) {
+      if (
+        isCancelledSale(
+          sale
+        )
+      ) {
+        continue;
+      }
+
+      const method =
+        (
+          sale.paymentMethod ||
+          sale.paymentType ||
+          "OTHER"
+        )
+          .toString()
+          .toUpperCase();
+
+      const amount =
+        getSaleTotal(
+          sale
+        );
+
+      if (
+        !result[
+          method
+        ]
+      ) {
+        result[
+          method
+        ] = 0;
+      }
+
+      result[
+        method
+      ] += amount;
+    }
+
+    return result;
+  };
+
+/*
+|--------------------------------------------------------------------------
+| PROFIT
 |--------------------------------------------------------------------------
 |
-| We only calculate gross profit when every sale item has a reliable
-| cost/buying-price snapshot.
+| MOVA only reports profit when reliable cost information exists
+| on every relevant sale item.
 |
-| This prevents MOVA from displaying fake profit.
-|
+|--------------------------------------------------------------------------
 */
 
 const calculateProfit = (
   sales
 ) => {
-  let grossProfit = 0;
+  let profit = 0;
 
-  let hasSales = false;
+  let salesFound = false;
 
-  let allCostsAvailable = true;
+  let costsAvailable = true;
 
-  for (const sale of sales) {
+  for (
+    const sale of sales
+  ) {
     if (
       isCancelledSale(
         sale
@@ -170,11 +249,11 @@ const calculateProfit = (
       ) ||
       sale.items.length === 0
     ) {
-      allCostsAvailable = false;
+      costsAvailable = false;
       continue;
     }
 
-    hasSales = true;
+    salesFound = true;
 
     for (
       const item of sale.items
@@ -191,27 +270,21 @@ const calculateProfit = (
             item.unitPrice
         );
 
-      const buyingPriceValue =
+      const costValue =
         item.buyingPrice ??
         item.costPrice ??
         item.cost ??
         item.purchasePrice ??
         item.unitCost;
 
-      /*
-      |----------------------------------------------------------------------
-      | A cost must actually exist.
-      |----------------------------------------------------------------------
-      */
-
       if (
-        buyingPriceValue ===
+        costValue ===
           undefined ||
-        buyingPriceValue ===
+        costValue ===
           null ||
-        buyingPriceValue === ""
+        costValue === ""
       ) {
-        allCostsAvailable =
+        costsAvailable =
           false;
 
         continue;
@@ -219,10 +292,10 @@ const calculateProfit = (
 
       const buyingPrice =
         toNumber(
-          buyingPriceValue
+          costValue
         );
 
-      grossProfit +=
+      profit +=
         (
           sellingPrice -
           buyingPrice
@@ -232,8 +305,8 @@ const calculateProfit = (
   }
 
   if (
-    !hasSales ||
-    !allCostsAvailable
+    !salesFound ||
+    !costsAvailable
   ) {
     return {
       available: false,
@@ -243,60 +316,8 @@ const calculateProfit = (
 
   return {
     available: true,
-    value: grossProfit,
+    value: profit,
   };
-};
-
-/*
-|--------------------------------------------------------------------------
-| PAYMENT BREAKDOWN
-|--------------------------------------------------------------------------
-*/
-
-const buildPaymentBreakdown = (
-  sales
-) => {
-  const breakdown = {};
-
-  for (const sale of sales) {
-    if (
-      isCancelledSale(
-        sale
-      )
-    ) {
-      continue;
-    }
-
-    const method =
-      (
-        sale.paymentMethod ||
-        sale.paymentType ||
-        "OTHER"
-      )
-        .toString()
-        .toUpperCase();
-
-    const amount =
-      getSaleTotal(
-        sale
-      );
-
-    if (
-      !breakdown[
-        method
-      ]
-    ) {
-      breakdown[
-        method
-      ] = 0;
-    }
-
-    breakdown[
-      method
-    ] += amount;
-  }
-
-  return breakdown;
 };
 
 /*
@@ -311,15 +332,53 @@ export const getDashboard =
     res
   ) => {
     try {
+      console.log(
+        "========================================"
+      );
+
+      console.log(
+        "MOVA DASHBOARD REQUEST"
+      );
+
+      console.log(
+        "User:",
+        req.user?._id ||
+          req.user?.id ||
+          "unknown"
+      );
+
+      console.log(
+        "Business:",
+        req.user?.businessId ||
+          req.businessId ||
+          "missing"
+      );
+
+      console.log(
+        "Branch:",
+        req.user?.activeBranchId ||
+          req.user?.branchId ||
+          req.query?.branchId ||
+          "none"
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | BUSINESS
+      |--------------------------------------------------------------------------
+      */
+
       const businessId =
         getBusinessId(req);
 
-      const branchId =
-        getBranchId(req);
-
       if (!businessId) {
+        console.error(
+          "DASHBOARD ERROR: Business ID is missing."
+        );
+
         return res.status(400).json({
           success: false,
+
           message:
             "Business context is missing.",
         });
@@ -327,59 +386,49 @@ export const getDashboard =
 
       /*
       |--------------------------------------------------------------------------
-      | CURRENT TIME
+      | BRANCH
+      |--------------------------------------------------------------------------
+      */
+
+      /*
+       * Prefer the authenticated user's active branch.
+       *
+       * The frontend also sends branchId as a query parameter.
+       * We only use that as a fallback.
+       */
+
+      const branchId =
+        getBranchId(req) ||
+        req.query?.branchId ||
+        null;
+
+      /*
+      |--------------------------------------------------------------------------
+      | CURRENT DATE
       |--------------------------------------------------------------------------
       */
 
       const now =
         new Date();
 
-      /*
-      |--------------------------------------------------------------------------
-      | TODAY
-      |--------------------------------------------------------------------------
-      */
-
-      const startOfToday =
-        new Date(now);
-
-      startOfToday.setHours(
-        0,
-        0,
-        0,
-        0
-      );
-
-      const endOfToday =
-        new Date(
-          startOfToday
+      const todayStart =
+        startOfDay(
+          now
         );
 
-      endOfToday.setDate(
-        endOfToday.getDate() +
-          1
-      );
+      const tomorrowStart =
+        endOfDay(
+          now
+        );
 
-      /*
-      |--------------------------------------------------------------------------
-      | CURRENT MONTH
-      |--------------------------------------------------------------------------
-      */
-
-      const startOfMonth =
+      const monthStart =
         new Date(
           now.getFullYear(),
           now.getMonth(),
           1
         );
 
-      /*
-      |--------------------------------------------------------------------------
-      | PREVIOUS MONTH
-      |--------------------------------------------------------------------------
-      */
-
-      const startOfPreviousMonth =
+      const previousMonthStart =
         new Date(
           now.getFullYear(),
           now.getMonth() -
@@ -387,7 +436,7 @@ export const getDashboard =
           1
         );
 
-      const endOfPreviousMonth =
+      const previousMonthEnd =
         new Date(
           now.getFullYear(),
           now.getMonth(),
@@ -396,7 +445,7 @@ export const getDashboard =
 
       /*
       |--------------------------------------------------------------------------
-      | BASE FILTERS
+      | FILTERS
       |--------------------------------------------------------------------------
       */
 
@@ -416,12 +465,6 @@ export const getDashboard =
         businessId,
       };
 
-      /*
-      |--------------------------------------------------------------------------
-      | BRANCH FILTER
-      |--------------------------------------------------------------------------
-      */
-
       if (branchId) {
         saleFilter.branchId =
           branchId;
@@ -436,69 +479,125 @@ export const getDashboard =
           branchId;
       }
 
+      console.log(
+        "Dashboard filters:",
+        {
+          saleFilter,
+          expenseFilter,
+          productFilter,
+          customerFilter,
+        }
+      );
+
       /*
       |--------------------------------------------------------------------------
-      | LOAD SALES
+      | SALES
       |--------------------------------------------------------------------------
       */
 
-      const [
-        todaySales,
-        monthSales,
-        previousMonthSales,
-        recentSales,
-      ] =
-        await Promise.all([
-          Sale.find({
-            ...saleFilter,
+      console.log(
+        "Dashboard: loading today's sales..."
+      );
 
-            createdAt:
-              getDateRange(
-                startOfToday,
-                endOfToday
-              ),
+      const todaySales =
+        await Sale.find({
+          ...saleFilter,
+
+          createdAt:
+            getDateRange(
+              todayStart,
+              tomorrowStart
+            ),
+        }).lean();
+
+      console.log(
+        "Dashboard: today's sales:",
+        todaySales.length
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | MONTH SALES
+      |--------------------------------------------------------------------------
+      */
+
+      console.log(
+        "Dashboard: loading monthly sales..."
+      );
+
+      const monthSales =
+        await Sale.find({
+          ...saleFilter,
+
+          createdAt:
+            getDateRange(
+              monthStart,
+              now
+            ),
+        }).lean();
+
+      console.log(
+        "Dashboard: monthly sales:",
+        monthSales.length
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | PREVIOUS MONTH SALES
+      |--------------------------------------------------------------------------
+      */
+
+      console.log(
+        "Dashboard: loading previous month sales..."
+      );
+
+      const previousMonthSales =
+        await Sale.find({
+          ...saleFilter,
+
+          createdAt:
+            getDateRange(
+              previousMonthStart,
+              previousMonthEnd
+            ),
+        }).lean();
+
+      console.log(
+        "Dashboard: previous month sales:",
+        previousMonthSales.length
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | RECENT SALES
+      |--------------------------------------------------------------------------
+      |
+      | IMPORTANT:
+      | We deliberately do not populate customerId/userId here.
+      |
+      | If the Sale schema has a different relationship configuration,
+      | Mongoose populate can throw a 500 and break the entire dashboard.
+      |
+      */
+
+      console.log(
+        "Dashboard: loading recent sales..."
+      );
+
+      const recentSales =
+        await Sale.find(
+          saleFilter
+        )
+          .sort({
+            createdAt: -1,
           })
-            .lean(),
+          .limit(8)
+          .lean();
 
-          Sale.find({
-            ...saleFilter,
-
-            createdAt:
-              getDateRange(
-                startOfMonth,
-                now
-              ),
-          })
-            .lean(),
-
-          Sale.find({
-            ...saleFilter,
-
-            createdAt:
-              getDateRange(
-                startOfPreviousMonth,
-                endOfPreviousMonth
-              ),
-          })
-            .lean(),
-
-          Sale.find(
-            saleFilter
-          )
-            .sort({
-              createdAt: -1,
-            })
-            .limit(8)
-            .populate(
-              "customerId",
-              "name phone email"
-            )
-            .populate(
-              "userId",
-              "name email"
-            )
-            .lean(),
-        ]);
+      console.log(
+        "Dashboard: recent sales:",
+        recentSales.length
+      );
 
       /*
       |--------------------------------------------------------------------------
@@ -521,12 +620,6 @@ export const getDashboard =
           previousMonthSales
         );
 
-      /*
-      |--------------------------------------------------------------------------
-      | TRANSACTIONS
-      |--------------------------------------------------------------------------
-      */
-
       const todayTransactions =
         calculateTransactions(
           todaySales
@@ -543,17 +636,25 @@ export const getDashboard =
       |--------------------------------------------------------------------------
       */
 
+      console.log(
+        "Dashboard: loading expenses..."
+      );
+
       const monthExpenses =
         await Expense.find({
           ...expenseFilter,
 
           createdAt:
             getDateRange(
-              startOfMonth,
+              monthStart,
               now
             ),
-        })
-          .lean();
+        }).lean();
+
+      console.log(
+        "Dashboard: expenses:",
+        monthExpenses.length
+      );
 
       const totalExpenses =
         monthExpenses.reduce(
@@ -575,62 +676,53 @@ export const getDashboard =
 
       /*
       |--------------------------------------------------------------------------
-      | PROFIT
-      |--------------------------------------------------------------------------
-      */
-
-      const profit =
-        calculateProfit(
-          monthSales
-        );
-
-      const grossProfit =
-        profit.available
-          ? profit.value
-          : 0;
-
-      const netProfit =
-        profit.available
-          ? grossProfit -
-            totalExpenses
-          : 0;
-
-      /*
-      |--------------------------------------------------------------------------
       | CUSTOMERS
       |--------------------------------------------------------------------------
       */
+
+      console.log(
+        "Dashboard: loading customers..."
+      );
 
       const totalCustomers =
         await Customer.countDocuments(
           customerFilter
         );
 
+      console.log(
+        "Dashboard: customers:",
+        totalCustomers
+      );
+
       /*
       |--------------------------------------------------------------------------
-      | PRODUCTS / LOW STOCK
+      | PRODUCTS
       |--------------------------------------------------------------------------
       */
+
+      console.log(
+        "Dashboard: loading products..."
+      );
 
       const products =
         await Product.find(
           productFilter
         )
           .select(
-            [
-              "name",
-              "sku",
-              "stockQuantity",
-              "minStock",
-              "minimumStock",
-              "reorderLevel",
-              "trackStock",
-              "categoryId",
-              "price",
-              "sellingPrice",
-            ].join(" ")
+            "name sku stockQuantity minStock minimumStock reorderLevel trackStock categoryId price sellingPrice"
           )
           .lean();
+
+      console.log(
+        "Dashboard: products:",
+        products.length
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | LOW STOCK
+      |--------------------------------------------------------------------------
+      */
 
       const lowStockProducts =
         products
@@ -683,9 +775,13 @@ export const getDashboard =
 
       /*
       |--------------------------------------------------------------------------
-      | SEVEN-DAY SALES CHART
+      | SALES CHART
       |--------------------------------------------------------------------------
       */
+
+      console.log(
+        "Dashboard: building seven-day chart..."
+      );
 
       const salesChart =
         [];
@@ -705,27 +801,15 @@ export const getDashboard =
             index
         );
 
-        const start =
-          new Date(
+        const dayStart =
+          startOfDay(
             date
           );
 
-        start.setHours(
-          0,
-          0,
-          0,
-          0
-        );
-
-        const end =
-          new Date(
-            start
+        const dayEnd =
+          endOfDay(
+            date
           );
-
-        end.setDate(
-          end.getDate() +
-            1
-        );
 
         const daySales =
           await Sale.find({
@@ -733,8 +817,8 @@ export const getDashboard =
 
             createdAt:
               getDateRange(
-                start,
-                end
+                dayStart,
+                dayEnd
               ),
           })
             .select(
@@ -742,26 +826,16 @@ export const getDashboard =
             )
             .lean();
 
-        const revenue =
-          calculateRevenue(
-            daySales
-          );
-
-        const transactions =
-          calculateTransactions(
-            daySales
-          );
-
         salesChart.push({
           date:
-            start
+            dayStart
               .toISOString()
               .split(
                 "T"
               )[0],
 
           label:
-            start.toLocaleDateString(
+            dayStart.toLocaleDateString(
               "en-UG",
               {
                 weekday:
@@ -769,9 +843,15 @@ export const getDashboard =
               }
             ),
 
-          revenue,
+          revenue:
+            calculateRevenue(
+              daySales
+            ),
 
-          transactions,
+          transactions:
+            calculateTransactions(
+              daySales
+            ),
         });
       }
 
@@ -782,7 +862,7 @@ export const getDashboard =
       */
 
       const paymentBreakdown =
-        buildPaymentBreakdown(
+        calculatePaymentBreakdown(
           monthSales
         );
 
@@ -814,11 +894,33 @@ export const getDashboard =
 
       /*
       |--------------------------------------------------------------------------
+      | PROFIT
+      |--------------------------------------------------------------------------
+      */
+
+      const profit =
+        calculateProfit(
+          monthSales
+        );
+
+      const grossProfit =
+        profit.available
+          ? profit.value
+          : 0;
+
+      const netProfit =
+        profit.available
+          ? grossProfit -
+            totalExpenses
+          : 0;
+
+      /*
+      |--------------------------------------------------------------------------
       | RESPONSE
       |--------------------------------------------------------------------------
       */
 
-      return res.status(200).json({
+      const responseData = {
         success: true,
 
         businessId,
@@ -894,13 +996,55 @@ export const getDashboard =
         salesChart,
 
         paymentBreakdown,
-      });
+      };
+
+      console.log(
+        "Dashboard successfully generated:",
+        {
+          todayRevenue,
+          monthRevenue,
+          totalExpenses,
+          totalCustomers,
+          lowStock:
+            lowStockProducts.length,
+        }
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(200).json(
+        responseData
+      );
     } catch (
       error
     ) {
       console.error(
-        "Dashboard error:",
-        error
+        "========================================"
+      );
+
+      console.error(
+        "MOVA DASHBOARD ERROR"
+      );
+
+      console.error(
+        "Message:",
+        error?.message
+      );
+
+      console.error(
+        "Name:",
+        error?.name
+      );
+
+      console.error(
+        "Stack:",
+        error?.stack
+      );
+
+      console.error(
+        "========================================"
       );
 
       return res.status(500).json({
@@ -910,10 +1054,12 @@ export const getDashboard =
           "Unable to load dashboard data.",
 
         error:
-          process.env.NODE_ENV ===
-          "development"
-            ? error.message
-            : undefined,
+          error?.message ||
+          "Unknown dashboard error.",
+
+        errorName:
+          error?.name ||
+          "UnknownError",
       });
     }
   };

@@ -12,9 +12,7 @@ const router = express.Router();
 
 /*
 |--------------------------------------------------------------------------
-| DASHBOARD
-|--------------------------------------------------------------------------
-| GET /api/dashboard
+| MAIN DASHBOARD
 |--------------------------------------------------------------------------
 */
 
@@ -28,12 +26,12 @@ router.get(
 |--------------------------------------------------------------------------
 | DASHBOARD OVERVIEW
 |--------------------------------------------------------------------------
+|
+| Dashboard.jsx requests:
+|
 | GET /api/dashboard/overview
+|
 |--------------------------------------------------------------------------
-|
-| The frontend Dashboard.jsx currently requests this endpoint.
-| It uses the same controller as the main dashboard endpoint.
-|
 */
 
 router.get(
