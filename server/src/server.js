@@ -6,7 +6,12 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
-// ROUTES
+/*
+|--------------------------------------------------------------------------
+| ROUTES
+|--------------------------------------------------------------------------
+*/
+
 import authRoutes from "./routes/auth.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import branchRoutes from "./routes/branch.routes.js";
@@ -25,28 +30,23 @@ import paymentRoutes from "./routes/payment.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 
+/*
+|--------------------------------------------------------------------------
+| ENVIRONMENT
+|--------------------------------------------------------------------------
+*/
+
 dotenv.config();
 
 const app = express();
 
-const PORT = process.env.PORT || 5000;
+const PORT =
+  process.env.PORT || 5000;
 
 /*
 |--------------------------------------------------------------------------
-| CLIENT / CORS CONFIGURATION
+| CORS
 |--------------------------------------------------------------------------
-|
-| MOVA can run through:
-|
-| Development:
-| http://localhost:5173
-|
-| Vite Preview:
-| http://localhost:4173
-|
-| We allow both so switching between `npm run dev`
-| and `npm run preview` does not break authentication.
-|
 */
 
 const allowedOrigins = [
@@ -56,22 +56,38 @@ const allowedOrigins = [
   "http://127.0.0.1:4173",
 ];
 
-// Add CLIENT_URL from .env if one exists.
 if (process.env.CLIENT_URL) {
-  const configuredOrigins = process.env.CLIENT_URL
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const configuredOrigins =
+    process.env.CLIENT_URL
+      .split(",")
+      .map((origin) =>
+        origin.trim()
+      )
+      .filter(Boolean);
 
-  for (const origin of configuredOrigins) {
-    if (!allowedOrigins.includes(origin)) {
-      allowedOrigins.push(origin);
+  for (
+    const origin of
+    configuredOrigins
+  ) {
+    if (
+      !allowedOrigins.includes(
+        origin
+      )
+    ) {
+      allowedOrigins.push(
+        origin
+      );
     }
   }
 }
 
-console.log("Allowed CORS origins:");
-console.log(allowedOrigins);
+console.log(
+  "Allowed CORS origins:"
+);
+
+console.log(
+  allowedOrigins
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -81,7 +97,8 @@ console.log(allowedOrigins);
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: false,
+    crossOriginResourcePolicy:
+      false,
   })
 );
 
@@ -91,42 +108,67 @@ app.use(
 |--------------------------------------------------------------------------
 */
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests. Please try again later.",
-  },
-});
+const apiLimiter =
+  rateLimit({
+    windowMs:
+      15 * 60 * 1000,
 
-app.use("/api", apiLimiter);
+    max: 300,
+
+    standardHeaders: true,
+
+    legacyHeaders: false,
+
+    message: {
+      success: false,
+      message:
+        "Too many requests. Please try again later.",
+    },
+  });
+
+app.use(
+  "/api",
+  apiLimiter
+);
 
 /*
 |--------------------------------------------------------------------------
-| CORS
+| CORS MIDDLEWARE
 |--------------------------------------------------------------------------
 */
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests that do not contain an Origin header.
-      // Useful for direct server requests and some development tools.
+    origin: (
+      origin,
+      callback
+    ) => {
       if (!origin) {
-        return callback(null, true);
+        return callback(
+          null,
+          true
+        );
       }
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      if (
+        allowedOrigins.includes(
+          origin
+        )
+      ) {
+        return callback(
+          null,
+          true
+        );
       }
 
-      console.warn(`CORS blocked origin: ${origin}`);
+      console.warn(
+        `CORS blocked origin: ${origin}`
+      );
 
       return callback(
-        new Error(`CORS blocked origin: ${origin}`)
+        new Error(
+          `CORS blocked origin: ${origin}`
+        )
       );
     },
 
@@ -167,21 +209,45 @@ app.use(
   })
 );
 
-app.use(cookieParser());
+app.use(
+  cookieParser()
+);
 
 /*
 |--------------------------------------------------------------------------
-| ROOT ROUTE
+| REQUEST LOGGER
+|--------------------------------------------------------------------------
+| This helps us see exactly what reaches the backend.
 |--------------------------------------------------------------------------
 */
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "MOVA API is running 🚀",
-    version: "0.1.0",
-  });
-});
+app.use(
+  (req, res, next) => {
+    console.log(
+      `[MOVA API] ${req.method} ${req.originalUrl}`
+    );
+
+    next();
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| ROOT
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+      message:
+        "MOVA API is running 🚀",
+      version: "0.1.0",
+    });
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -189,18 +255,26 @@ app.get("/", (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-app.get("/api/health", (req, res) => {
-  const databaseState = mongoose.connection.readyState;
+app.get(
+  "/api/health",
+  (req, res) => {
+    const databaseState =
+      mongoose.connection
+        .readyState;
 
-  res.status(200).json({
-    success: true,
-    server: "online",
-    database:
-      databaseState === 1
-        ? "connected"
-        : "disconnected",
-  });
-});
+    res.status(200).json({
+      success: true,
+
+      server:
+        "online",
+
+      database:
+        databaseState === 1
+          ? "connected"
+          : "disconnected",
+    });
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -208,56 +282,181 @@ app.get("/api/health", (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-// Authentication
-app.use("/api/auth", authRoutes);
+/*
+|--------------------------------------------------------------------------
+| AUTHENTICATION
+|--------------------------------------------------------------------------
+*/
 
-// Business
-app.use("/api/business", businessRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
-// Branches
-app.use("/api/branches", branchRoutes);
+/*
+|--------------------------------------------------------------------------
+| BUSINESS
+|--------------------------------------------------------------------------
+*/
 
-// Receipt settings
-app.use("/api/receipt-settings", receiptRoutes);
+app.use(
+  "/api/business",
+  businessRoutes
+);
 
-// Categories
-app.use("/api/categories", categoryRoutes);
+/*
+|--------------------------------------------------------------------------
+| BRANCHES
+|--------------------------------------------------------------------------
+*/
 
-// Products
-app.use("/api/products", productRoutes);
+app.use(
+  "/api/branches",
+  branchRoutes
+);
 
-// Sales
-app.use("/api/sales", saleRoutes);
+/*
+|--------------------------------------------------------------------------
+| RECEIPT SETTINGS
+|--------------------------------------------------------------------------
+*/
 
-// Inventory transactions
+app.use(
+  "/api/receipt-settings",
+  receiptRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| CATEGORIES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/categories",
+  categoryRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| PRODUCTS
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/products",
+  productRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| SALES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/sales",
+  saleRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| INVENTORY TRANSACTIONS
+|--------------------------------------------------------------------------
+*/
+
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
 
-// Customers
-app.use("/api/customers", customerRoutes);
+/*
+|--------------------------------------------------------------------------
+| CUSTOMERS
+|--------------------------------------------------------------------------
+*/
 
-// Returns
-app.use("/api/returns", returnRoutes);
+app.use(
+  "/api/customers",
+  customerRoutes
+);
 
-// Suppliers
-app.use("/api/suppliers", supplierRoutes);
+/*
+|--------------------------------------------------------------------------
+| RETURNS
+|--------------------------------------------------------------------------
+*/
 
-// Purchases
-app.use("/api/purchases", purchaseRoutes);
+app.use(
+  "/api/returns",
+  returnRoutes
+);
 
-// Expenses
-app.use("/api/expenses", expenseRoutes);
+/*
+|--------------------------------------------------------------------------
+| SUPPLIERS
+|--------------------------------------------------------------------------
+*/
 
-// Payments
-app.use("/api/payments", paymentRoutes);
+app.use(
+  "/api/suppliers",
+  supplierRoutes
+);
 
-// Dashboard
-app.use("/api/dashboard", dashboardRoutes);
+/*
+|--------------------------------------------------------------------------
+| PURCHASES
+|--------------------------------------------------------------------------
+*/
 
-// Reports
-app.use("/api/reports", reportRoutes);
+app.use(
+  "/api/purchases",
+  purchaseRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| EXPENSES
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/expenses",
+  expenseRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENTS
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/payments",
+  paymentRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| DASHBOARD
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/dashboard",
+  dashboardRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| REPORTS
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/reports",
+  reportRoutes
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -265,29 +464,57 @@ app.use("/api/reports", reportRoutes);
 |--------------------------------------------------------------------------
 */
 
-app.use((req, res, next) => {
-  if (req.originalUrl.startsWith("/api/")) {
-    return res.status(404).json({
-      success: false,
-      message: `API route not found: ${req.method} ${req.originalUrl}`,
-    });
-  }
+app.use(
+  (req, res, next) => {
+    if (
+      req.originalUrl.startsWith(
+        "/api/"
+      )
+    ) {
+      console.error(
+        `[MOVA API 404] ${req.method} ${req.originalUrl}`
+      );
 
-  next();
-});
+      return res
+        .status(404)
+        .json({
+          success: false,
+
+          message:
+            `API route not found: ${req.method} ${req.originalUrl}`,
+
+          requestedRoute:
+            req.originalUrl,
+
+          availableDashboardRoutes:
+            [
+              "GET /api/dashboard",
+              "GET /api/dashboard/overview",
+              "GET /api/dashboard/test",
+            ],
+        });
+    }
+
+    next();
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
-| GENERAL 404 HANDLER
+| GENERAL 404
 |--------------------------------------------------------------------------
 */
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-  });
-});
+app.use(
+  (req, res) => {
+    res.status(404).json({
+      success: false,
+
+      message:
+        "Route not found",
+    });
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -295,69 +522,106 @@ app.use((req, res) => {
 |--------------------------------------------------------------------------
 */
 
-app.use((error, req, res, next) => {
-  console.error("Unhandled server error:", error);
+app.use(
+  (
+    error,
+    req,
+    res,
+    next
+  ) => {
+    console.error(
+      "Unhandled server error:",
+      error
+    );
 
-  if (res.headersSent) {
-    return next(error);
+    if (
+      res.headersSent
+    ) {
+      return next(error);
+    }
+
+    res.status(
+      error.status || 500
+    ).json({
+      success: false,
+
+      message:
+        error.message ||
+        "Internal server error",
+    });
   }
-
-  res.status(error.status || 500).json({
-    success: false,
-    message:
-      error.message || "Internal server error",
-  });
-});
+);
 
 /*
 |--------------------------------------------------------------------------
 | MONGODB CONNECTION
 |--------------------------------------------------------------------------
-|
-| Some MongoDB-compatible deployments do not support retryable writes.
-| This explicitly disables retryable writes.
-|
 */
 
-const getMongoConnectionString = (uri) => {
-  if (!uri) {
-    throw new Error(
-      "MONGO_URI is missing from the server environment."
-    );
-  }
+const getMongoConnectionString =
+  (uri) => {
+    if (!uri) {
+      throw new Error(
+        "MONGO_URI is missing from the server environment."
+      );
+    }
 
-  // Replace an existing retryWrites setting.
-  if (/[?&]retryWrites=/i.test(uri)) {
-    return uri.replace(
-      /([?&])retryWrites=[^&]*/i,
-      "$1retryWrites=false"
-    );
-  }
+    /*
+    |--------------------------------------------------------------------------
+    | Disable retryable writes
+    |--------------------------------------------------------------------------
+    | Required for the MongoDB-compatible deployment
+    | previously used by MOVA.
+    |--------------------------------------------------------------------------
+    */
 
-  // Preserve existing query parameters.
-  const separator = uri.includes("?") ? "&" : "?";
+    if (
+      /[?&]retryWrites=/i.test(
+        uri
+      )
+    ) {
+      return uri.replace(
+        /([?&])retryWrites=[^&]*/i,
+        "$1retryWrites=false"
+      );
+    }
 
-  return `${uri}${separator}retryWrites=false`;
-};
+    const separator =
+      uri.includes("?")
+        ? "&"
+        : "?";
 
-const connectDatabase = async () => {
-  try {
-    const mongoUri = getMongoConnectionString(
-      process.env.MONGO_URI
-    );
+    return `${uri}${separator}retryWrites=false`;
+  };
 
-    await mongoose.connect(mongoUri);
+const connectDatabase =
+  async () => {
+    try {
+      const mongoUri =
+        getMongoConnectionString(
+          process.env.MONGO_URI
+        );
 
-    console.log("MongoDB connected successfully");
-  } catch (error) {
-    console.error(
-      "MongoDB connection failed:",
-      error.message
-    );
+      console.log(
+        "Connecting to MongoDB..."
+      );
 
-    throw error;
-  }
-};
+      await mongoose.connect(
+        mongoUri
+      );
+
+      console.log(
+        "MongoDB connected successfully"
+      );
+    } catch (error) {
+      console.error(
+        "MongoDB connection failed:",
+        error.message
+      );
+
+      throw error;
+    }
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -365,27 +629,51 @@ const connectDatabase = async () => {
 |--------------------------------------------------------------------------
 */
 
-const startServer = async () => {
-  try {
-    await connectDatabase();
+const startServer =
+  async () => {
+    try {
+      await connectDatabase();
 
-    app.listen(PORT, () => {
-      console.log(
-        `MOVA server running on http://localhost:${PORT}`
+      app.listen(
+        PORT,
+        () => {
+          console.log(
+            "========================================"
+          );
+
+          console.log(
+            `MOVA server running on http://localhost:${PORT}`
+          );
+
+          console.log(
+            `MOVA health check: http://localhost:${PORT}/api/health`
+          );
+
+          console.log(
+            `MOVA dashboard API: http://localhost:${PORT}/api/dashboard`
+          );
+
+          console.log(
+            `MOVA dashboard overview: http://localhost:${PORT}/api/dashboard/overview`
+          );
+
+          console.log(
+            `MOVA dashboard test: http://localhost:${PORT}/api/dashboard/test`
+          );
+
+          console.log(
+            "========================================"
+          );
+        }
+      );
+    } catch (error) {
+      console.error(
+        "Server startup failed:",
+        error.message
       );
 
-      console.log(
-        `MOVA health check: http://localhost:${PORT}/api/health`
-      );
-    });
-  } catch (error) {
-    console.error(
-      "Server startup failed:",
-      error.message
-    );
-
-    process.exit(1);
-  }
-};
+      process.exit(1);
+    }
+  };
 
 startServer();

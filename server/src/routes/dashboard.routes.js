@@ -1,7 +1,7 @@
 import express from "express";
 
 import {
-  getDashboardOverview,
+  getDashboard,
 } from "../controllers/dashboardController.js";
 
 import {
@@ -10,11 +10,36 @@ import {
 
 const router = express.Router();
 
-router.use(protect);
+/*
+|--------------------------------------------------------------------------
+| DASHBOARD
+|--------------------------------------------------------------------------
+| GET /api/dashboard
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  "/",
+  protect,
+  getDashboard
+);
+
+/*
+|--------------------------------------------------------------------------
+| DASHBOARD OVERVIEW
+|--------------------------------------------------------------------------
+| GET /api/dashboard/overview
+|--------------------------------------------------------------------------
+|
+| The frontend Dashboard.jsx currently requests this endpoint.
+| It uses the same controller as the main dashboard endpoint.
+|
+*/
 
 router.get(
   "/overview",
-  getDashboardOverview
+  protect,
+  getDashboard
 );
 
 export default router;

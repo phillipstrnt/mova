@@ -1,81 +1,57 @@
 import express from "express";
 
 import {
+  getReports,
   getSalesReport,
-  getPaymentReport,
-  getExpenseReport,
-  getProfitReport,
-  getInventoryReport,
-  saveReport,
-  getSavedReports,
-  getSavedReport,
-  deleteSavedReport,
+  getPaymentsReport,
 } from "../controllers/reportController.js";
 
 import {
   protect,
 } from "../middleware/authMiddleware.js";
 
-const router =
-  express.Router();
+const router = express.Router();
 
-/* =========================================================
-   PROTECT ALL REPORT ROUTES
-========================================================= */
+/*
+|--------------------------------------------------------------------------
+| GENERAL REPORTS
+|--------------------------------------------------------------------------
+| GET /api/reports
+|--------------------------------------------------------------------------
+*/
 
-router.use(protect);
+router.get(
+  "/",
+  protect,
+  getReports
+);
 
-/* =========================================================
-   GENERATED REPORTS
-========================================================= */
+/*
+|--------------------------------------------------------------------------
+| SALES REPORT
+|--------------------------------------------------------------------------
+| GET /api/reports/sales
+|--------------------------------------------------------------------------
+*/
 
 router.get(
   "/sales",
+  protect,
   getSalesReport
 );
 
+/*
+|--------------------------------------------------------------------------
+| PAYMENTS REPORT
+|--------------------------------------------------------------------------
+| GET /api/reports/payments
+|--------------------------------------------------------------------------
+*/
+
 router.get(
   "/payments",
-  getPaymentReport
-);
-
-router.get(
-  "/expenses",
-  getExpenseReport
-);
-
-router.get(
-  "/profit",
-  getProfitReport
-);
-
-router.get(
-  "/inventory",
-  getInventoryReport
-);
-
-/* =========================================================
-   SAVED REPORTS
-========================================================= */
-
-router.post(
-  "/saved",
-  saveReport
-);
-
-router.get(
-  "/saved",
-  getSavedReports
-);
-
-router.get(
-  "/saved/:id",
-  getSavedReport
-);
-
-router.delete(
-  "/saved/:id",
-  deleteSavedReport
+  protect,
+  getPaymentsReport
 );
 
 export default router;

@@ -1,7 +1,7 @@
 import express from "express";
 
 import {
-  getDashboardOverview,
+  getDashboard,
 } from "../controllers/dashboardController.js";
 
 import {
@@ -11,11 +11,10 @@ import {
 const router =
   express.Router();
 
-router.use(protect);
-
 router.get(
-  "/overview",
-  getDashboardOverview
+  "/",
+  protect,
+  getDashboard
 );
 
 export default router;

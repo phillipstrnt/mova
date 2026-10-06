@@ -1,11 +1,29 @@
 import Sale from "../models/Sale.js";
-import Payment from "../models/Payment.js";
-import Expense from "../models/Expense.js";
 import Product from "../models/Product.js";
+import Customer from "../models/Customer.js";
+import Expense from "../models/Expense.js";
 
-/* =======================================================
-   HELPERS
-======================================================= */
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+const getBusinessId = (req) => {
+  return (
+    req.user?.businessId ||
+    req.businessId ||
+    null
+  );
+};
+
+const getBranchId = (req) => {
+  return (
+    req.user?.activeBranchId ||
+    req.user?.branchId ||
+    null
+  );
+};
 
 const toNumber = (value) => {
   const number = Number(value);
@@ -15,727 +33,887 @@ const toNumber = (value) => {
     : 0;
 };
 
-const getStartOfDay = (date = new Date()) => {
-  const start = new Date(date);
+const getDateRange = (
+  start,
+  end
+) => ({
+  $gte: start,
+  $lt: end,
+});
 
-  start.setHours(0, 0, 0, 0);
+/*
+|--------------------------------------------------------------------------
+| SALE STATUS
+|--------------------------------------------------------------------------
+|
+| Cancelled sales should not contribute to revenue.
+|
+*/
 
-  return start;
+const getSaleStatus = (sale) => {
+  return (
+    sale?.status ||
+    "COMPLETED"
+  )
+    .toString()
+    .toUpperCase();
 };
 
-const getEndOfDay = (date = new Date()) => {
-  const end = new Date(date);
-
-  end.setHours(23, 59, 59, 999);
-
-  return end;
-};
-
-const getStartOfMonth = (date = new Date()) => {
-  const start = new Date(date);
-
-  start.setDate(1);
-  start.setHours(0, 0, 0, 0);
-
-  return start;
-};
-
-const getEndOfMonth = (date = new Date()) => {
-  const end = new Date(date);
-
-  end.setMonth(end.getMonth() + 1);
-  end.setDate(0);
-  end.setHours(23, 59, 59, 999);
-
-  return end;
-};
-
-/* =======================================================
-   DASHBOARD OVERVIEW
-======================================================= */
-
-export const getDashboardOverview = async (
-  req,
-  res
+const isCancelledSale = (
+  sale
 ) => {
-  try {
-    /*
-    |--------------------------------------------------------------------------
-    | USER / BUSINESS / BRANCH
-    |--------------------------------------------------------------------------
-    */
+  return (
+    getSaleStatus(sale) ===
+    "CANCELLED"
+  );
+};
 
-    const businessId =
-      req.user?.businessId;
+/*
+|--------------------------------------------------------------------------
+| SALE TOTAL
+|--------------------------------------------------------------------------
+*/
 
-    const branchId =
-      req.user?.activeBranchId ||
-      req.user?.branchId ||
-      null;
+const getSaleTotal = (
+  sale
+) => {
+  return toNumber(
+    sale?.total ??
+      sale?.grandTotal ??
+      sale?.amount
+  );
+};
 
-    if (!businessId) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Your account is not associated with a business.",
-      });
-    }
+/*
+|--------------------------------------------------------------------------
+| REVENUE
+|--------------------------------------------------------------------------
+*/
 
-    /*
-    |--------------------------------------------------------------------------
-    | DATE RANGES
-    |--------------------------------------------------------------------------
-    */
-
-    const now = new Date();
-
-    const todayStart =
-      getStartOfDay(now);
-
-    const todayEnd =
-      getEndOfDay(now);
-
-    const monthStart =
-      getStartOfMonth(now);
-
-    const monthEnd =
-      getEndOfMonth(now);
-
-    /*
-    |--------------------------------------------------------------------------
-    | SALE FILTERS
-    |--------------------------------------------------------------------------
-    |
-    | POS creates:
-    |
-    | businessId
-    | branchId
-    | status = COMPLETED
-    |
-    */
-
-    const todaySaleFilter = {
-      businessId,
-      status: "COMPLETED",
-
-      createdAt: {
-        $gte: todayStart,
-        $lte: todayEnd,
-      },
-    };
-
-    const monthSaleFilter = {
-      businessId,
-      status: "COMPLETED",
-
-      createdAt: {
-        $gte: monthStart,
-        $lte: monthEnd,
-      },
-    };
-
-    /*
-    |--------------------------------------------------------------------------
-    | BRANCH FILTER
-    |--------------------------------------------------------------------------
-    |
-    | If the logged-in user has an active branch,
-    | only that branch's transactions are shown.
-    |
-    */
-
-    if (branchId) {
-      todaySaleFilter.branchId =
-        branchId;
-
-      monthSaleFilter.branchId =
-        branchId;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAYMENT FILTERS
-    |--------------------------------------------------------------------------
-    */
-
-    const todayPaymentFilter = {
-      businessId,
-
-      status: "COMPLETED",
-
-      paymentDate: {
-        $gte: todayStart,
-        $lte: todayEnd,
-      },
-    };
-
-    const monthPaymentFilter = {
-      businessId,
-
-      status: "COMPLETED",
-
-      paymentDate: {
-        $gte: monthStart,
-        $lte: monthEnd,
-      },
-    };
-
-    if (branchId) {
-      todayPaymentFilter.branchId =
-        branchId;
-
-      monthPaymentFilter.branchId =
-        branchId;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | EXPENSE FILTERS
-    |--------------------------------------------------------------------------
-    */
-
-    const todayExpenseFilter = {
-      businessId,
-
-      createdAt: {
-        $gte: todayStart,
-        $lte: todayEnd,
-      },
-    };
-
-    const monthExpenseFilter = {
-      businessId,
-
-      createdAt: {
-        $gte: monthStart,
-        $lte: monthEnd,
-      },
-    };
-
-    if (branchId) {
-      todayExpenseFilter.branchId =
-        branchId;
-
-      monthExpenseFilter.branchId =
-        branchId;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOAD DATA
-    |--------------------------------------------------------------------------
-    |
-    | We intentionally load the actual completed sales and payments.
-    | This makes the dashboard use the same records created by POS.
-    |
-    */
-
-    const [
-      todaySales,
-      monthSales,
-      todayPayments,
-      monthPayments,
-      todayExpenses,
-      monthExpenses,
-    ] = await Promise.all([
-      Sale.find(todaySaleFilter)
-        .populate(
-          "customerId",
-          "name phone"
-        )
-        .populate(
-          "cashierId",
-          "name email"
-        )
-        .sort({
-          createdAt: -1,
-        }),
-
-      Sale.find(monthSaleFilter),
-
-      Payment.find(
-        todayPaymentFilter
-      ),
-
-      Payment.find(
-        monthPaymentFilter
-      ),
-
-      Expense.find(
-        todayExpenseFilter
-      ),
-
-      Expense.find(
-        monthExpenseFilter
-      ),
-    ]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | TODAY'S SALES
-    |--------------------------------------------------------------------------
-    */
-
-    const todaySalesTotal =
-      todaySales.reduce(
-        (sum, sale) =>
-          sum +
-          toNumber(sale.total),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | MONTH'S SALES
-    |--------------------------------------------------------------------------
-    */
-
-    const monthSalesTotal =
-      monthSales.reduce(
-        (sum, sale) =>
-          sum +
-          toNumber(sale.total),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | TODAY'S PAYMENTS
-    |--------------------------------------------------------------------------
-    */
-
-    const todayPaymentsTotal =
-      todayPayments.reduce(
-        (sum, payment) =>
-          sum +
-          toNumber(payment.amount),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | MONTH'S PAYMENTS
-    |--------------------------------------------------------------------------
-    */
-
-    const monthPaymentsTotal =
-      monthPayments.reduce(
-        (sum, payment) =>
-          sum +
-          toNumber(payment.amount),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | TODAY'S EXPENSES
-    |--------------------------------------------------------------------------
-    */
-
-    const todayExpensesTotal =
-      todayExpenses.reduce(
-        (sum, expense) =>
-          sum +
-          toNumber(
-            expense.amount
-          ),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | MONTH'S EXPENSES
-    |--------------------------------------------------------------------------
-    */
-
-    const monthExpensesTotal =
-      monthExpenses.reduce(
-        (sum, expense) =>
-          sum +
-          toNumber(
-            expense.amount
-          ),
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | PRODUCTS SOLD TODAY
-    |--------------------------------------------------------------------------
-    */
-
-    const productsSoldToday =
-      todaySales.reduce(
-        (sum, sale) => {
-          const items =
-            Array.isArray(
-              sale.items
-            )
-              ? sale.items
-              : [];
-
-          return (
-            sum +
-            items.reduce(
-              (
-                itemTotal,
-                item
-              ) =>
-                itemTotal +
-                toNumber(
-                  item.quantity
-                ),
-              0
-            )
-          );
-        },
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | GROSS PROFIT
-    |--------------------------------------------------------------------------
-    |
-    | Gross profit:
-    |
-    | Selling value - buying value
-    |
-    | The sale items already contain buyingPrice
-    | when the sale is created.
-    |
-    */
-
-    const calculateGrossProfit = (
-      sales
+const calculateRevenue = (
+  sales
+) => {
+  return sales.reduce(
+    (
+      total,
+      sale
     ) => {
-      return sales.reduce(
-        (salesTotal, sale) => {
-          const items =
-            Array.isArray(
-              sale.items
-            )
-              ? sale.items
-              : [];
-
-          const cost =
-            items.reduce(
-              (
-                itemTotal,
-                item
-              ) => {
-                const buyingPrice =
-                  toNumber(
-                    item.buyingPrice
-                  );
-
-                const quantity =
-                  toNumber(
-                    item.quantity
-                  );
-
-                return (
-                  itemTotal +
-                  buyingPrice *
-                    quantity
-                );
-              },
-              0
-            );
-
-          const saleTotal =
-            toNumber(
-              sale.total
-            );
-
-          return (
-            salesTotal +
-            (saleTotal - cost)
-          );
-        },
-        0
-      );
-    };
-
-    const todayGrossProfit =
-      calculateGrossProfit(
-        todaySales
-      );
-
-    const monthGrossProfit =
-      calculateGrossProfit(
-        monthSales
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | NET PROFIT
-    |--------------------------------------------------------------------------
-    */
-
-    const todayNetProfit =
-      todayGrossProfit -
-      todayExpensesTotal;
-
-    const monthNetProfit =
-      monthGrossProfit -
-      monthExpensesTotal;
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAYMENT BREAKDOWN
-    |--------------------------------------------------------------------------
-    */
-
-    const paymentBreakdown = {
-      CASH: 0,
-      MOBILE_MONEY: 0,
-      CARD: 0,
-      BANK: 0,
-    };
-
-    todayPayments.forEach(
-      (payment) => {
-        const method =
-          String(
-            payment.paymentMethod ||
-              ""
-          ).toUpperCase();
-
-        const amount =
-          toNumber(
-            payment.amount
-          );
-
-        if (
-          Object.prototype.hasOwnProperty.call(
-            paymentBreakdown,
-            method
-          )
-        ) {
-          paymentBreakdown[
-            method
-          ] += amount;
-        }
-      }
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | INVENTORY
-    |--------------------------------------------------------------------------
-    |
-    | This part currently uses Product.stockQuantity because
-    | the exact branch-stock model has not yet been supplied.
-    |
-    | We will replace this section with the actual branch-stock
-    | collection once that model is provided.
-    |
-    */
-
-    const productFilter = {
-      businessId,
-    };
-
-    const products =
-      await Product.find(
-        productFilter
-      ).lean();
-
-    const totalProducts =
-      products.length;
-
-    const inventoryValue =
-      products.reduce(
-        (sum, product) => {
-          const stock =
-            toNumber(
-              product.stockQuantity
-            );
-
-          const buyingPrice =
-            toNumber(
-              product.buyingPrice
-            );
-
-          return (
-            sum +
-            stock * buyingPrice
-          );
-        },
-        0
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOW STOCK PRODUCTS
-    |--------------------------------------------------------------------------
-    */
-
-    const lowStockProducts =
-      products
-        .filter((product) => {
-          const stock =
-            toNumber(
-              product.stockQuantity
-            );
-
-          const minimumStock =
-            toNumber(
-              product.minimumStock ??
-                product.minStock ??
-                0
-            );
-
-          return (
-            stock <= minimumStock
-          );
-        })
-        .sort(
-          (a, b) =>
-            toNumber(
-              a.stockQuantity
-            ) -
-            toNumber(
-              b.stockQuantity
-            )
+      if (
+        isCancelledSale(
+          sale
         )
-        .slice(0, 20)
-        .map((product) => ({
-          _id: product._id,
-          name: product.name,
-          sku: product.sku,
+      ) {
+        return total;
+      }
 
-          stock: toNumber(
-            product.stockQuantity
-          ),
+      return (
+        total +
+        getSaleTotal(
+          sale
+        )
+      );
+    },
+    0
+  );
+};
 
-          minimumStock: toNumber(
-            product.minimumStock ??
-              product.minStock ??
-              0
-          ),
-        }));
+/*
+|--------------------------------------------------------------------------
+| TRANSACTIONS
+|--------------------------------------------------------------------------
+*/
 
-    /*
-    |--------------------------------------------------------------------------
-    | RECENT SALES
-    |--------------------------------------------------------------------------
-    |
-    | Return the latest completed sales.
-    |
-    */
+const calculateTransactions = (
+  sales
+) => {
+  return sales.filter(
+    (sale) =>
+      !isCancelledSale(
+        sale
+      )
+  ).length;
+};
 
-    const recentSales =
-      todaySales
-        .slice(0, 10)
-        .map((sale) => ({
-          _id: sale._id,
+/*
+|--------------------------------------------------------------------------
+| PROFIT DATA
+|--------------------------------------------------------------------------
+|
+| We only calculate gross profit when every sale item has a reliable
+| cost/buying-price snapshot.
+|
+| This prevents MOVA from displaying fake profit.
+|
+*/
 
-          receiptNumber:
-            sale.receiptNumber,
+const calculateProfit = (
+  sales
+) => {
+  let grossProfit = 0;
 
-          total:
-            toNumber(
-              sale.total
-            ),
+  let hasSales = false;
 
-          status:
-            sale.status,
+  let allCostsAvailable = true;
 
-          paymentMethod:
-            sale.paymentMethod,
+  for (const sale of sales) {
+    if (
+      isCancelledSale(
+        sale
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      !Array.isArray(
+        sale.items
+      ) ||
+      sale.items.length === 0
+    ) {
+      allCostsAvailable = false;
+      continue;
+    }
+
+    hasSales = true;
+
+    for (
+      const item of sale.items
+    ) {
+      const quantity =
+        toNumber(
+          item.quantity
+        );
+
+      const sellingPrice =
+        toNumber(
+          item.sellingPrice ??
+            item.price ??
+            item.unitPrice
+        );
+
+      const buyingPriceValue =
+        item.buyingPrice ??
+        item.costPrice ??
+        item.cost ??
+        item.purchasePrice ??
+        item.unitCost;
+
+      /*
+      |----------------------------------------------------------------------
+      | A cost must actually exist.
+      |----------------------------------------------------------------------
+      */
+
+      if (
+        buyingPriceValue ===
+          undefined ||
+        buyingPriceValue ===
+          null ||
+        buyingPriceValue === ""
+      ) {
+        allCostsAvailable =
+          false;
+
+        continue;
+      }
+
+      const buyingPrice =
+        toNumber(
+          buyingPriceValue
+        );
+
+      grossProfit +=
+        (
+          sellingPrice -
+          buyingPrice
+        ) *
+        quantity;
+    }
+  }
+
+  if (
+    !hasSales ||
+    !allCostsAvailable
+  ) {
+    return {
+      available: false,
+      value: 0,
+    };
+  }
+
+  return {
+    available: true,
+    value: grossProfit,
+  };
+};
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENT BREAKDOWN
+|--------------------------------------------------------------------------
+*/
+
+const buildPaymentBreakdown = (
+  sales
+) => {
+  const breakdown = {};
+
+  for (const sale of sales) {
+    if (
+      isCancelledSale(
+        sale
+      )
+    ) {
+      continue;
+    }
+
+    const method =
+      (
+        sale.paymentMethod ||
+        sale.paymentType ||
+        "OTHER"
+      )
+        .toString()
+        .toUpperCase();
+
+    const amount =
+      getSaleTotal(
+        sale
+      );
+
+    if (
+      !breakdown[
+        method
+      ]
+    ) {
+      breakdown[
+        method
+      ] = 0;
+    }
+
+    breakdown[
+      method
+    ] += amount;
+  }
+
+  return breakdown;
+};
+
+/*
+|--------------------------------------------------------------------------
+| DASHBOARD
+|--------------------------------------------------------------------------
+*/
+
+export const getDashboard =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const businessId =
+        getBusinessId(req);
+
+      const branchId =
+        getBranchId(req);
+
+      if (!businessId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Business context is missing.",
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CURRENT TIME
+      |--------------------------------------------------------------------------
+      */
+
+      const now =
+        new Date();
+
+      /*
+      |--------------------------------------------------------------------------
+      | TODAY
+      |--------------------------------------------------------------------------
+      */
+
+      const startOfToday =
+        new Date(now);
+
+      startOfToday.setHours(
+        0,
+        0,
+        0,
+        0
+      );
+
+      const endOfToday =
+        new Date(
+          startOfToday
+        );
+
+      endOfToday.setDate(
+        endOfToday.getDate() +
+          1
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | CURRENT MONTH
+      |--------------------------------------------------------------------------
+      */
+
+      const startOfMonth =
+        new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          1
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | PREVIOUS MONTH
+      |--------------------------------------------------------------------------
+      */
+
+      const startOfPreviousMonth =
+        new Date(
+          now.getFullYear(),
+          now.getMonth() -
+            1,
+          1
+        );
+
+      const endOfPreviousMonth =
+        new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          1
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | BASE FILTERS
+      |--------------------------------------------------------------------------
+      */
+
+      const saleFilter = {
+        businessId,
+      };
+
+      const expenseFilter = {
+        businessId,
+      };
+
+      const productFilter = {
+        businessId,
+      };
+
+      const customerFilter = {
+        businessId,
+      };
+
+      /*
+      |--------------------------------------------------------------------------
+      | BRANCH FILTER
+      |--------------------------------------------------------------------------
+      */
+
+      if (branchId) {
+        saleFilter.branchId =
+          branchId;
+
+        expenseFilter.branchId =
+          branchId;
+
+        productFilter.branchId =
+          branchId;
+
+        customerFilter.branchId =
+          branchId;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | LOAD SALES
+      |--------------------------------------------------------------------------
+      */
+
+      const [
+        todaySales,
+        monthSales,
+        previousMonthSales,
+        recentSales,
+      ] =
+        await Promise.all([
+          Sale.find({
+            ...saleFilter,
+
+            createdAt:
+              getDateRange(
+                startOfToday,
+                endOfToday
+              ),
+          })
+            .lean(),
+
+          Sale.find({
+            ...saleFilter,
+
+            createdAt:
+              getDateRange(
+                startOfMonth,
+                now
+              ),
+          })
+            .lean(),
+
+          Sale.find({
+            ...saleFilter,
+
+            createdAt:
+              getDateRange(
+                startOfPreviousMonth,
+                endOfPreviousMonth
+              ),
+          })
+            .lean(),
+
+          Sale.find(
+            saleFilter
+          )
+            .sort({
+              createdAt: -1,
+            })
+            .limit(8)
+            .populate(
+              "customerId",
+              "name phone email"
+            )
+            .populate(
+              "userId",
+              "name email"
+            )
+            .lean(),
+        ]);
+
+      /*
+      |--------------------------------------------------------------------------
+      | REVENUE
+      |--------------------------------------------------------------------------
+      */
+
+      const todayRevenue =
+        calculateRevenue(
+          todaySales
+        );
+
+      const monthRevenue =
+        calculateRevenue(
+          monthSales
+        );
+
+      const previousMonthRevenue =
+        calculateRevenue(
+          previousMonthSales
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | TRANSACTIONS
+      |--------------------------------------------------------------------------
+      */
+
+      const todayTransactions =
+        calculateTransactions(
+          todaySales
+        );
+
+      const monthTransactions =
+        calculateTransactions(
+          monthSales
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | EXPENSES
+      |--------------------------------------------------------------------------
+      */
+
+      const monthExpenses =
+        await Expense.find({
+          ...expenseFilter,
 
           createdAt:
-            sale.createdAt,
+            getDateRange(
+              startOfMonth,
+              now
+            ),
+        })
+          .lean();
 
-          customerId:
-            sale.customerId || null,
+      const totalExpenses =
+        monthExpenses.reduce(
+          (
+            total,
+            expense
+          ) => {
+            return (
+              total +
+              toNumber(
+                expense.amount ??
+                  expense.total ??
+                  expense.cost
+              )
+            );
+          },
+          0
+        );
 
-          cashierId:
-            sale.cashierId || null,
-        }));
+      /*
+      |--------------------------------------------------------------------------
+      | PROFIT
+      |--------------------------------------------------------------------------
+      */
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE
-    |--------------------------------------------------------------------------
-    */
+      const profit =
+        calculateProfit(
+          monthSales
+        );
 
-    return res.status(200).json({
-      success: true,
+      const grossProfit =
+        profit.available
+          ? profit.value
+          : 0;
 
-      overview: {
-        today: {
-          sales:
-            todaySalesTotal,
+      const netProfit =
+        profit.available
+          ? grossProfit -
+            totalExpenses
+          : 0;
 
-          payments:
-            todayPaymentsTotal,
+      /*
+      |--------------------------------------------------------------------------
+      | CUSTOMERS
+      |--------------------------------------------------------------------------
+      */
 
-          expenses:
-            todayExpensesTotal,
+      const totalCustomers =
+        await Customer.countDocuments(
+          customerFilter
+        );
 
-          grossProfit:
-            todayGrossProfit,
+      /*
+      |--------------------------------------------------------------------------
+      | PRODUCTS / LOW STOCK
+      |--------------------------------------------------------------------------
+      */
 
-          netProfit:
-            todayNetProfit,
+      const products =
+        await Product.find(
+          productFilter
+        )
+          .select(
+            [
+              "name",
+              "sku",
+              "stockQuantity",
+              "minStock",
+              "minimumStock",
+              "reorderLevel",
+              "trackStock",
+              "categoryId",
+              "price",
+              "sellingPrice",
+            ].join(" ")
+          )
+          .lean();
 
-          productsSold:
-            productsSoldToday,
+      const lowStockProducts =
+        products
+          .filter(
+            (
+              product
+            ) => {
+              if (
+                product.trackStock ===
+                false
+              ) {
+                return false;
+              }
+
+              const stock =
+                toNumber(
+                  product.stockQuantity
+                );
+
+              const minimumStock =
+                toNumber(
+                  product.minStock ??
+                    product.minimumStock ??
+                    product.reorderLevel ??
+                    0
+                );
+
+              return (
+                stock <=
+                minimumStock
+              );
+            }
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              toNumber(
+                a.stockQuantity
+              ) -
+              toNumber(
+                b.stockQuantity
+              )
+          )
+          .slice(
+            0,
+            10
+          );
+
+      /*
+      |--------------------------------------------------------------------------
+      | SEVEN-DAY SALES CHART
+      |--------------------------------------------------------------------------
+      */
+
+      const salesChart =
+        [];
+
+      for (
+        let index = 6;
+        index >= 0;
+        index--
+      ) {
+        const date =
+          new Date(
+            now
+          );
+
+        date.setDate(
+          now.getDate() -
+            index
+        );
+
+        const start =
+          new Date(
+            date
+          );
+
+        start.setHours(
+          0,
+          0,
+          0,
+          0
+        );
+
+        const end =
+          new Date(
+            start
+          );
+
+        end.setDate(
+          end.getDate() +
+            1
+        );
+
+        const daySales =
+          await Sale.find({
+            ...saleFilter,
+
+            createdAt:
+              getDateRange(
+                start,
+                end
+              ),
+          })
+            .select(
+              "total grandTotal amount status"
+            )
+            .lean();
+
+        const revenue =
+          calculateRevenue(
+            daySales
+          );
+
+        const transactions =
+          calculateTransactions(
+            daySales
+          );
+
+        salesChart.push({
+          date:
+            start
+              .toISOString()
+              .split(
+                "T"
+              )[0],
+
+          label:
+            start.toLocaleDateString(
+              "en-UG",
+              {
+                weekday:
+                  "short",
+              }
+            ),
+
+          revenue,
+
+          transactions,
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | PAYMENT BREAKDOWN
+      |--------------------------------------------------------------------------
+      */
+
+      const paymentBreakdown =
+        buildPaymentBreakdown(
+          monthSales
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | REVENUE CHANGE
+      |--------------------------------------------------------------------------
+      */
+
+      let revenueChange =
+        0;
+
+      if (
+        previousMonthRevenue !==
+        0
+      ) {
+        revenueChange =
+          (
+            (
+              monthRevenue -
+              previousMonthRevenue
+            ) /
+            Math.abs(
+              previousMonthRevenue
+            )
+          ) *
+          100;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | RESPONSE
+      |--------------------------------------------------------------------------
+      */
+
+      return res.status(200).json({
+        success: true,
+
+        businessId,
+
+        branchId,
+
+        generatedAt:
+          new Date().toISOString(),
+
+        stats: {
+          todaySales:
+            todayRevenue,
+
+          todayRevenue,
+
+          monthSales:
+            monthRevenue,
+
+          monthRevenue,
+
+          todayTransactions,
+
+          monthTransactions,
+
+          totalCustomers,
+
+          totalExpenses,
+
+          grossProfit,
+
+          netProfit,
+
+          revenueChange,
+
+          profitDataAvailable:
+            profit.available,
         },
 
-        month: {
-          sales:
-            monthSalesTotal,
-
-          payments:
-            monthPaymentsTotal,
+        summary: {
+          revenue:
+            monthRevenue,
 
           expenses:
-            monthExpensesTotal,
+            totalExpenses,
 
           grossProfit:
-            monthGrossProfit,
+            profit.available
+              ? grossProfit
+              : null,
 
           netProfit:
-            monthNetProfit,
-        },
+            profit.available
+              ? netProfit
+              : null,
 
-        inventory: {
-          totalProducts,
+          transactions:
+            monthTransactions,
 
-          inventoryValue,
+          customers:
+            totalCustomers,
 
-          lowStockCount:
+          lowStock:
             lowStockProducts.length,
 
-          lowStockProducts,
+          profitDataAvailable:
+            profit.available,
         },
 
-        paymentBreakdown,
-
         recentSales,
-      },
-    });
-  } catch (error) {
-    console.error(
-      "Dashboard overview error:",
+
+        lowStockProducts,
+
+        salesChart,
+
+        paymentBreakdown,
+      });
+    } catch (
       error
-    );
+    ) {
+      console.error(
+        "Dashboard error:",
+        error
+      );
 
-    return res.status(500).json({
-      success: false,
+      return res.status(500).json({
+        success: false,
 
-      message:
-        "Failed to load dashboard overview.",
+        message:
+          "Unable to load dashboard data.",
 
-      error:
-        process.env.NODE_ENV ===
-        "development"
-          ? error.message
-          : undefined,
-    });
-  }
-};
+        error:
+          process.env.NODE_ENV ===
+          "development"
+            ? error.message
+            : undefined,
+      });
+    }
+  };

@@ -1,31 +1,51 @@
-import { useEffect, useRef, useState } from "react";
 import {
+  Building2,
   Check,
   ChevronDown,
-  GitBranch,
   Loader2,
 } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { useAuth } from "../context/AuthContext";
+import {
+  useBusiness,
+} from "../context/BusinessContext";
 
 const BranchSelector = () => {
   const {
     branch,
     branches,
     switchBranch,
-  } = useAuth();
+    loadBranches,
+    loading,
+  } = useBusiness();
 
   const [open, setOpen] =
     useState(false);
 
-  const [switchingId, setSwitchingId] =
-    useState(null);
-
-  const [error, setError] =
-    useState("");
+  const [switching, setSwitching] =
+    useState(false);
 
   const containerRef =
     useRef(null);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD BRANCHES
+  |--------------------------------------------------------------------------
+  */
+
+  useEffect(() => {
+    if (!branches.length) {
+      loadBranches().catch(() => {
+        // Error is already handled
+        // by BusinessContext.
+      });
+    }
+  }, []);
 
   /*
   |--------------------------------------------------------------------------
@@ -62,154 +82,98 @@ const BranchSelector = () => {
 
   /*
   |--------------------------------------------------------------------------
-  | CURRENT BRANCH
+  | SELECT BRANCH
   |--------------------------------------------------------------------------
   */
 
-  const currentBranch =
-    branch ||
-    branches?.[0] ||
-    null;
-
-  /*
-  |--------------------------------------------------------------------------
-  | SWITCH BRANCH
-  |--------------------------------------------------------------------------
-  */
-
-  const handleSwitch = async (
-    branchId
+  const handleSelect = async (
+    selectedBranch
   ) => {
-    if (!branchId) {
-      return;
-    }
-
     if (
-      currentBranch?._id ===
-      branchId
+      !selectedBranch?._id ||
+      selectedBranch._id === branch?._id
     ) {
       setOpen(false);
       return;
     }
 
     try {
-      setError("");
-      setSwitchingId(branchId);
+      setSwitching(true);
 
       await switchBranch(
-        branchId
+        selectedBranch._id
       );
 
       setOpen(false);
+
+      /*
+       * Reload the page data so that
+       * branch-dependent modules such as
+       * dashboard, POS and inventory refresh.
+       */
+      window.dispatchEvent(
+        new CustomEvent(
+          "mova:branch-changed",
+          {
+            detail: {
+              branch:
+                selectedBranch,
+            },
+          }
+        )
+      );
     } catch (error) {
       console.error(
-        "Branch selector error:",
+        "Unable to switch branch:",
         error
       );
-
-      setError(
-        error?.message ||
-          "Unable to switch branch."
-      );
     } finally {
-      setSwitchingId(null);
+      setSwitching(false);
     }
   };
-
-  /*
-  |--------------------------------------------------------------------------
-  | NO BRANCH
-  |--------------------------------------------------------------------------
-  */
-
-  if (!currentBranch) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
-        <GitBranch
-          size={16}
-        />
-
-        <span className="text-xs font-medium">
-          No branch selected
-        </span>
-      </div>
-    );
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | SINGLE BRANCH
-  |--------------------------------------------------------------------------
-  */
-
-  if (
-    !branches ||
-    branches.length <= 1
-  ) {
-    return (
-      <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-          <GitBranch
-            size={16}
-            className="text-slate-600"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Branch
-          </p>
-
-          <p className="truncate text-sm font-semibold text-slate-800">
-            {currentBranch.name}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | MULTI-BRANCH SELECTOR
-  |--------------------------------------------------------------------------
-  */
 
   return (
     <div
       ref={containerRef}
-      className="relative"
+      className="relative w-full"
     >
       <button
         type="button"
         onClick={() =>
-          setOpen(
-            (current) =>
-              !current
-          )
+          setOpen((value) => !value)
         }
-        className="flex min-w-0 max-w-[260px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:bg-slate-50"
-        aria-haspopup="listbox"
-        aria-expanded={open}
+        disabled={
+          loading ||
+          switching
+        }
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-          <GitBranch
-            size={16}
-            className="text-slate-600"
-          />
-        </div>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+            {switching ? (
+              <Loader2
+                size={18}
+                className="animate-spin"
+              />
+            ) : (
+              <Building2 size={18} />
+            )}
+          </div>
 
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Branch
-          </p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              Active branch
+            </p>
 
-          <p className="truncate text-sm font-semibold text-slate-800">
-            {currentBranch.name}
-          </p>
+            <p className="truncate text-sm font-semibold text-slate-900">
+              {branch?.name ||
+                "Select branch"}
+            </p>
+          </div>
         </div>
 
         <ChevronDown
-          size={16}
+          size={18}
           className={`shrink-0 text-slate-400 transition-transform ${
             open
               ? "rotate-180"
@@ -219,128 +183,89 @@ const BranchSelector = () => {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">
-              Switch branch
-            </p>
-
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Choose the branch you want to
-              work with. Your access is
-              checked by MOVA.
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Your branches
             </p>
           </div>
 
-          {error && (
-            <div className="mx-3 mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
-              {error}
-            </div>
-          )}
+          <div className="max-h-72 overflow-y-auto p-2">
+            {branches.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <Building2
+                  size={24}
+                  className="mx-auto mb-2 text-slate-300"
+                />
 
-          <div
-            className="max-h-80 overflow-y-auto p-2"
-            role="listbox"
-          >
-            {branches.map(
-              (item) => {
-                const id =
-                  item._id ||
-                  item.id;
+                <p className="text-sm font-medium text-slate-600">
+                  No branches found
+                </p>
 
-                const isActive =
-                  id ===
-                  currentBranch._id;
+                <p className="mt-1 text-xs text-slate-400">
+                  Create a branch to continue.
+                </p>
+              </div>
+            ) : (
+              branches.map(
+                (item) => {
+                  const active =
+                    item._id ===
+                    branch?._id;
 
-                const isSwitching =
-                  switchingId ===
-                  id;
-
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    role="option"
-                    aria-selected={
-                      isActive
-                    }
-                    disabled={
-                      switchingId !==
-                        null
-                    }
-                    onClick={() =>
-                      handleSwitch(
-                        id
-                      )
-                    }
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
-                      isActive
-                        ? "bg-slate-100"
-                        : "hover:bg-slate-50"
-                    } ${
-                      switchingId !==
-                      null
-                        ? "cursor-not-allowed opacity-70"
-                        : ""
-                    }`}
-                  >
-                    <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                        isActive
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-100 text-slate-500"
+                  return (
+                    <button
+                      key={item._id}
+                      type="button"
+                      onClick={() =>
+                        handleSelect(
+                          item
+                        )
+                      }
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left transition ${
+                        active
+                          ? "bg-slate-100"
+                          : "hover:bg-slate-50"
                       }`}
                     >
-                      {isSwitching ? (
-                        <Loader2
-                          size={17}
-                          className="animate-spin"
-                        />
-                      ) : (
-                        <GitBranch
-                          size={17}
-                        />
-                      )}
-                    </div>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                            active
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          <Building2
+                            size={17}
+                          />
+                        </div>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-slate-800">
-                          {item.name}
-                        </p>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {item.name ||
+                              "Unnamed Branch"}
+                          </p>
 
-                        {item.code && (
-                          <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500">
-                            {item.code}
-                          </span>
-                        )}
+                          {item.code && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              {item.code}
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      {item.address && (
-                        <p className="mt-0.5 truncate text-xs text-slate-400">
-                          {item.address}
-                        </p>
+                      {active && (
+                        <Check
+                          size={18}
+                          className="shrink-0 text-emerald-600"
+                        />
                       )}
-                    </div>
-
-                    {isActive && (
-                      <Check
-                        size={17}
-                        className="shrink-0 text-emerald-600"
-                      />
-                    )}
-                  </button>
-                );
-              }
+                    </button>
+                  );
+                }
+              )
             )}
-          </div>
-
-          <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
-            <p className="text-[11px] leading-5 text-slate-500">
-              Sales, inventory and other
-              branch operations will use the
-              selected branch.
-            </p>
           </div>
         </div>
       )}

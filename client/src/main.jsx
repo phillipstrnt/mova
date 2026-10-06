@@ -1,10 +1,11 @@
-
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import App from "./App.jsx";
+
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { BusinessProvider } from "./context/BusinessContext.jsx";
 
 import {
   registerMovaServiceWorker,
@@ -13,17 +14,18 @@ import {
 
 import "./index.css";
 
-// Register MOVA PWA service worker
 registerMovaServiceWorker();
-
-// Initialize MOVA network status
 initializeMovaNetworkStatus();
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+ReactDOM.createRoot(
+  document.getElementById("root")
+).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <BusinessProvider>
+          <App />
+        </BusinessProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

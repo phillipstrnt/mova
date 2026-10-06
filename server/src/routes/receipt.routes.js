@@ -1,29 +1,54 @@
-
 import express from "express";
 
 import {
-  getReceiptSettings,
-  updateReceiptSettings,
-} from "../controllers/receiptController.js";
+  getReports,
+  getSalesReport,
+  getPaymentsReport,
+} from "../controllers/reportController.js";
 
 import {
   protect,
-  authorize,
 } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+/*
+|--------------------------------------------------------------------------
+| GENERAL REPORTS
+|--------------------------------------------------------------------------
+| GET /api/reports
+|--------------------------------------------------------------------------
+*/
 router.get(
   "/",
   protect,
-  getReceiptSettings
+  getReports
 );
 
-router.put(
-  "/",
+/*
+|--------------------------------------------------------------------------
+| SALES REPORT
+|--------------------------------------------------------------------------
+| GET /api/reports/sales
+|--------------------------------------------------------------------------
+*/
+router.get(
+  "/sales",
   protect,
-  authorize("OWNER", "ADMIN"),
-  updateReceiptSettings
+  getSalesReport
+);
+
+/*
+|--------------------------------------------------------------------------
+| PAYMENTS REPORT
+|--------------------------------------------------------------------------
+| GET /api/reports/payments
+|--------------------------------------------------------------------------
+*/
+router.get(
+  "/payments",
+  protect,
+  getPaymentsReport
 );
 
 export default router;

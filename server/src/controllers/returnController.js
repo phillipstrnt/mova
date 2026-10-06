@@ -1279,3 +1279,288 @@ export const createReturn = async (
     });
   }
 };
+
+/*
+|--------------------------------------------------------------------------
+| SALES REPORT
+|--------------------------------------------------------------------------
+*/
+
+export const getSalesReport = async (
+  req,
+  res
+) => {
+  try {
+    const businessId =
+      req.user?.businessId ||
+      req.businessId;
+
+    const branchId =
+      req.user?.activeBranchId ||
+      req.user?.branchId ||
+      null;
+
+    if (!businessId) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "No business is associated with this account.",
+      });
+    }
+
+    const {
+      startDate,
+      endDate,
+    } = req.query;
+
+    const start = startDate
+      ? new Date(
+          `${startDate}T00:00:00.000`
+        )
+      : new Date(
+          new Date().setHours(
+            0,
+            0,
+            0,
+            0
+          )
+        );
+
+    const end = endDate
+      ? new Date(
+          `${endDate}T23:59:59.999`
+        )
+      : new Date();
+
+    if (
+      Number.isNaN(
+        start.getTime()
+      ) ||
+      Number.isNaN(
+        end.getTime()
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid date range.",
+      });
+    }
+
+    if (start > end) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Start date cannot be after end date.",
+      });
+    }
+
+    const query = {
+      businessId,
+
+      createdAt: {
+        $gte: start,
+        $lte: end,
+      },
+    };
+
+    if (
+      branchId &&
+      mongoose.Types.ObjectId.isValid(
+        branchId
+      )
+    ) {
+      query.branchId = branchId;
+    }
+
+    const sales =
+      await Sale.find(query)
+        .sort({
+          createdAt: -1,
+        })
+        .lean();
+
+    const completedSales =
+      sales.filter(
+        (sale) =>
+          !sale.status ||
+          sale.status ===
+            "COMPLETED" ||
+          sale.status ===
+            "PARTIALLY_REFUNDED"
+      );
+
+    const totalSales =
+      completedSales.reduce(
+        (sum, sale) =>
+          sum +
+          getSaleTotal(sale),
+        0
+      );
+
+    const totalDiscounts =
+      completedSales.reduce(
+        (sum, sale) =>
+          sum +
+          getSaleDiscount(sale),
+        0
+      );
+
+    const transactions =
+      completedSales.length;
+
+    const paymentMap = {};
+
+    completedSales.forEach(
+      (sale) => {
+        const method =
+          sale.paymentMethod ||
+          sale.paymentType ||
+          "OTHER";
+
+        if (
+          !paymentMap[method]
+        ) {
+          paymentMap[method] = {
+            method,
+            amount: 0,
+            transactions: 0,
+          };
+        }
+
+        paymentMap[method]
+          .amount +=
+          getSaleTotal(sale);
+
+        paymentMap[method]
+          .transactions += 1;
+      }
+    );
+
+    const paymentBreakdown =
+      Object.values(
+        paymentMap
+      );
+
+    return res.status(200).json({
+      success: true,
+
+      summary: {
+        totalSales,
+        revenue: totalSales,
+        transactions,
+        totalDiscounts,
+        discounts: totalDiscounts,
+        cancelled:
+          sales.filter(
+            (sale) =>
+              sale.status ===
+              "CANCELLED"
+          ).length,
+        refunded:
+          sales.filter(
+            (sale) =>
+              sale.status ===
+                "REFUNDED" ||
+              sale.status ===
+                "PARTIALLY_REFUNDED"
+          ).length,
+      },
+
+      sales:
+        completedSales.map(
+          (sale) => ({
+            _id: sale._id,
+
+            receiptNumber:
+              sale.receiptNumber ||
+              sale.saleNumber ||
+              "-",
+
+            saleNumber:
+              sale.saleNumber ||
+              sale.receiptNumber ||
+              "-",
+
+            subtotal:
+              getSaleSubtotal(
+                sale
+              ),
+
+            discount:
+              getSaleDiscount(
+                sale
+              ),
+
+            total:
+              getSaleTotal(
+                sale
+              ),
+
+            paymentMethod:
+              sale.paymentMethod ||
+              sale.paymentType ||
+              "-",
+
+            paymentType:
+              sale.paymentType ||
+              sale.paymentMethod ||
+              "-",
+
+            status:
+              sale.status ||
+              "COMPLETED",
+
+            customer:
+              sale.customer ||
+              null,
+
+            customerName:
+              sale.customerName ||
+              sale.customer?.name ||
+              "Walk-in Customer",
+
+            cashier:
+              sale.cashier ||
+              sale.user ||
+              null,
+
+            createdAt:
+              sale.createdAt,
+
+            items:
+              Array.isArray(
+                sale.items
+              )
+                ? sale.items
+                : [],
+          })
+        ),
+
+      paymentBreakdown,
+
+      filters: {
+        startDate:
+          start.toISOString(),
+
+        endDate:
+          end.toISOString(),
+
+        branchId:
+          branchId || null,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Get sales report error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Unable to generate sales report.",
+    });
+  }
+};
