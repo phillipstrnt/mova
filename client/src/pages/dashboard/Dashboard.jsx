@@ -1,3 +1,4 @@
+
 import {
   useCallback,
   useEffect,
@@ -14,286 +15,270 @@ import {
   CheckCircle2,
   Clock3,
   DollarSign,
+  Download,
   Package,
   RefreshCw,
   ShoppingCart,
+  Smartphone,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
 
 import api from "../../services/api";
 
-import {
-  useBusiness,
-} from "../../context/BusinessContext";
+import { useAuth } from "../../context/AuthContext";
+import { useBusiness } from "../../context/BusinessContext";
 
 import {
-  useAuth,
-} from "../../context/AuthContext";
-
-/*
-|--------------------------------------------------------------------------
-| FORMATTERS
-|--------------------------------------------------------------------------
-*/
-
-const formatCurrency = (
-  value
-) => {
-  const amount =
-    Number(value) || 0;
-
-  return new Intl.NumberFormat(
-    "en-UG",
-    {
-      style: "currency",
-      currency: "UGX",
-      maximumFractionDigits: 0,
-    }
-  ).format(amount);
-};
-
-const formatNumber = (
-  value
-) => {
-  return new Intl.NumberFormat(
-    "en-UG"
-  ).format(
-    Number(value) || 0
-  );
-};
-
-const formatDate = (
-  value
-) => {
-  if (!value) {
-    return "-";
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return "-";
-  }
-
-  return date.toLocaleString(
-    "en-UG",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  );
-};
-
-/*
-|--------------------------------------------------------------------------
-| DASHBOARD
-|--------------------------------------------------------------------------
-*/
+  canInstallPWA,
+  installPWA,
+  isPWAInstalled,
+  subscribeToPWAInstallState,
+} from "../../pwa.js";
 
 const Dashboard = () => {
+  const { user } = useAuth();
+
   const {
-    branch,
+    business,
+    activeBranch,
+    activeBranchId,
   } = useBusiness();
 
-  const {
-    user,
-  } = useAuth();
+  const [dashboardData, setDashboardData] =
+    useState(null);
 
-  const [
-    dashboard,
-    setDashboard,
-  ] = useState(null);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
+  const [error, setError] =
+    useState("");
 
-  const [
-    error,
-    setError,
-  ] = useState("");
+  const [lastUpdated, setLastUpdated] =
+    useState(null);
 
-  const [
-    lastUpdated,
-    setLastUpdated,
-  ] = useState(null);
+  /* =========================================================
+     PWA STATE
+  ========================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD DASHBOARD
-  |--------------------------------------------------------------------------
-  */
+  const [canInstall, setCanInstall] =
+    useState(canInstallPWA());
 
-  const loadDashboard =
-    useCallback(
-      async (
-        options = {}
-      ) => {
-        const {
-          silent = false,
-        } = options;
+  const [installed, setInstalled] =
+    useState(isPWAInstalled());
 
-        try {
-          if (silent) {
-            setRefreshing(
-              true
-            );
-          } else {
-            setLoading(
-              true
-            );
+  const [installing, setInstalling] =
+    useState(false);
+
+  const [showInstallHelp, setShowInstallHelp] =
+    useState(false);
+
+  /* =========================================================
+     PWA INSTALL STATE LISTENER
+  ========================================================= */
+
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToPWAInstallState(
+        ({
+          canInstall: available,
+          isInstalled: installedState,
+        }) => {
+          setCanInstall(available);
+          setInstalled(installedState);
+
+          if (installedState) {
+            setShowInstallHelp(false);
           }
-
-          setError("");
-
-          /*
-          |--------------------------------------------------------------------------
-          | CURRENT DASHBOARD ENDPOINT
-          |--------------------------------------------------------------------------
-          */
-
-          const response =
-            await api.get(
-              "/dashboard/overview",
-              {
-                params: {
-                  branchId:
-                    branch?._id ||
-                    undefined,
-
-                  timestamp:
-                    Date.now(),
-                },
-              }
-            );
-
-          const data =
-            response?.data;
-
-          if (
-            !data?.success
-          ) {
-            throw new Error(
-              data?.message ||
-                "Dashboard data could not be loaded."
-            );
-          }
-
-          setDashboard(
-            data
-          );
-
-          setLastUpdated(
-            new Date()
-          );
-        } catch (
-          requestError
-        ) {
-          console.error(
-            "Dashboard loading failed:",
-            requestError
-          );
-
-          setError(
-            requestError?.response
-              ?.data?.message ||
-              requestError?.message ||
-              "Dashboard data could not be loaded."
-          );
-        } finally {
-          setLoading(
-            false
-          );
-
-          setRefreshing(
-            false
-          );
         }
-      },
-      [
-        branch?._id,
-      ]
+      );
+
+    return unsubscribe;
+  }, []);
+
+  /* =========================================================
+     PWA INSTALLED EVENT
+  ========================================================= */
+
+  useEffect(() => {
+    const handleInstalled = () => {
+      setInstalled(true);
+      setCanInstall(false);
+      setInstalling(false);
+      setShowInstallHelp(false);
+    };
+
+    window.addEventListener(
+      "mova:pwa-installed",
+      handleInstalled
     );
 
-  /*
-  |--------------------------------------------------------------------------
-  | INITIAL LOAD
-  |--------------------------------------------------------------------------
-  */
+    return () => {
+      window.removeEventListener(
+        "mova:pwa-installed",
+        handleInstalled
+      );
+    };
+  }, []);
+
+  /* =========================================================
+     INSTALL MOVA
+  ========================================================= */
+
+  const handleInstallMova = async () => {
+    if (installing || installed) {
+      return;
+    }
+
+    setInstalling(true);
+
+    try {
+      const result = await installPWA();
+
+      /*
+       * Native browser installation was available.
+       */
+      if (result.success) {
+        setInstalled(true);
+        setCanInstall(false);
+        setShowInstallHelp(false);
+
+        return;
+      }
+
+      /*
+       * Browser did not provide a native installation
+       * prompt, so show the manual instructions.
+       */
+      if (
+        result.outcome === "manual" ||
+        result.outcome === "unavailable"
+      ) {
+        setShowInstallHelp(true);
+      }
+    } catch (installError) {
+      console.error(
+        "MOVA PWA installation failed:",
+        installError
+      );
+
+      setShowInstallHelp(true);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  /* =========================================================
+     DASHBOARD REQUEST
+  ========================================================= */
+
+  const loadDashboard = useCallback(
+    async ({
+      silent = false,
+    } = {}) => {
+      try {
+        if (silent) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        setError("");
+
+        const params = {};
+
+        if (activeBranchId) {
+          params.branchId = activeBranchId;
+        }
+
+        params._t = Date.now();
+
+        const response = await api.get(
+          "/dashboard/overview",
+          {
+            params,
+          }
+        );
+
+        const data =
+          response?.data?.data ??
+          response?.data ??
+          null;
+
+        setDashboardData(data);
+
+        setLastUpdated(
+          new Date()
+        );
+      } catch (requestError) {
+        console.error(
+          "MOVA Dashboard Error:",
+          requestError
+        );
+
+        const message =
+          requestError?.response?.data?.message ||
+          requestError?.message ||
+          "Unable to load dashboard data.";
+
+        setError(message);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [activeBranchId]
+  );
+
+  /* =========================================================
+     INITIAL LOAD
+  ========================================================= */
 
   useEffect(() => {
     loadDashboard();
-  }, [
-    loadDashboard,
-  ]);
+  }, [loadDashboard]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | AUTOMATIC REAL-TIME REFRESH
-  |--------------------------------------------------------------------------
-  |
-  | Every 10 seconds MOVA asks the server for the latest
-  | database information.
-  |
-  */
+  /* =========================================================
+     AUTOMATIC REFRESH
+  ========================================================= */
 
   useEffect(() => {
-    const interval =
-      window.setInterval(
-        () => {
-          loadDashboard({
-            silent: true,
-          });
-        },
-        10000
-      );
+    const interval = setInterval(() => {
+      loadDashboard({
+        silent: true,
+      });
+    }, 10000);
 
     return () => {
-      window.clearInterval(
-        interval
-      );
+      clearInterval(interval);
     };
-  }, [
-    loadDashboard,
-  ]);
+  }, [loadDashboard]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | REFRESH WHEN WINDOW BECOMES ACTIVE
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================
+     REFRESH WHEN TAB RETURNS
+  ========================================================= */
 
   useEffect(() => {
-    const handleFocus =
-      () => {
+    const handleFocus = () => {
+      loadDashboard({
+        silent: true,
+      });
+    };
+
+    const handleVisibility = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
         loadDashboard({
           silent: true,
         });
-      };
-
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          loadDashboard({
-            silent: true,
-          });
-        }
-      };
+      }
+    };
 
     window.addEventListener(
       "focus",
@@ -316,413 +301,344 @@ const Dashboard = () => {
         handleVisibility
       );
     };
-  }, [
-    loadDashboard,
-  ]);
+  }, [loadDashboard]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | REFRESH AFTER MOVA OPERATIONS
-  |--------------------------------------------------------------------------
-  |
-  | POS, purchases, expenses, payments and other components
-  | can dispatch this event after successfully changing data.
-  |
-  */
+  /* =========================================================
+     REFRESH WHEN MOVA DATA CHANGES
+  ========================================================= */
 
   useEffect(() => {
-    const handleDataChanged =
-      () => {
-        loadDashboard({
-          silent: true,
-        });
-      };
-
     const events = [
-      "mova:data-changed",
-      "mova:sale-completed",
-      "mova:purchase-completed",
+      "mova:sale-created",
+      "mova:sale-updated",
+      "mova:inventory-updated",
+      "mova:customer-created",
       "mova:expense-created",
-      "mova:payment-updated",
-      "mova:inventory-changed",
-      "mova:customer-changed",
-      "mova:branch-changed",
+      "mova:payment-created",
+      "mova:return-created",
+      "mova:data-changed",
     ];
 
-    events.forEach(
-      (eventName) => {
-        window.addEventListener(
-          eventName,
-          handleDataChanged
-        );
-      }
-    );
+    const handleDataChange = () => {
+      loadDashboard({
+        silent: true,
+      });
+    };
+
+    events.forEach((eventName) => {
+      window.addEventListener(
+        eventName,
+        handleDataChange
+      );
+    });
 
     return () => {
-      events.forEach(
-        (eventName) => {
-          window.removeEventListener(
-            eventName,
-            handleDataChanged
-          );
-        }
-      );
+      events.forEach((eventName) => {
+        window.removeEventListener(
+          eventName,
+          handleDataChange
+        );
+      });
     };
-  }, [
-    loadDashboard,
-  ]);
+  }, [loadDashboard]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | DATA
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================
+     FORMATTERS
+  ========================================================= */
 
-  const stats =
-    dashboard?.stats ||
-    dashboard?.summary ||
-    {};
+  const formatCurrency = useCallback(
+    (value) => {
+      const amount =
+        Number(value) || 0;
+
+      return new Intl.NumberFormat(
+        "en-UG",
+        {
+          style: "currency",
+          currency:
+            business?.currency ||
+            "UGX",
+          maximumFractionDigits: 0,
+        }
+      ).format(amount);
+    },
+    [business?.currency]
+  );
+
+  const formatNumber = useCallback(
+    (value) => {
+      return new Intl.NumberFormat(
+        "en-UG"
+      ).format(Number(value) || 0);
+    },
+    []
+  );
+
+  /* =========================================================
+     SAFE DASHBOARD DATA
+  ========================================================= */
+
+  const safeData = dashboardData || {};
+
+  const todaySales =
+    Number(
+      safeData.todayRevenue ??
+        safeData.todaySales ??
+        0
+    );
+
+  const monthlyRevenue =
+    Number(
+      safeData.monthRevenue ??
+        safeData.monthlyRevenue ??
+        0
+    );
+
+  const monthlyExpenses =
+    Number(
+      safeData.totalExpenses ??
+        safeData.monthlyExpenses ??
+        0
+    );
+
+  const totalCustomers =
+    Number(
+      safeData.totalCustomers ??
+        safeData.customers ??
+        0
+    );
+
+  const lowStockCount =
+    Number(
+      safeData.lowStock ??
+        safeData.lowStockCount ??
+        0
+    );
+
+  const grossProfit =
+    Number(
+      safeData.grossProfit ??
+        safeData.monthGrossProfit ??
+        monthlyRevenue -
+          monthlyExpenses
+    );
+
+  /* =========================================================
+     CHART DATA
+  ========================================================= */
+
+  const salesChart =
+    Array.isArray(
+      safeData.salesChart
+    )
+      ? safeData.salesChart
+      : Array.isArray(
+          safeData.salesTrend
+        )
+      ? safeData.salesTrend
+      : [];
+
+  const paymentBreakdown =
+    Array.isArray(
+      safeData.paymentBreakdown
+    )
+      ? safeData.paymentBreakdown
+      : [];
 
   const recentSales =
     Array.isArray(
-      dashboard?.recentSales
+      safeData.recentSales
     )
-      ? dashboard.recentSales
+      ? safeData.recentSales
       : [];
 
   const lowStockProducts =
     Array.isArray(
-      dashboard?.lowStockProducts
+      safeData.lowStockProducts
     )
-      ? dashboard.lowStockProducts
+      ? safeData.lowStockProducts
       : [];
 
-  const salesChart =
-    Array.isArray(
-      dashboard?.salesChart
-    )
-      ? dashboard.salesChart
-      : [];
+  /* =========================================================
+     PROFIT MARGIN
+  ========================================================= */
 
-  const paymentBreakdown =
-    dashboard?.paymentBreakdown ||
-    {};
+  const profitMargin =
+    monthlyRevenue > 0
+      ? (
+          (grossProfit /
+            monthlyRevenue) *
+          100
+        ).toFixed(1)
+      : "0.0";
 
-  const profitAvailable =
-    stats?.profitDataAvailable !==
-    false;
+  /* =========================================================
+     TOTAL PAYMENTS
+  ========================================================= */
 
-  /*
-  |--------------------------------------------------------------------------
-  | KPI CARDS
-  |--------------------------------------------------------------------------
-  */
-
-  const cards =
-    useMemo(
-      () => [
-        {
-          title:
-            "Today's Sales",
-
-          value:
-            formatCurrency(
-              stats.todayRevenue ??
-                stats.todaySales
-            ),
-
-          subtitle:
-            `${formatNumber(
-              stats.todayTransactions
-            )} transactions`,
-
-          icon:
-            ShoppingCart,
+  const totalPayments =
+    useMemo(() => {
+      return paymentBreakdown.reduce(
+        (total, item) => {
+          return (
+            total +
+            Number(
+              item?.amount ??
+                item?.total ??
+                0
+            )
+          );
         },
+        0
+      );
+    }, [paymentBreakdown]);
 
-        {
-          title:
-            "Monthly Revenue",
+  /* =========================================================
+     GREETING
+  ========================================================= */
 
-          value:
-            formatCurrency(
-              stats.monthRevenue ??
-                stats.monthSales
-            ),
+  const greeting = useMemo(() => {
+    const hour =
+      new Date().getHours();
 
-          subtitle:
-            `${formatNumber(
-              stats.monthTransactions
-            )} transactions`,
+    if (hour < 12) {
+      return "Good morning";
+    }
 
-          icon:
-            DollarSign,
+    if (hour < 18) {
+      return "Good afternoon";
+    }
 
-          change:
-            stats.revenueChange,
-        },
+    return "Good evening";
+  }, []);
 
-        {
-          title:
-            "Monthly Expenses",
-
-          value:
-            formatCurrency(
-              stats.totalExpenses
-            ),
-
-          subtitle:
-            "Recorded business expenses",
-
-          icon:
-            Wallet,
-        },
-
-        {
-          title:
-            "Customers",
-
-          value:
-            formatNumber(
-              stats.totalCustomers
-            ),
-
-          subtitle:
-            "Customers in this branch",
-
-          icon:
-            Users,
-        },
-
-        {
-          title:
-            "Gross Profit",
-
-          value:
-            profitAvailable
-              ? formatCurrency(
-                  stats.grossProfit
-                )
-              : "—",
-
-          subtitle:
-            profitAvailable
-              ? "Based on recorded costs"
-              : "Cost data not available",
-
-          icon:
-            BarChart3,
-        },
-
-        {
-          title:
-            "Low Stock",
-
-          value:
-            formatNumber(
-              lowStockProducts.length
-            ),
-
-          subtitle:
-            "Products needing attention",
-
-          icon:
-            Package,
-        },
-      ],
-      [
-        stats,
-        lowStockProducts.length,
-        profitAvailable,
-      ]
-    );
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOADING
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================
+     LOADING STATE
+  ========================================================= */
 
   if (
     loading &&
-    !dashboard
+    !dashboardData
   ) {
     return (
       <div className="space-y-6">
-        <div>
-          <div className="h-9 w-56 animate-pulse rounded-lg bg-slate-200" />
-
-          <div className="mt-2 h-5 w-80 animate-pulse rounded-lg bg-slate-100" />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from(
-            {
-              length: 6,
-            }
-          ).map(
-            (_, index) => (
-              <div
-                key={index}
-                className="h-36 animate-pulse rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
-              />
-            )
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | ERROR WITH NO DATA
-  |--------------------------------------------------------------------------
-  */
-
-  if (
-    error &&
-    !dashboard
-  ) {
-    return (
-      <div className="mx-auto max-w-xl py-16">
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
-          <div className="flex items-start gap-3">
-            <AlertCircle
-              className="mt-0.5 shrink-0 text-red-600"
-              size={22}
-            />
-
-            <div>
-              <h2 className="font-bold text-red-900">
-                Dashboard data could not be loaded
-              </h2>
-
-              <p className="mt-2 text-sm text-red-700">
-                {error}
-              </p>
-
-              <button
-                type="button"
-                onClick={() =>
-                  loadDashboard()
-                }
-                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700"
-              >
-                <RefreshCw
-                  size={16}
-                />
-
-                Try again
-              </button>
-            </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="h-8 w-64 animate-pulse rounded-lg bg-slate-200" />
+            <div className="mt-2 h-4 w-48 animate-pulse rounded bg-slate-100" />
           </div>
+
+          <div className="h-10 w-32 animate-pulse rounded-xl bg-slate-200" />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({
+            length: 4,
+          }).map((_, index) => (
+            <div
+              key={index}
+              className="h-32 animate-pulse rounded-2xl bg-slate-100"
+            />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="h-80 animate-pulse rounded-2xl bg-slate-100 xl:col-span-2" />
+
+          <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
         </div>
       </div>
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | DASHBOARD
-  |--------------------------------------------------------------------------
-  */
+  /* =========================================================
+     MAIN DASHBOARD
+  ========================================================= */
 
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-6">
-      {/* HEADER */}
+    <div className="space-y-6 pb-8">
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+
         <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-black text-slate-900 sm:text-3xl">
-              Dashboard
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              {greeting},{" "}
+              {user?.name ||
+                user?.firstName ||
+                "there"}
+              !
             </h1>
 
-            {branch?.name && (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                {branch.name}
+            {activeBranch?.name && (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {activeBranch.name}
               </span>
             )}
           </div>
 
           <p className="mt-1 text-sm text-slate-500">
-            Welcome back
-            {user?.name
-              ? `, ${user.name}`
-              : ""}.
-            Here's what's happening in your business.
+            Here's what's happening with your business today.
           </p>
 
           {lastUpdated && (
-            <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-              <Clock3
-                size={13}
-              />
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+              <Clock3 size={13} />
 
               Updated{" "}
               {lastUpdated.toLocaleTimeString(
                 "en-UG",
                 {
-                  hour:
-                    "2-digit",
-                  minute:
-                    "2-digit",
-                  second:
-                    "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
                 }
-              )}
-
-              {refreshing && (
-                <>
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Refreshing...
-                  </span>
-                </>
               )}
             </div>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            loadDashboard({
-              silent: true,
-            })
-          }
-          disabled={
-            refreshing
-          }
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCw
-            size={17}
-            className={
-              refreshing
-                ? "animate-spin"
-                : ""
-            }
-          />
+        <div className="flex flex-wrap items-center gap-2">
 
-          Refresh
-        </button>
-      </div>
+          {/* =================================================
+              INSTALL MOVA BUTTON
+          ================================================= */}
 
-      {/* ERROR BANNER */}
+          {!installed ? (
+            <button
+              type="button"
+              onClick={handleInstallMova}
+              disabled={installing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+            >
+              {installing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
 
-      {error && (
-        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <AlertCircle
-            size={19}
-          />
+                  Installing...
+                </>
+              ) : (
+                <>
+                  <Download size={17} />
 
-          <span className="flex-1">
-            {error}
-          </span>
+                  Install MOVA App
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700">
+              <CheckCircle2 size={17} />
+
+              MOVA Installed
+            </div>
+          )}
+
+          {/* =================================================
+              REFRESH BUTTON
+          ================================================= */}
 
           <button
             type="button"
@@ -731,425 +647,909 @@ const Dashboard = () => {
                 silent: true,
               })
             }
-            className="font-bold underline"
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Retry
+            <RefreshCw
+              size={17}
+              className={
+                refreshing
+                  ? "animate-spin"
+                  : ""
+              }
+            />
+
+            Refresh
           </button>
+        </div>
+      </div>
+
+      {/* =====================================================
+          INSTALL HELP
+      ===================================================== */}
+
+      {showInstallHelp &&
+        !installed && (
+          <div className="overflow-hidden rounded-2xl border border-blue-200 bg-blue-50">
+
+            <div className="flex items-start justify-between gap-4 p-5">
+
+              <div className="flex gap-3">
+
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                  <Smartphone size={21} />
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-blue-900">
+                    Install MOVA on this device
+                  </h3>
+
+                  <p className="mt-1 text-sm leading-6 text-blue-800">
+                    Your browser did not provide the automatic
+                    installation prompt. You can still install
+                    MOVA manually.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowInstallHelp(false)
+                }
+                className="rounded-lg p-1.5 text-blue-500 transition hover:bg-blue-100 hover:text-blue-800"
+                aria-label="Close installation instructions"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid gap-3 border-t border-blue-200 bg-white/60 p-5 md:grid-cols-3">
+
+              <div className="rounded-xl border border-blue-100 bg-white p-4">
+                <p className="text-sm font-bold text-slate-900">
+                  Chrome / Edge
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Look for the install icon in the browser
+                  address bar, or open the browser menu and
+                  choose <strong>Install MOVA</strong> or
+                  <strong> Install app</strong>.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-white p-4">
+                <p className="text-sm font-bold text-slate-900">
+                  Android
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Open the browser menu and choose
+                  <strong> Add to Home screen</strong> or
+                  <strong> Install app</strong>.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-white p-4">
+                <p className="text-sm font-bold text-slate-900">
+                  iPhone / iPad
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  In Safari, tap <strong>Share</strong>,
+                  then choose
+                  <strong> Add to Home Screen</strong>.
+                </p>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+      {/* =====================================================
+          BROWSER INSTALL INFORMATION
+      ===================================================== */}
+
+      {!installed &&
+        !canInstall &&
+        !showInstallHelp && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+
+            <div className="flex items-start gap-3">
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                <Smartphone size={19} />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  Use MOVA like a desktop or mobile app
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Click <strong>Install MOVA App</strong> above.
+                  If your browser does not show an automatic
+                  prompt, MOVA will show you how to install it.
+                </p>
+              </div>
+
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setShowInstallHelp(true)
+              }
+              className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Installation Help
+            </button>
+
+          </div>
+        )}
+
+      {/* =====================================================
+          ERROR
+      ===================================================== */}
+
+      {error && (
+        <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+
+          <AlertCircle
+            size={20}
+            className="mt-0.5 shrink-0 text-red-600"
+          />
+
+          <div className="flex-1">
+
+            <p className="font-semibold text-red-800">
+              Dashboard data could not be loaded
+            </p>
+
+            <p className="mt-1 text-sm text-red-700">
+              {error}
+            </p>
+
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              loadDashboard()
+            }
+            className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-red-700"
+          >
+            Try Again
+          </button>
+
         </div>
       )}
 
-      {/* KPI CARDS */}
+      {/* =====================================================
+          KPI CARDS
+      ===================================================== */}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map(
-          (card) => {
-            const Icon =
-              card.icon;
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-            const hasChange =
-              typeof card.change ===
-              "number";
+        {/* TODAY SALES */}
 
-            const positive =
-              Number(
-                card.change
-              ) >= 0;
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
-            return (
-              <div
-                key={
-                  card.title
-                }
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500">
-                      {card.title}
-                    </p>
+          <div className="flex items-start justify-between">
 
-                    <p className="mt-2 text-2xl font-black text-slate-900">
-                      {card.value}
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-400">
-                      {card.subtitle}
-                    </p>
-                  </div>
-
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-                    <Icon
-                      size={21}
-                    />
-                  </div>
-                </div>
-
-                {hasChange && (
-                  <div
-                    className={`mt-4 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
-                      positive
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-red-50 text-red-700"
-                    }`}
-                  >
-                    {positive ? (
-                      <ArrowUpRight
-                        size={14}
-                      />
-                    ) : (
-                      <ArrowDownRight
-                        size={14}
-                      />
-                    )}
-
-                    {Math.abs(
-                      card.change
-                    ).toFixed(
-                      1
-                    )}
-                    % vs previous month
-                  </div>
-                )}
-              </div>
-            );
-          }
-        )}
-      </div>
-
-      {/* SALES CHART + PAYMENTS */}
-
-      <div className="grid gap-6 xl:grid-cols-3">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="font-black text-slate-900">
-                Sales — Last 7 Days
-              </h2>
+              <p className="text-sm font-medium text-slate-500">
+                Today's Sales
+              </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Revenue generated by day.
+              <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                {formatCurrency(todaySales)}
               </p>
             </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <DollarSign size={21} />
+            </div>
+
           </div>
 
-          <div className="mt-6 space-y-4">
-            {salesChart.length ===
-            0 ? (
-              <div className="py-12 text-center text-sm text-slate-400">
-                No sales recorded yet.
-              </div>
-            ) : (
-              salesChart.map(
-                (item) => {
-                  const maxRevenue =
+          <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+            <ArrowUpRight
+              size={14}
+              className="text-emerald-600"
+            />
+
+            Current business day
+          </div>
+
+        </div>
+
+        {/* MONTHLY REVENUE */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-start justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Monthly Revenue
+              </p>
+
+              <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                {formatCurrency(
+                  monthlyRevenue
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <BarChart3 size={21} />
+            </div>
+
+          </div>
+
+          <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+            <ArrowUpRight
+              size={14}
+              className="text-blue-600"
+            />
+
+            This month
+          </div>
+
+        </div>
+
+        {/* EXPENSES */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-start justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Monthly Expenses
+              </p>
+
+              <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                {formatCurrency(
+                  monthlyExpenses
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+              <Wallet size={21} />
+            </div>
+
+          </div>
+
+          <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+            <ArrowDownRight
+              size={14}
+              className="text-orange-600"
+            />
+
+            Recorded expenses
+          </div>
+
+        </div>
+
+        {/* CUSTOMERS */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-start justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Customers
+              </p>
+
+              <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                {formatNumber(
+                  totalCustomers
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
+              <Users size={21} />
+            </div>
+
+          </div>
+
+          <div className="mt-4 text-xs text-slate-500">
+            Customers registered
+          </div>
+
+        </div>
+      </div>
+
+      {/* =====================================================
+          SECONDARY KPI ROW
+      ===================================================== */}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Gross Profit
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-slate-900">
+                {formatCurrency(
+                  grossProfit
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <CheckCircle2 size={20} />
+            </div>
+
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Profit margin:{" "}
+            <span className="font-semibold text-slate-700">
+              {profitMargin}%
+            </span>
+          </p>
+
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Low Stock
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-slate-900">
+                {formatNumber(
+                  lowStockCount
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600">
+              <Boxes size={20} />
+            </div>
+
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Products requiring attention
+          </p>
+
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Payments
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-slate-900">
+                {formatCurrency(
+                  totalPayments
+                )}
+              </p>
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <Wallet size={20} />
+            </div>
+
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Recorded payment activity
+          </p>
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          CHART + PAYMENTS
+      ===================================================== */}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+
+        {/* SALES CHART */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <h2 className="font-bold text-slate-900">
+                Sales Overview
+              </h2>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Recent sales performance
+              </p>
+            </div>
+
+            <BarChart3
+              size={20}
+              className="text-slate-400"
+            />
+
+          </div>
+
+          {salesChart.length === 0 ? (
+            <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+              No sales chart data available yet.
+            </div>
+          ) : (
+            <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto">
+
+              {salesChart.map(
+                (item, index) => {
+                  const amount =
+                    Number(
+                      item?.amount ??
+                        item?.revenue ??
+                        item?.total ??
+                        0
+                    );
+
+                  const maxAmount =
                     Math.max(
                       ...salesChart.map(
-                        (
-                          chartItem
-                        ) =>
+                        (chartItem) =>
                           Number(
-                            chartItem.revenue
-                          ) ||
-                          0
+                            chartItem?.amount ??
+                              chartItem?.revenue ??
+                              chartItem?.total ??
+                              0
+                          )
                       ),
                       1
                     );
 
-                  const percentage =
-                    (
-                      Number(
-                        item.revenue
-                      ) /
-                      maxRevenue
-                    ) *
-                    100;
+                  const height =
+                    Math.max(
+                      8,
+                      (amount /
+                        maxAmount) *
+                        100
+                    );
 
                   return (
                     <div
                       key={
-                        item.date
+                        item?._id ||
+                        item?.date ||
+                        index
                       }
+                      className="flex min-w-[44px] flex-1 flex-col items-center justify-end gap-2"
                     >
-                      <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-600">
-                          {item.label}
-                        </span>
+                      <div className="group relative flex h-full w-full items-end justify-center">
 
-                        <span className="text-slate-500">
-                          {formatCurrency(
-                            item.revenue
-                          )}
-                        </span>
-                      </div>
-
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
                         <div
-                          className="h-full rounded-full bg-slate-800 transition-all duration-500"
+                          className="w-full max-w-12 rounded-t-lg bg-slate-900 transition hover:bg-slate-700"
                           style={{
-                            width: `${Math.max(
-                              percentage,
-                              item.revenue
-                                ? 2
-                                : 0
-                            )}%`,
+                            height: `${height}%`,
                           }}
                         />
+
+                        <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white group-hover:block">
+                          {formatCurrency(
+                            amount
+                          )}
+                        </div>
+
                       </div>
 
-                      <p className="mt-1 text-right text-[11px] text-slate-400">
-                        {
-                          item.transactions
-                        }{" "}
-                        transactions
-                      </p>
+                      <span className="max-w-16 truncate text-[10px] text-slate-400">
+                        {item?.label ||
+                          item?.date ||
+                          item?.day ||
+                          ""}
+                      </span>
                     </div>
                   );
                 }
-              )
-            )}
-          </div>
-        </section>
+              )}
+
+            </div>
+          )}
+
+        </div>
 
         {/* PAYMENT BREAKDOWN */}
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <h2 className="font-black text-slate-900">
-              Payment Methods
-            </h2>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
-            <p className="mt-1 text-sm text-slate-500">
-              This month's recorded sales.
-            </p>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            {Object.keys(
-              paymentBreakdown
-            ).length === 0 ? (
-              <div className="py-10 text-center text-sm text-slate-400">
-                No payment data yet.
-              </div>
-            ) : (
-              Object.entries(
-                paymentBreakdown
-              ).map(
-                ([
-                  method,
-                  amount,
-                ]) => (
-                  <div
-                    key={
-                      method
-                    }
-                    className="flex items-center justify-between rounded-xl bg-slate-50 p-4"
-                  >
-                    <span className="text-sm font-bold text-slate-700">
-                      {method.replace(
-                        /_/g,
-                        " "
-                      )}
-                    </span>
-
-                    <span className="text-sm font-black text-slate-900">
-                      {formatCurrency(
-                        amount
-                      )}
-                    </span>
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </section>
-      </div>
-
-      {/* RECENT SALES + LOW STOCK */}
-
-      <div className="grid gap-6 xl:grid-cols-3">
-        {/* RECENT SALES */}
-
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-slate-100 p-5">
-            <div>
-              <h2 className="font-black text-slate-900">
-                Recent Sales
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Latest transactions from this branch.
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[650px]">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-5 py-3">
-                    Receipt
-                  </th>
-
-                  <th className="px-5 py-3">
-                    Customer
-                  </th>
-
-                  <th className="px-5 py-3">
-                    Payment
-                  </th>
-
-                  <th className="px-5 py-3 text-right">
-                    Total
-                  </th>
-
-                  <th className="px-5 py-3">
-                    Date
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {recentSales.length ===
-                0 ? (
-                  <tr>
-                    <td
-                      colSpan="5"
-                      className="px-5 py-10 text-center text-sm text-slate-400"
-                    >
-                      No sales yet.
-                    </td>
-                  </tr>
-                ) : (
-                  recentSales.map(
-                    (sale) => (
-                      <tr
-                        key={
-                          sale._id
-                        }
-                        className="border-b border-slate-50 last:border-0"
-                      >
-                        <td className="px-5 py-4 text-sm font-bold text-slate-800">
-                          {sale.receiptNumber ||
-                            sale.saleNumber ||
-                            `#${String(
-                              sale._id
-                            ).slice(
-                              -6
-                            )}`}
-                        </td>
-
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {sale.customerId?.name ||
-                            sale.customer?.name ||
-                            "Walk-in customer"}
-                        </td>
-
-                        <td className="px-5 py-4 text-xs font-bold text-slate-600">
-                          {(
-                            sale.paymentMethod ||
-                            "-"
-                          ).replace(
-                            /_/g,
-                            " "
-                          )}
-                        </td>
-
-                        <td className="px-5 py-4 text-right text-sm font-black text-slate-900">
-                          {formatCurrency(
-                            sale.total ??
-                              sale.grandTotal ??
-                              sale.amount
-                          )}
-                        </td>
-
-                        <td className="px-5 py-4 text-xs text-slate-400">
-                          {formatDate(
-                            sale.createdAt
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  )
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* LOW STOCK */}
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
+
             <div>
-              <h2 className="font-black text-slate-900">
-                Low Stock
+              <h2 className="font-bold text-slate-900">
+                Payment Breakdown
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Products requiring attention.
+              <p className="mt-1 text-xs text-slate-500">
+                Payment methods
               </p>
             </div>
 
-            <Boxes
+            <Wallet
               size={20}
               className="text-slate-400"
             />
+
           </div>
 
-          <div className="mt-5 space-y-3">
-            {lowStockProducts.length ===
-            0 ? (
-              <div className="rounded-xl bg-emerald-50 p-4 text-center">
+          {paymentBreakdown.length === 0 ? (
+            <div className="flex h-64 items-center justify-center text-center text-sm text-slate-400">
+              No payment data available yet.
+            </div>
+          ) : (
+            <div className="mt-6 space-y-4">
+
+              {paymentBreakdown.map(
+                (item, index) => {
+                  const amount =
+                    Number(
+                      item?.amount ??
+                        item?.total ??
+                        0
+                    );
+
+                  const percentage =
+                    totalPayments > 0
+                      ? Math.round(
+                          (amount /
+                            totalPayments) *
+                            100
+                        )
+                      : 0;
+
+                  return (
+                    <div
+                      key={
+                        item?.method ||
+                        item?.paymentMethod ||
+                        index
+                      }
+                    >
+                      <div className="mb-2 flex items-center justify-between text-xs">
+
+                        <span className="font-medium text-slate-600">
+                          {item?.method ||
+                            item?.paymentMethod ||
+                            "Other"}
+                        </span>
+
+                        <span className="font-semibold text-slate-900">
+                          {formatCurrency(
+                            amount
+                          )}
+                        </span>
+
+                      </div>
+
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+
+                        <div
+                          className="h-full rounded-full bg-slate-900"
+                          style={{
+                            width: `${percentage}%`,
+                          }}
+                        />
+
+                      </div>
+
+                      <div className="mt-1 text-right text-[10px] text-slate-400">
+                        {percentage}%
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          RECENT SALES + LOW STOCK
+      ===================================================== */}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+
+        {/* RECENT SALES */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+
+            <div>
+              <h2 className="font-bold text-slate-900">
+                Recent Sales
+              </h2>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Latest transactions
+              </p>
+            </div>
+
+            <ShoppingCart
+              size={20}
+              className="text-slate-400"
+            />
+
+          </div>
+
+          {recentSales.length === 0 ? (
+            <div className="flex min-h-56 items-center justify-center px-5 text-center text-sm text-slate-400">
+              No recent sales available.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+
+              {recentSales
+                .slice(0, 6)
+                .map(
+                  (sale, index) => {
+                    const total =
+                      Number(
+                        sale?.total ??
+                          sale?.grandTotal ??
+                          sale?.amount ??
+                          0
+                      );
+
+                    return (
+                      <div
+                        key={
+                          sale?._id ||
+                          sale?.id ||
+                          index
+                        }
+                        className="flex items-center justify-between gap-4 px-5 py-4"
+                      >
+
+                        <div className="min-w-0">
+
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {sale?.invoiceNumber ||
+                              sale?.receiptNumber ||
+                              sale?.reference ||
+                              `Sale #${index + 1}`}
+                          </p>
+
+                          <p className="mt-1 truncate text-xs text-slate-400">
+                            {sale?.customer?.name ||
+                              sale?.customerName ||
+                              sale?.paymentMethod ||
+                              "Walk-in customer"}
+                          </p>
+
+                        </div>
+
+                        <div className="shrink-0 text-right">
+
+                          <p className="text-sm font-bold text-slate-900">
+                            {formatCurrency(
+                              total
+                            )}
+                          </p>
+
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            {sale?.createdAt
+                              ? new Date(
+                                  sale.createdAt
+                                ).toLocaleTimeString(
+                                  "en-UG",
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )
+                              : ""}
+                          </p>
+
+                        </div>
+
+                      </div>
+                    );
+                  }
+                )}
+
+            </div>
+          )}
+
+        </div>
+
+        {/* LOW STOCK */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+
+            <div>
+              <h2 className="font-bold text-slate-900">
+                Low Stock
+              </h2>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Products requiring attention
+              </p>
+            </div>
+
+            <Package
+              size={20}
+              className="text-slate-400"
+            />
+
+          </div>
+
+          {lowStockProducts.length === 0 ? (
+            <div className="flex min-h-56 items-center justify-center px-5 text-center">
+
+              <div>
+
                 <CheckCircle2
-                  size={22}
-                  className="mx-auto text-emerald-600"
+                  size={28}
+                  className="mx-auto text-emerald-500"
                 />
 
-                <p className="mt-2 text-sm font-bold text-emerald-700">
-                  Stock levels look good.
+                <p className="mt-2 text-sm font-semibold text-slate-700">
+                  Stock levels look good
                 </p>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  No low-stock products detected.
+                </p>
+
               </div>
-            ) : (
-              lowStockProducts.map(
-                (product) => (
-                  <div
-                    key={
-                      product._id
-                    }
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-800">
-                        {
-                          product.name
+
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+
+              {lowStockProducts
+                .slice(0, 6)
+                .map(
+                  (product, index) => {
+                    const stock =
+                      Number(
+                        product?.stock ??
+                          product?.quantity ??
+                          product?.currentStock ??
+                          0
+                      );
+
+                    const minimum =
+                      Number(
+                        product?.minStock ??
+                          product?.minimumStock ??
+                          0
+                      );
+
+                    return (
+                      <div
+                        key={
+                          product?._id ||
+                          product?.id ||
+                          index
                         }
-                      </p>
+                        className="flex items-center justify-between gap-4 px-5 py-4"
+                      >
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        SKU:{" "}
-                        {product.sku ||
-                          "-"}
-                      </p>
-                    </div>
+                        <div className="flex min-w-0 items-center gap-3">
 
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-black text-red-600">
-                        {formatNumber(
-                          product.stockQuantity
-                        )}
-                      </p>
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                            <Package size={17} />
+                          </div>
 
-                      <p className="text-[11px] text-slate-400">
-                        remaining
-                      </p>
-                    </div>
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </section>
+                          <div className="min-w-0">
+
+                            <p className="truncate text-sm font-semibold text-slate-800">
+                              {product?.name ||
+                                "Unnamed product"}
+                            </p>
+
+                            <p className="mt-1 text-xs text-slate-400">
+                              Minimum:{" "}
+                              {formatNumber(
+                                minimum
+                              )}
+                            </p>
+
+                          </div>
+
+                        </div>
+
+                        <div className="shrink-0 text-right">
+
+                          <p className="text-sm font-bold text-red-600">
+                            {formatNumber(
+                              stock
+                            )}
+                          </p>
+
+                          <p className="text-[10px] text-slate-400">
+                            remaining
+                          </p>
+
+                        </div>
+
+                      </div>
+                    );
+                  }
+                )}
+
+            </div>
+          )}
+
+        </div>
+
       </div>
+
+      {/* =====================================================
+          BUSINESS STATUS FOOTER
+      ===================================================== */}
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
+          <div className="flex items-start gap-3">
+
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
+              <BarChart3 size={19} />
+            </div>
+
+            <div>
+
+              <p className="text-sm font-bold text-slate-800">
+                Business Command Center
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                MOVA automatically refreshes dashboard
+                activity so your business information stays
+                current.
+              </p>
+
+            </div>
+
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-semibold">
+
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+
+            <span className="text-slate-600">
+              Dashboard monitoring active
+            </span>
+
+          </div>
+
+        </div>
+
+      </div>
+
     </div>
   );
 };

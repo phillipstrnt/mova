@@ -1,3 +1,4 @@
+
 const isBrowser = typeof window !== "undefined";
 
 let deferredInstallPrompt = null;
@@ -5,36 +6,9 @@ let deferredInstallPrompt = null;
 const installListeners = new Set();
 const networkListeners = new Set();
 
-/*
-|--------------------------------------------------------------------------
-| INSTALL STATE
-|--------------------------------------------------------------------------
-*/
-
-const getInstallState = () => {
-  return {
-    canInstall: Boolean(deferredInstallPrompt),
-    isInstalled: isPWAInstalled(),
-  };
-};
-
-const notifyInstallListeners = () => {
-  const state = getInstallState();
-
-  installListeners.forEach((listener) => {
-    try {
-      listener(state);
-    } catch (error) {
-      console.error("MOVA PWA listener error:", error);
-    }
-  });
-};
-
-/*
-|--------------------------------------------------------------------------
-| CHECK IF MOVA IS INSTALLED
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   PWA INSTALL STATE
+========================================================= */
 
 export const isPWAInstalled = () => {
   if (!isBrowser) {
@@ -61,23 +35,39 @@ export const isPWAInstalled = () => {
   );
 };
 
-/*
-|--------------------------------------------------------------------------
-| CHECK IF INSTALLATION IS AVAILABLE
-|--------------------------------------------------------------------------
-*/
-
 export const canInstallPWA = () => {
   return Boolean(deferredInstallPrompt);
 };
 
-/*
-|--------------------------------------------------------------------------
-| SUBSCRIBE TO INSTALL STATE
-|--------------------------------------------------------------------------
-*/
+const getInstallState = () => {
+  return {
+    canInstall: canInstallPWA(),
+    isInstalled: isPWAInstalled(),
+  };
+};
 
-export const subscribeToPWAInstallState = (listener) => {
+const notifyInstallListeners = () => {
+  const state = getInstallState();
+
+  installListeners.forEach((listener) => {
+    try {
+      listener(state);
+    } catch (error) {
+      console.error(
+        "MOVA PWA listener error:",
+        error
+      );
+    }
+  });
+};
+
+/* =========================================================
+   SUBSCRIBE TO INSTALL STATE
+========================================================= */
+
+export const subscribeToPWAInstallState = (
+  listener
+) => {
   if (typeof listener !== "function") {
     return () => {};
   }
@@ -98,74 +88,91 @@ export const subscribeToPWAInstallState = (listener) => {
   };
 };
 
-/*
-|--------------------------------------------------------------------------
-| INSTALL MOVA
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   INSTALL PWA
+========================================================= */
 
 export const installPWA = async () => {
-  if (!deferredInstallPrompt) {
+  if (!isBrowser) {
     return {
       success: false,
       outcome: "unavailable",
+      reason: "browser_unavailable",
     };
   }
 
-  try {
-    const promptEvent = deferredInstallPrompt;
+  /*
+   * If the browser has supplied the native installation
+   * prompt, use it.
+   */
+  if (deferredInstallPrompt) {
+    try {
+      const promptEvent = deferredInstallPrompt;
 
-    /*
-     * The browser normally allows the installation prompt
-     * to be used only once.
-     */
-    deferredInstallPrompt = null;
+      /*
+       * The beforeinstallprompt event can only be used
+       * once in most browsers.
+       */
+      deferredInstallPrompt = null;
 
-    notifyInstallListeners();
+      notifyInstallListeners();
 
-    await promptEvent.prompt();
+      await promptEvent.prompt();
 
-    const result = await promptEvent.userChoice;
+      const result = await promptEvent.userChoice;
 
-    const outcome = result?.outcome || "unknown";
+      const outcome =
+        result?.outcome || "unknown";
 
-    if (outcome === "accepted") {
-      console.log(
-        "MOVA PWA: Installation accepted."
+      if (outcome === "accepted") {
+        console.log(
+          "MOVA PWA: Installation accepted."
+        );
+      } else {
+        console.log(
+          "MOVA PWA: Installation dismissed."
+        );
+      }
+
+      notifyInstallListeners();
+
+      return {
+        success: outcome === "accepted",
+        outcome,
+      };
+    } catch (error) {
+      console.error(
+        "MOVA PWA installation error:",
+        error
       );
-    } else {
-      console.log(
-        "MOVA PWA: Installation dismissed."
-      );
+
+      notifyInstallListeners();
+
+      return {
+        success: false,
+        outcome: "error",
+        error,
+      };
     }
-
-    notifyInstallListeners();
-
-    return {
-      success: outcome === "accepted",
-      outcome,
-    };
-  } catch (error) {
-    console.error(
-      "MOVA PWA installation error:",
-      error
-    );
-
-    notifyInstallListeners();
-
-    return {
-      success: false,
-      outcome: "error",
-      error,
-    };
   }
+
+  /*
+   * The browser did not provide beforeinstallprompt.
+   *
+   * We cannot force the browser's native installation
+   * dialog. The dashboard will therefore display
+   * manual installation instructions.
+   */
+  return {
+    success: false,
+    outcome: "manual",
+    reason: "browser_install_prompt_unavailable",
+  };
 };
 
-/*
-|--------------------------------------------------------------------------
-| SERVICE WORKER REGISTRATION
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   SERVICE WORKER
+========================================================= */
 
 export const registerPWA = () => {
   if (!isBrowser) {
@@ -181,10 +188,11 @@ export const registerPWA = () => {
   }
 
   /*
-   * Do not register the service worker during Vite development.
+   * We only register the service worker in production.
    *
-   * This prevents stale service-worker caching from
-   * interfering with Vite hot reload.
+   * For local testing:
+   * npm run build
+   * npm run preview
    */
   if (!import.meta.env.PROD) {
     console.log(
@@ -249,25 +257,19 @@ export const registerPWA = () => {
         );
       }
     },
-    { once: true }
+    {
+      once: true,
+    }
   );
 };
-
-/*
-|--------------------------------------------------------------------------
-| MOVA SERVICE WORKER ALIAS
-|--------------------------------------------------------------------------
-*/
 
 export const registerMovaServiceWorker = () => {
   registerPWA();
 };
 
-/*
-|--------------------------------------------------------------------------
-| NETWORK STATUS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   NETWORK STATUS
+========================================================= */
 
 const getNetworkState = () => {
   if (!isBrowser) {
@@ -302,17 +304,14 @@ const notifyNetworkListeners = () => {
   });
 
   window.dispatchEvent(
-    new CustomEvent("mova:network-status", {
-      detail: state,
-    })
+    new CustomEvent(
+      "mova:network-status",
+      {
+        detail: state,
+      }
+    )
   );
 };
-
-/*
-|--------------------------------------------------------------------------
-| INITIALIZE NETWORK STATUS
-|--------------------------------------------------------------------------
-*/
 
 export const initializeMovaNetworkStatus = () => {
   if (!isBrowser) {
@@ -350,12 +349,6 @@ export const initializeMovaNetworkStatus = () => {
   notifyNetworkListeners();
 };
 
-/*
-|--------------------------------------------------------------------------
-| SUBSCRIBE TO NETWORK STATUS
-|--------------------------------------------------------------------------
-*/
-
 export const subscribeToMovaNetworkStatus = (
   listener
 ) => {
@@ -379,11 +372,9 @@ export const subscribeToMovaNetworkStatus = (
   };
 };
 
-/*
-|--------------------------------------------------------------------------
-| INSTALL PROMPT INITIALIZATION
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   INSTALL PROMPT INITIALIZATION
+========================================================= */
 
 export const initializePWAInstallPrompt = () => {
   if (!isBrowser) {
@@ -397,8 +388,7 @@ export const initializePWAInstallPrompt = () => {
   window.__MOVA_PWA_INSTALL_INITIALIZED__ = true;
 
   /*
-   * Chrome / Edge and other browsers supporting
-   * beforeinstallprompt.
+   * Chrome / Edge / supported Chromium browsers
    */
   window.addEventListener(
     "beforeinstallprompt",
@@ -451,19 +441,22 @@ export const initializePWAInstallPrompt = () => {
   );
 
   /*
-   * Also check when the page becomes visible again.
+   * Re-check whenever the page becomes visible.
    */
   window.addEventListener(
     "pageshow",
     notifyInstallListeners
   );
+
+  /*
+   * Initial state.
+   */
+  notifyInstallListeners();
 };
 
-/*
-|--------------------------------------------------------------------------
-| COMPLETE PWA SETUP
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   COMPLETE PWA SETUP
+========================================================= */
 
 export const setupPWA = () => {
   if (!isBrowser) {
@@ -471,7 +464,9 @@ export const setupPWA = () => {
   }
 
   initializePWAInstallPrompt();
+
   registerPWA();
+
   initializeMovaNetworkStatus();
 };
 

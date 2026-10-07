@@ -1,182 +1,121 @@
 import { useEffect, useState } from "react";
-import { Download, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Smartphone,
+} from "lucide-react";
 
-export default function PWAInstallPrompt() {
-  const [installEvent, setInstallEvent] = useState(null);
-  const [showPrompt, setShowPrompt] = useState(false);
+import {
+  canInstallPWA,
+  installPWA,
+  isPWAInstalled,
+  subscribeToPWAInstallState,
+} from "../pwa.js";
+
+const PWAInstallButton = () => {
+  const [canInstall, setCanInstall] = useState(
+    canInstallPWA()
+  );
+
+  const [installed, setInstalled] = useState(
+    isPWAInstalled()
+  );
+
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
-    const handleBeforeInstallPrompt = (event) => {
-      event.preventDefault();
+    const unsubscribe =
+      subscribeToPWAInstallState(
+        ({ canInstall: available, isInstalled }) => {
+          setCanInstall(available);
+          setInstalled(isInstalled);
+        }
+      );
 
-      setInstallEvent(event);
+    return unsubscribe;
+  }, []);
 
-      setShowPrompt(true);
-    };
-
-    const handleAppInstalled = () => {
-      setInstallEvent(null);
-      setShowPrompt(false);
-
-      console.log("MOVA has been installed.");
+  useEffect(() => {
+    const handleInstalled = () => {
+      setInstalled(true);
+      setCanInstall(false);
+      setInstalling(false);
     };
 
     window.addEventListener(
-      "beforeinstallprompt",
-      handleBeforeInstallPrompt
-    );
-
-    window.addEventListener(
-      "appinstalled",
-      handleAppInstalled
+      "mova:pwa-installed",
+      handleInstalled
     );
 
     return () => {
       window.removeEventListener(
-        "beforeinstallprompt",
-        handleBeforeInstallPrompt
-      );
-
-      window.removeEventListener(
-        "appinstalled",
-        handleAppInstalled
+        "mova:pwa-installed",
+        handleInstalled
       );
     };
   }, []);
 
-  const installMova = async () => {
-    if (!installEvent) {
+  const handleInstall = async () => {
+    if (installing) {
       return;
     }
 
+    setInstalling(true);
+
     try {
-      await installEvent.prompt();
+      const result = await installPWA();
 
-      const result = await installEvent.userChoice;
-
-      console.log(
-        "MOVA installation result:",
-        result.outcome
-      );
-
-      setInstallEvent(null);
-      setShowPrompt(false);
+      if (result.success) {
+        setInstalled(true);
+        setCanInstall(false);
+      }
     } catch (error) {
       console.error(
         "MOVA installation failed:",
         error
       );
+    } finally {
+      setInstalling(false);
     }
   };
 
-  const dismissPrompt = () => {
-    setShowPrompt(false);
-  };
-
-  if (!showPrompt || !installEvent) {
-    return null;
+  if (installed) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+        <CheckCircle2 size={17} />
+        <span>MOVA Installed</span>
+      </div>
+    );
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: "20px",
-        left: "20px",
-        right: "20px",
-        zIndex: 9999,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "16px",
-        padding: "16px",
-        borderRadius: "16px",
-        background: "#111827",
-        color: "#ffffff",
-        boxShadow:
-          "0 20px 50px rgba(0, 0, 0, 0.25)",
-        maxWidth: "520px",
-        margin: "0 auto"
-      }}
+    <button
+      type="button"
+      onClick={handleInstall}
+      disabled={!canInstall || installing}
+      title={
+        canInstall
+          ? "Install MOVA on this device"
+          : "MOVA installation is not currently available"
+      }
+      className="group flex min-h-[44px] items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          flex: 1
-        }}
-      >
-        <div
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "12px",
-            background: "#1f2937",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0
-          }}
-        >
-          <Download size={21} />
-        </div>
-
-        <div>
-          <div
-            style={{
-              fontWeight: 700,
-              fontSize: "15px"
-            }}
-          >
-            Install MOVA
-          </div>
-
-          <div
-            style={{
-              fontSize: "13px",
-              opacity: 0.75,
-              marginTop: "3px"
-            }}
-          >
-            Install MOVA for faster access and an
-            app-like experience.
-          </div>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={installMova}
-        style={{
-          border: "none",
-          background: "#22c55e",
-          color: "#ffffff",
-          borderRadius: "10px",
-          padding: "10px 16px",
-          fontWeight: 700,
-          cursor: "pointer",
-          whiteSpace: "nowrap"
-        }}
-      >
-        Install
-      </button>
-
-      <button
-        type="button"
-        onClick={dismissPrompt}
-        aria-label="Close install prompt"
-        style={{
-          border: "none",
-          background: "transparent",
-          color: "#ffffff",
-          opacity: 0.7,
-          cursor: "pointer",
-          padding: "4px"
-        }}
-      >
-        <X size={18} />
-      </button>
-    </div>
+      {installing ? (
+        <>
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          <span>Installing...</span>
+        </>
+      ) : (
+        <>
+          <Download
+            size={18}
+            className="transition-transform group-hover:-translate-y-0.5"
+          />
+          <span>Install MOVA App</span>
+        </>
+      )}
+    </button>
   );
-}
+};
+
+export default PWAInstallButton;
