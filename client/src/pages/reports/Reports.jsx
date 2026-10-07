@@ -8,22 +8,23 @@ import {
 import {
   Calendar,
   Download,
-  FileSpreadsheet,
   FileText,
   RefreshCw,
   TrendingUp,
   Wallet,
   ShoppingCart,
   XCircle,
-  RotateCcw,
 } from "lucide-react";
 
 import api from "../../services/api";
 import { useBusiness } from "../../context/BusinessContext";
 
 import ReportCharts from "../../components/pages/reports/ReportCharts";
-import BusinessInsights from "../../components/pages/reports/BusinessInsights";
 import BusinessCopilot from "../../components/pages/reports/BusinessCopilot";
+import ProfitAnalysis from "../../components/pages/reports/ProfitAnalysis";
+import InventoryIntelligence from "../../components/pages/reports/InventoryIntelligence";
+import BusinessHealthScore from "../../components/pages/reports/BusinessHealthScore";
+import BusinessRecommendations from "../../components/pages/reports/BusinessRecommendations";
 
 const formatUGX = (value) => {
   const number = Number(value) || 0;
@@ -35,180 +36,427 @@ const formatUGX = (value) => {
   }).format(number);
 };
 
+const formatNumber = (value) => {
+  return new Intl.NumberFormat("en-UG").format(
+    Number(value) || 0
+  );
+};
+
 const formatDate = (value) => {
   if (!value) return "—";
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "—";
+    return String(value);
   }
 
   return new Intl.DateTimeFormat("en-UG", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   }).format(date);
 };
 
-const getToday = () => {
-  const date = new Date();
-
+const getDateInputValue = (date) => {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 };
 
-const getMonthStart = () => {
+const getDefaultStartDate = () => {
   const date = new Date();
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
+  date.setDate(date.getDate() - 29);
 
-  return `${year}-${month}-01`;
+  return getDateInputValue(date);
 };
 
-const downloadCSV = (filename, rows) => {
-  if (!Array.isArray(rows) || !rows.length) {
-    return;
+const getDefaultEndDate = () => {
+  return getDateInputValue(new Date());
+};
+
+const normalizeArray = (value) => {
+  return Array.isArray(value) ? value : [];
+};
+
+const pickNumber = (...values) => {
+  for (const value of values) {
+    const number = Number(value);
+
+    if (Number.isFinite(number)) {
+      return number;
+    }
   }
 
-  const headers = Object.keys(rows[0]);
+  return 0;
+};
 
-  const csvRows = [
-    headers.join(","),
-    ...rows.map((row) =>
-      headers
-        .map((header) => {
-          const value = row[header] ?? "";
-          const escaped = String(value).replace(
-            /"/g,
-            '""'
-          );
+const getReportPayload = (response) => {
+  return (
+    response?.data?.report ||
+    response?.data?.data ||
+    response?.data ||
+    {}
+  );
+};
 
-          return `"${escaped}"`;
-        })
-        .join(",")
-    ),
-  ];
+const getInventoryPayload = (response) => {
+  const data =
+    response?.data?.report ||
+    response?.data?.data ||
+    response?.data ||
+    {};
 
-  const blob = new Blob([csvRows.join("\n")], {
-    type: "text/csv;charset=utf-8;",
-  });
+  if (Array.isArray(data)) {
+    return data;
+  }
 
-  const url = URL.createObjectURL(blob);
+  return (
+    data?.inventory ||
+    data?.products ||
+    data?.items ||
+    []
+  );
+};
 
-  const link = document.createElement("a");
+const getProfitPayload = (response) => {
+  const data =
+    response?.data?.report ||
+    response?.data?.data ||
+    response?.data ||
+    {};
 
-  link.href = url;
-  link.download = filename;
+  return data?.profit || data;
+};
 
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+const ReportCard = ({
+  title,
+  value,
+  subtitle,
+  icon,
+  iconClass = "bg-slate-100 text-slate-600",
+}) => {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-500">
+            {title}
+          </p>
 
-  URL.revokeObjectURL(url);
+          <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+            {value}
+          </p>
+
+          {subtitle && (
+            <p className="mt-1 text-xs text-slate-400">
+              {subtitle}
+            </p>
+          )}
+        </div>
+
+        <div
+          className={`rounded-xl p-3 ${iconClass}`}
+        >
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SmallStat = ({
+  label,
+  value,
+  description,
+  valueClass = "text-slate-900",
+}) => {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+
+      <p
+        className={`mt-1 text-lg font-bold ${valueClass}`}
+      >
+        {value}
+      </p>
+
+      {description && (
+        <p className="mt-1 text-xs text-slate-500">
+          {description}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const EmptyState = ({
+  title = "No data available",
+  description = "There is no information to display for the selected period.",
+}) => {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+      <FileText className="mx-auto h-8 w-8 text-slate-400" />
+
+      <h3 className="mt-3 text-sm font-semibold text-slate-700">
+        {title}
+      </h3>
+
+      <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500">
+        {description}
+      </p>
+    </div>
+  );
+};
+
+const StatusBadge = ({ status }) => {
+  const normalized = String(
+    status || "UNKNOWN"
+  ).toUpperCase();
+
+  const styles = {
+    COMPLETED:
+      "bg-emerald-50 text-emerald-700 border-emerald-200",
+    PAID:
+      "bg-emerald-50 text-emerald-700 border-emerald-200",
+    PENDING:
+      "bg-amber-50 text-amber-700 border-amber-200",
+    CANCELLED:
+      "bg-red-50 text-red-700 border-red-200",
+    REFUNDED:
+      "bg-purple-50 text-purple-700 border-purple-200",
+    PARTIALLY_REFUNDED:
+      "bg-orange-50 text-orange-700 border-orange-200",
+  };
+
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+        styles[normalized] ||
+        "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      {normalized.replaceAll("_", " ")}
+    </span>
+  );
 };
 
 const Reports = () => {
-  const { branch } = useBusiness();
+  const { business } = useBusiness();
 
   const [startDate, setStartDate] = useState(
-    getMonthStart()
+    getDefaultStartDate()
   );
 
   const [endDate, setEndDate] = useState(
-    getToday()
+    getDefaultEndDate()
   );
 
-  const [report, setReport] = useState(null);
+  const [report, setReport] = useState({
+    sales: [],
+    salesSummary: {},
+    paymentBreakdown: [],
+    productPerformance: [],
+    expenseBreakdown: [],
+    dailySales: [],
+    profit: {},
+    inventory: [],
+  });
 
   const [loading, setLoading] = useState(true);
-
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
   const [error, setError] = useState("");
 
   const loadReport = useCallback(
-    async (showLoader = true) => {
+    async ({
+      showRefreshing = false,
+    } = {}) => {
       try {
-        if (showLoader) {
-          setLoading(true);
-        } else {
+        if (showRefreshing) {
           setRefreshing(true);
+        } else {
+          setLoading(true);
         }
 
         setError("");
 
+        const params = {
+          startDate,
+          endDate,
+        };
+
         const [
           generalResponse,
           salesResponse,
-        ] = await Promise.all([
+          profitResponse,
+          inventoryResponse,
+        ] = await Promise.allSettled([
           api.get("/reports", {
-            params: {
-              startDate,
-              endDate,
-            },
+            params,
           }),
 
           api.get("/reports/sales", {
-            params: {
-              startDate,
-              endDate,
-            },
+            params,
+          }),
+
+          api.get("/reports/profit", {
+            params,
+          }),
+
+          api.get("/reports/inventory", {
+            params,
           }),
         ]);
 
-        const general =
-          generalResponse?.data || {};
+        let general = {};
+        let sales = {};
+        let profit = {};
+        let inventory = [];
 
-        const sales =
-          salesResponse?.data || {};
+        if (
+          generalResponse.status ===
+          "fulfilled"
+        ) {
+          general = getReportPayload(
+            generalResponse.value
+          );
+        }
+
+        if (
+          salesResponse.status ===
+          "fulfilled"
+        ) {
+          sales = getReportPayload(
+            salesResponse.value
+          );
+        }
+
+        if (
+          profitResponse.status ===
+          "fulfilled"
+        ) {
+          profit = getProfitPayload(
+            profitResponse.value
+          );
+        }
+
+        if (
+          inventoryResponse.status ===
+          "fulfilled"
+        ) {
+          inventory =
+            getInventoryPayload(
+              inventoryResponse.value
+            );
+        }
+
+        const salesList = normalizeArray(
+          sales?.sales ||
+            sales?.transactions ||
+            sales?.recentSales ||
+            general?.sales ||
+            general?.transactions
+        );
+
+        const paymentBreakdown =
+          normalizeArray(
+            sales?.paymentBreakdown ||
+              general?.paymentBreakdown ||
+              general?.payments
+          );
+
+        const productPerformance =
+          normalizeArray(
+            sales?.productPerformance ||
+              sales?.products ||
+              general?.productPerformance ||
+              general?.products
+          );
+
+        const expenseBreakdown =
+          normalizeArray(
+            general?.expenseBreakdown ||
+              general?.expensesByCategory ||
+              general?.expenses
+          );
+
+        const dailySales = normalizeArray(
+          sales?.dailySales ||
+            general?.dailySales ||
+            sales?.salesTrend ||
+            general?.salesTrend
+        );
+
+        const salesSummary =
+          sales?.summary ||
+          sales?.salesSummary ||
+          general?.salesSummary ||
+          general?.summary ||
+          {};
+
+        const finalInventory =
+          inventory.length > 0
+            ? inventory
+            : normalizeArray(
+                general?.inventory ||
+                  general?.inventoryReport ||
+                  general?.stock
+              );
+
+        const finalProfit = {
+          ...general?.profit,
+          ...general?.profitReport,
+          ...sales?.profit,
+          ...profit,
+        };
 
         setReport({
-          ...general,
-
-          sales:
-            sales?.sales ||
-            general?.sales ||
-            [],
-
-          salesSummary:
-            sales?.summary ||
-            general?.salesSummary ||
-            {},
-
-          paymentBreakdown:
-            general?.paymentBreakdown ||
-            sales?.paymentBreakdown ||
-            [],
-
-          productPerformance:
-            general?.productPerformance ||
-            sales?.productPerformance ||
-            [],
-
-          expenseBreakdown:
-            general?.expenseBreakdown ||
-            [],
-
-          dailySales:
-            general?.dailySales ||
-            general?.salesChart ||
-            sales?.dailySales ||
-            [],
+          sales: salesList,
+          salesSummary,
+          paymentBreakdown,
+          productPerformance,
+          expenseBreakdown,
+          dailySales,
+          profit: finalProfit,
+          inventory: finalInventory,
         });
-      } catch (requestError) {
+
+        const allFailed =
+          generalResponse.status ===
+            "rejected" &&
+          salesResponse.status ===
+            "rejected" &&
+          profitResponse.status ===
+            "rejected" &&
+          inventoryResponse.status ===
+            "rejected";
+
+        if (allFailed) {
+          throw new Error(
+            "Unable to load report data."
+          );
+        }
+      } catch (err) {
         console.error(
           "MOVA reports error:",
-          requestError
+          err
         );
 
         setError(
-          requestError?.response?.data?.message ||
-            requestError?.message ||
-            "Unable to load reports."
+          err?.response?.data?.message ||
+            err?.message ||
+            "Unable to load report data."
         );
       } finally {
         setLoading(false);
@@ -222,193 +470,279 @@ const Reports = () => {
     loadReport();
   }, [loadReport]);
 
-  useEffect(() => {
-    const handleBranchChange = () => {
-      loadReport(false);
-    };
-
-    window.addEventListener(
-      "mova:branch-changed",
-      handleBranchChange
+  const revenue = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.revenue,
+      report.salesSummary?.totalRevenue,
+      report.salesSummary?.sales,
+      report.profit?.revenue,
+      report.profit?.totalRevenue
     );
+  }, [report]);
 
-    return () => {
-      window.removeEventListener(
-        "mova:branch-changed",
-        handleBranchChange
+  const discounts = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.discounts,
+      report.salesSummary?.totalDiscount,
+      report.salesSummary?.discount,
+      report.profit?.discounts,
+      report.profit?.totalDiscount
+    );
+  }, [report]);
+
+  const expenses = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.expenses,
+      report.profit?.expenses,
+      report.profit?.totalExpenses
+    );
+  }, [report]);
+
+  const transactions = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.transactions,
+      report.salesSummary?.transactionCount,
+      report.salesSummary?.count,
+      report.profit?.transactions
+    );
+  }, [report]);
+
+  const cancelled = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.cancelled,
+      report.salesSummary?.cancelledSales,
+      report.salesSummary?.cancelledCount
+    );
+  }, [report]);
+
+  const refunded = useMemo(() => {
+    return pickNumber(
+      report.salesSummary?.refunded,
+      report.salesSummary?.refundedSales,
+      report.salesSummary?.refundedCount
+    );
+  }, [report]);
+
+  const cogs = useMemo(() => {
+    return pickNumber(
+      report.profit?.cogs,
+      report.profit?.costOfGoodsSold,
+      report.profit?.cost
+    );
+  }, [report]);
+
+  const grossProfit = useMemo(() => {
+    const explicitGrossProfit =
+      pickNumber(
+        report.profit?.grossProfit,
+        report.profit?.grossProfitAmount
       );
-    };
-  }, [loadReport]);
 
-  const summary = report?.summary || {};
+    if (
+      explicitGrossProfit !== 0 ||
+      revenue === 0
+    ) {
+      return explicitGrossProfit;
+    }
 
-  const salesSummary =
-    report?.salesSummary || {};
+    return revenue - cogs;
+  }, [
+    report.profit,
+    revenue,
+    cogs,
+  ]);
 
-  const sales = Array.isArray(report?.sales)
-    ? report.sales
-    : [];
+  const netResult = useMemo(() => {
+    const explicitNetProfit =
+      pickNumber(
+        report.profit?.netProfit,
+        report.profit?.netResult,
+        report.profit?.profit
+      );
 
-  const paymentBreakdown = Array.isArray(
-    report?.paymentBreakdown
-  )
-    ? report.paymentBreakdown
-    : [];
+    if (
+      explicitNetProfit !== 0 ||
+      revenue === 0
+    ) {
+      return explicitNetProfit;
+    }
 
-  const productPerformance =
-    Array.isArray(report?.productPerformance)
-      ? report.productPerformance
-      : [];
+    return grossProfit - expenses;
+  }, [
+    report.profit,
+    revenue,
+    grossProfit,
+    expenses,
+  ]);
 
-  const expenseBreakdown =
-    Array.isArray(report?.expenseBreakdown)
-      ? report.expenseBreakdown
-      : [];
+  const averageSale = useMemo(() => {
+    if (transactions <= 0) {
+      return 0;
+    }
 
-  const dailySales =
-    Array.isArray(report?.dailySales)
-      ? report.dailySales
-      : [];
+    return revenue / transactions;
+  }, [
+    revenue,
+    transactions,
+  ]);
 
-  const revenue = Number(
-    salesSummary.revenue ??
-      salesSummary.totalRevenue ??
-      summary.revenue ??
-      0
-  );
+  const profitMargin = useMemo(() => {
+    if (revenue <= 0) {
+      return 0;
+    }
 
-  const discounts = Number(
-    salesSummary.discounts ??
-      salesSummary.totalDiscounts ??
-      summary.discounts ??
-      0
-  );
-
-  const expenses = Number(
-    summary.expenses ??
-      summary.totalExpenses ??
-      0
-  );
-
-  const netResult = Number(
-    summary.netResult ??
-      summary.netProfit ??
-      summary.profit ??
-      revenue - expenses
-  );
-
-  const transactions = Number(
-    salesSummary.transactions ??
-      salesSummary.count ??
-      summary.transactions ??
-      0
-  );
-
-  const cancelled = Number(
-    salesSummary.cancelled ??
-      summary.cancelled ??
-      0
-  );
-
-  const refunded = Number(
-    salesSummary.refunded ??
-      summary.refunded ??
-      0
-  );
-
-  const averageSale =
-    transactions > 0
-      ? revenue / transactions
-      : 0;
-
-  const profitMargin =
-    revenue > 0
-      ? (netResult / revenue) * 100
-      : 0;
+    return (
+      (netResult / revenue) *
+      100
+    );
+  }, [
+    netResult,
+    revenue,
+  ]);
 
   const topProduct = useMemo(() => {
-    if (!productPerformance.length) {
+    if (
+      !report.productPerformance.length
+    ) {
       return null;
     }
 
-    return [...productPerformance].sort(
+    return [
+      ...report.productPerformance,
+    ].sort(
       (a, b) =>
-        Number(
-          b?.revenue ??
-            b?.sales ??
-            b?.total ??
-            b?.amount ??
-            0
+        pickNumber(
+          b.revenue,
+          b.totalRevenue,
+          b.sales
         ) -
-        Number(
-          a?.revenue ??
-            a?.sales ??
-            a?.total ??
-            a?.amount ??
-            0
+        pickNumber(
+          a.revenue,
+          a.totalRevenue,
+          a.sales
         )
     )[0];
-  }, [productPerformance]);
+  }, [
+    report.productPerformance,
+  ]);
 
-  const handleExport = () => {
-    const rows = sales.map((sale) => ({
-      Receipt:
-        sale.receiptNumber ||
-        sale.saleNumber ||
-        "",
-
-      Date: sale.createdAt
-        ? new Date(
-            sale.createdAt
-          ).toLocaleString()
-        : "",
-
-      Customer:
-        sale.customerName ||
-        sale.customer ||
-        "Walk-in Customer",
-
-      Cashier:
-        sale.cashierName ||
-        sale.cashier ||
-        "",
-
-      Payment:
-        sale.paymentMethod || "",
-
-      Subtotal:
-        sale.subtotal || 0,
-
-      Discount:
-        sale.discount || 0,
-
-      Total:
-        sale.total || 0,
-
-      Status:
-        sale.status || "",
-    }));
-
-    downloadCSV(
-      `mova-sales-${startDate}-to-${endDate}.csv`,
-      rows
+  const topProductName = useMemo(() => {
+    return (
+      topProduct?.name ||
+      topProduct?.productName ||
+      topProduct?.product?.name ||
+      "No product data"
     );
+  }, [topProduct]);
+
+  const topProductRevenue = useMemo(() => {
+    return pickNumber(
+      topProduct?.revenue,
+      topProduct?.totalRevenue,
+      topProduct?.sales
+    );
+  }, [topProduct]);
+
+  const handleRefresh = () => {
+    loadReport({
+      showRefreshing: true,
+    });
   };
 
   const handlePrint = () => {
     window.print();
   };
 
+  const handleExportCsv = () => {
+    const rows = [
+      [
+        "Receipt",
+        "Date",
+        "Payment Method",
+        "Status",
+        "Total",
+      ],
+      ...report.sales.map((sale) => [
+        sale?.receiptNumber ||
+          sale?.receipt ||
+          "—",
+        formatDate(
+          sale?.createdAt ||
+            sale?.date ||
+            sale?.saleDate
+        ),
+        sale?.paymentMethod ||
+          sale?.method ||
+          "—",
+        sale?.status ||
+          sale?.paymentStatus ||
+          "—",
+        pickNumber(
+          sale?.total,
+          sale?.amount,
+          sale?.grandTotal
+        ),
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => {
+            const text = String(
+              value ?? ""
+            );
+
+            return `"${text.replaceAll(
+              '"',
+              '""'
+            )}"`;
+          })
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const link =
+      document.createElement("a");
+
+    link.href = url;
+
+    link.download = `mova-sales-report-${startDate}-to-${endDate}.csv`;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-28 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" />
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map(
-            (_, index) => (
+            <div className="mt-2 h-4 w-72 animate-pulse rounded bg-slate-100" />
+          </div>
+
+          <div className="h-10 w-28 animate-pulse rounded-xl bg-slate-200" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map(
+            (item) => (
               <div
-                key={index}
+                key={item}
                 className="h-32 animate-pulse rounded-2xl bg-slate-100"
               />
             )
@@ -420,71 +754,40 @@ const Reports = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="flex min-h-[500px] items-center justify-center">
-        <div className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
-          <XCircle className="mx-auto mb-4 h-12 w-12 text-red-500" />
-
-          <h2 className="text-lg font-bold text-red-800">
-            Unable to load reports
-          </h2>
-
-          <p className="mt-2 text-sm text-red-600">
-            {error}
-          </p>
-
-          <button
-            type="button"
-            onClick={() => loadReport()}
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div
-      id="mova-reports"
-      className="space-y-6 print:space-y-4"
-    >
+    <div className="space-y-6 pb-10 print:space-y-4">
       {/* HEADER */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <div className="rounded-xl bg-slate-950 p-2.5 text-white">
-              <TrendingUp className="h-5 w-5" />
-            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Business Reports
+            </h1>
 
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                Reports
-              </h1>
-
-              <p className="text-sm text-slate-500">
-                Business performance and intelligence
-              </p>
-            </div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              MOVA Intelligence
+            </span>
           </div>
 
-          <p className="mt-3 text-sm text-slate-500">
-            {branch?.name
-              ? `${branch.name} • `
-              : ""}
-            {startDate} to {endDate}
+          <p className="mt-1 text-sm text-slate-500">
+            Understand your sales, profitability,
+            expenses and inventory performance.
           </p>
+
+          {business?.name && (
+            <p className="mt-1 text-xs font-medium text-slate-400">
+              {business.name}
+            </p>
+          )}
         </div>
 
-        <div className="flex flex-wrap gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
           <button
             type="button"
-            onClick={() => loadReport(false)}
+            onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw
               className={`h-4 w-4 ${
@@ -499,455 +802,647 @@ const Reports = () => {
 
           <button
             type="button"
-            onClick={handleExport}
-            disabled={!sales.length}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             <Download className="h-4 w-4" />
+
             Export CSV
           </button>
 
           <button
             type="button"
             onClick={handlePrint}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
           >
             <FileText className="h-4 w-4" />
+
             Print
           </button>
         </div>
       </div>
 
       {/* DATE FILTERS */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end">
-          <div className="flex-1">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Start date
-            </label>
 
-            <div className="relative">
-              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-slate-500" />
+
+              <h2 className="text-sm font-semibold text-slate-800">
+                Reporting Period
+              </h2>
+            </div>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Select the period you want MOVA to analyze.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-500">
+                Start date
+              </span>
 
               <input
                 type="date"
                 value={startDate}
+                max={endDate}
                 onChange={(event) =>
                   setStartDate(
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               />
-            </div>
-          </div>
-
-          <div className="flex-1">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              End date
             </label>
 
-            <div className="relative">
-              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-500">
+                End date
+              </span>
 
               <input
                 type="date"
                 value={endDate}
+                min={startDate}
                 onChange={(event) =>
                   setEndDate(
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               />
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setStartDate(getMonthStart());
-                setEndDate(getToday());
-              }}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              This month
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                const today = getToday();
-
-                setStartDate(today);
-                setEndDate(today);
-              }}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              Today
-            </button>
+            </label>
           </div>
         </div>
       </section>
 
+      {/* ERROR */}
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+          <div className="flex items-start gap-3">
+            <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+
+            <div>
+              <p className="text-sm font-semibold text-red-800">
+                Report data could not be loaded
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-red-700">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={handleRefresh}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+
+                Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KPI CARDS */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <ReportCard
           title="Revenue"
           value={formatUGX(revenue)}
-          description={`${transactions} transaction${
-            transactions === 1
-              ? ""
-              : "s"
-          }`}
+          subtitle={`${formatNumber(
+            transactions
+          )} transactions`}
           icon={
             <TrendingUp className="h-5 w-5" />
           }
+          iconClass="bg-emerald-50 text-emerald-600"
         />
 
         <ReportCard
-          title="Average Sale"
-          value={formatUGX(averageSale)}
-          description="Average value per transaction"
+          title="Net Result"
+          value={formatUGX(netResult)}
+          subtitle={`${profitMargin.toFixed(
+            1
+          )}% profit margin`}
           icon={
-            <ShoppingCart className="h-5 w-5" />
+            <Wallet className="h-5 w-5" />
+          }
+          iconClass={
+            netResult >= 0
+              ? "bg-blue-50 text-blue-600"
+              : "bg-red-50 text-red-600"
           }
         />
 
         <ReportCard
           title="Expenses"
           value={formatUGX(expenses)}
-          description="Reported business expenses"
+          subtitle={
+            revenue > 0
+              ? `${(
+                  (expenses / revenue) *
+                  100
+                ).toFixed(1)}% of revenue`
+              : "No revenue recorded"
+          }
           icon={
             <Wallet className="h-5 w-5" />
           }
+          iconClass="bg-amber-50 text-amber-600"
         />
 
         <ReportCard
-          title="Net Result"
-          value={formatUGX(netResult)}
-          description={`${profitMargin.toFixed(
-            1
-          )}% reported margin`}
+          title="Average Sale"
+          value={formatUGX(averageSale)}
+          subtitle="Average value per transaction"
           icon={
-            <TrendingUp className="h-5 w-5" />
+            <ShoppingCart className="h-5 w-5" />
           }
-          positive={netResult >= 0}
+          iconClass="bg-purple-50 text-purple-600"
         />
       </div>
 
-      {/* SECONDARY STATS */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* SMALL STATS */}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SmallStat
-          title="Discounts"
+          label="COGS"
+          value={formatUGX(cogs)}
+          description="Cost of goods sold"
+        />
+
+        <SmallStat
+          label="Gross Profit"
+          value={formatUGX(grossProfit)}
+          description="Revenue less COGS"
+          valueClass={
+            grossProfit >= 0
+              ? "text-emerald-600"
+              : "text-red-600"
+          }
+        />
+
+        <SmallStat
+          label="Discounts"
           value={formatUGX(discounts)}
+          description="Discounts applied"
+          valueClass="text-amber-600"
         />
 
         <SmallStat
-          title="Cancelled"
-          value={cancelled}
-          icon={
-            <XCircle className="h-4 w-4" />
-          }
-        />
-
-        <SmallStat
-          title="Refunded"
-          value={refunded}
-          icon={
-            <RotateCcw className="h-4 w-4" />
-          }
+          label="Refunded"
+          value={formatNumber(refunded)}
+          description={`${formatNumber(
+            cancelled
+          )} cancelled`}
+          valueClass="text-red-600"
         />
       </div>
 
       {/* CHARTS */}
+
       <ReportCharts
-        dailySales={dailySales}
-        paymentBreakdown={paymentBreakdown}
-        expenseBreakdown={expenseBreakdown}
+        dailySales={report.dailySales}
+        paymentBreakdown={
+          report.paymentBreakdown
+        }
+        expenseBreakdown={
+          report.expenseBreakdown
+        }
       />
 
-      {/* MOVA BUSINESS INTELLIGENCE */}
-      <BusinessInsights
+      {/* BUSINESS HEALTH */}
+
+      <BusinessHealthScore
         revenue={revenue}
         expenses={expenses}
         netResult={netResult}
         transactions={transactions}
-        averageSale={averageSale}
-        discounts={discounts}
         cancelled={cancelled}
         refunded={refunded}
-        paymentBreakdown={paymentBreakdown}
-        productPerformance={productPerformance}
-        expenseBreakdown={expenseBreakdown}
-        dailySales={dailySales}
+        inventory={report.inventory}
       />
 
-      {/* TOP PRODUCT SNAPSHOT */}
-      {topProduct && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Current top product
+      {/* BUSINESS RECOMMENDATIONS */}
+
+      <BusinessRecommendations
+        revenue={revenue}
+        expenses={expenses}
+        netResult={netResult}
+        transactions={transactions}
+        cancelled={cancelled}
+        refunded={refunded}
+        discounts={discounts}
+        productPerformance={
+          report.productPerformance
+        }
+        inventory={report.inventory}
+        expenseBreakdown={
+          report.expenseBreakdown
+        }
+        paymentBreakdown={
+          report.paymentBreakdown
+        }
+      />
+
+      {/* PROFIT ANALYSIS */}
+
+      <ProfitAnalysis
+        revenue={revenue}
+        cogs={cogs}
+        grossProfit={grossProfit}
+        expenses={expenses}
+        netResult={netResult}
+      />
+
+      {/* INVENTORY INTELLIGENCE */}
+
+      <InventoryIntelligence
+        inventory={report.inventory}
+        products={
+          report.productPerformance
+        }
+      />
+
+      {/* TOP PRODUCT */}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Top Performing Product
+            </h2>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Highest revenue contributor in the selected period.
+            </p>
+          </div>
+
+          {topProduct && (
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-right">
+              <p className="text-xs font-medium text-emerald-600">
+                Revenue
               </p>
 
-              <h2 className="mt-1 text-lg font-bold text-slate-900">
-                {topProduct.name ||
-                  topProduct.productName ||
-                  topProduct.product ||
-                  "Top Product"}
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Leading product based on the current report data.
-              </p>
-            </div>
-
-            <div className="text-left md:text-right">
-              <p className="text-xl font-bold text-slate-900">
+              <p className="text-lg font-bold text-emerald-700">
                 {formatUGX(
-                  Number(
-                    topProduct.revenue ??
-                      topProduct.sales ??
-                      topProduct.total ??
-                      topProduct.amount ??
-                      0
-                  )
+                  topProductRevenue
                 )}
               </p>
-
-              <p className="text-xs text-slate-500">
-                Reported sales value
-              </p>
             </div>
-          </div>
-        </section>
-      )}
+          )}
+        </div>
+
+        <div className="mt-5">
+          {!topProduct ? (
+            <EmptyState
+              title="No product performance data"
+              description="Product performance will appear here after sales are recorded."
+            />
+          ) : (
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="font-semibold text-slate-900">
+                  {topProductName}
+                </p>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  {formatNumber(
+                    pickNumber(
+                      topProduct?.quantity,
+                      topProduct?.unitsSold,
+                      topProduct?.sold
+                    )
+                  )}{" "}
+                  units sold
+                </p>
+              </div>
+
+              <TrendingUp className="h-5 w-5 text-emerald-600" />
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* PRODUCT PERFORMANCE */}
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <div className="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-semibold text-slate-900">
+            <h2 className="text-base font-bold text-slate-900">
               Product Performance
             </h2>
 
             <p className="mt-1 text-xs text-slate-500">
-              Products contributing most to sales.
+              Products contributing to sales during the selected period.
             </p>
           </div>
 
-          <FileSpreadsheet className="h-5 w-5 text-slate-400" />
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+            {formatNumber(
+              report.productPerformance.length
+            )}{" "}
+            products
+          </span>
         </div>
 
-        {productPerformance.length === 0 ? (
-          <EmptyState message="No product performance data available." />
+        {report.productPerformance.length ===
+        0 ? (
+          <div className="p-5">
+            <EmptyState
+              title="No product performance data"
+              description="Product-level sales analysis will appear here when transactions are recorded."
+            />
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[650px] text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 font-semibold">
                     Product
                   </th>
 
-                  <th className="px-5 py-3">
-                    Quantity
+                  <th className="px-5 py-3 text-right font-semibold">
+                    Units
                   </th>
 
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 text-right font-semibold">
                     Revenue
                   </th>
 
-                  <th className="px-5 py-3">
-                    Share
+                  <th className="px-5 py-3 text-right font-semibold">
+                    Profit
+                  </th>
+
+                  <th className="px-5 py-3 text-right font-semibold">
+                    Margin
                   </th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {productPerformance
-                  .slice(0, 10)
-                  .map((product, index) => {
-                    const productRevenue =
-                      Number(
-                        product?.revenue ??
-                          product?.sales ??
-                          product?.total ??
-                          product?.amount ??
-                          0
-                      ) || 0;
+                {report.productPerformance
+                  .slice(0, 20)
+                  .map(
+                    (product, index) => {
+                      const name =
+                        product?.name ||
+                        product?.productName ||
+                        product?.product
+                          ?.name ||
+                        "Unknown Product";
 
-                    const quantity =
-                      Number(
-                        product?.quantity ??
-                          product?.unitsSold ??
-                          product?.sold ??
-                          product?.totalQuantity ??
-                          0
-                      ) || 0;
+                      const units =
+                        pickNumber(
+                          product?.quantity,
+                          product?.unitsSold,
+                          product?.sold
+                        );
 
-                    const share =
-                      revenue > 0
-                        ? (productRevenue /
-                            revenue) *
-                          100
-                        : 0;
+                      const productRevenue =
+                        pickNumber(
+                          product?.revenue,
+                          product?.totalRevenue,
+                          product?.sales
+                        );
 
-                    return (
-                      <tr
-                        key={
-                          product?._id ||
-                          product?.productId ||
-                          `${product?.name}-${index}`
-                        }
-                        className="hover:bg-slate-50"
-                      >
-                        <td className="px-5 py-3.5 font-medium text-slate-900">
-                          {product?.name ||
-                            product?.productName ||
-                            product?.product ||
-                            "Unknown product"}
-                        </td>
+                      const productProfit =
+                        pickNumber(
+                          product?.profit,
+                          product?.grossProfit,
+                          product?.netProfit
+                        );
 
-                        <td className="px-5 py-3.5 text-slate-600">
-                          {quantity}
-                        </td>
+                      const margin =
+                        productRevenue > 0
+                          ? (productProfit /
+                              productRevenue) *
+                            100
+                          : 0;
 
-                        <td className="px-5 py-3.5 font-semibold text-slate-900">
-                          {formatUGX(
-                            productRevenue
-                          )}
-                        </td>
-
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-100">
-                              <div
-                                className="h-full rounded-full bg-slate-900"
-                                style={{
-                                  width: `${Math.min(
-                                    share,
-                                    100
-                                  )}%`,
-                                }}
-                              />
+                      return (
+                        <tr
+                          key={
+                            product?._id ||
+                            product?.productId ||
+                            `${name}-${index}`
+                          }
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="px-5 py-4">
+                            <div className="font-medium text-slate-900">
+                              {name}
                             </div>
 
-                            <span className="text-xs text-slate-500">
-                              {share.toFixed(1)}%
+                            {(product?.sku ||
+                              product?.product
+                                ?.sku) && (
+                              <div className="mt-0.5 text-xs text-slate-400">
+                                SKU:{" "}
+                                {product?.sku ||
+                                  product
+                                    ?.product
+                                    ?.sku}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4 text-right font-medium text-slate-700">
+                            {formatNumber(
+                              units
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4 text-right font-semibold text-slate-900">
+                            {formatUGX(
+                              productRevenue
+                            )}
+                          </td>
+
+                          <td
+                            className={`px-5 py-4 text-right font-semibold ${
+                              productProfit >=
+                              0
+                                ? "text-emerald-600"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {formatUGX(
+                              productProfit
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4 text-right">
+                            <span
+                              className={
+                                margin >= 20
+                                  ? "font-semibold text-emerald-600"
+                                  : margin >= 10
+                                  ? "font-semibold text-amber-600"
+                                  : "font-semibold text-red-600"
+                              }
+                            >
+                              {margin.toFixed(
+                                1
+                              )}
+                              %
                             </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
               </tbody>
             </table>
           </div>
         )}
       </section>
 
-      {/* RECENT SALES */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="font-semibold text-slate-900">
-            Recent Transactions
-          </h2>
+      {/* RECENT TRANSACTIONS */}
 
-          <p className="mt-1 text-xs text-slate-500">
-            Sales recorded during the selected period.
-          </p>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Recent Transactions
+            </h2>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Sales recorded during the selected reporting period.
+            </p>
+          </div>
+
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+            {formatNumber(
+              report.sales.length
+            )}{" "}
+            records
+          </span>
         </div>
 
-        {sales.length === 0 ? (
-          <EmptyState message="No transactions found for this period." />
+        {report.sales.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              title="No transactions found"
+              description="Sales transactions will appear here once they are recorded."
+            />
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 font-semibold">
                     Receipt
                   </th>
 
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 font-semibold">
                     Date
                   </th>
 
-                  <th className="px-5 py-3">
-                    Customer
-                  </th>
-
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 font-semibold">
                     Payment
                   </th>
 
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 text-right font-semibold">
                     Total
                   </th>
 
-                  <th className="px-5 py-3">
+                  <th className="px-5 py-3 text-right font-semibold">
                     Status
                   </th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {sales
-                  .slice(0, 20)
-                  .map((sale, index) => (
-                    <tr
-                      key={
-                        sale?._id ||
+                {report.sales
+                  .slice(0, 30)
+                  .map(
+                    (sale, index) => {
+                      const receipt =
                         sale?.receiptNumber ||
-                        index
-                      }
-                      className="hover:bg-slate-50"
-                    >
-                      <td className="px-5 py-3.5 font-semibold text-slate-900">
-                        {sale?.receiptNumber ||
-                          sale?.saleNumber ||
-                          "—"}
-                      </td>
+                        sale?.receipt ||
+                        sale?._id ||
+                        "—";
 
-                      <td className="px-5 py-3.5 text-slate-500">
-                        {formatDate(
-                          sale?.createdAt
-                        )}
-                      </td>
+                      const date =
+                        sale?.createdAt ||
+                        sale?.date ||
+                        sale?.saleDate;
 
-                      <td className="px-5 py-3.5 text-slate-600">
-                        {sale?.customerName ||
-                          sale?.customer ||
-                          "Walk-in Customer"}
-                      </td>
+                      const paymentMethod =
+                        sale?.paymentMethod ||
+                        sale?.method ||
+                        "—";
 
-                      <td className="px-5 py-3.5">
-                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                          {sale?.paymentMethod ||
-                            "—"}
-                        </span>
-                      </td>
+                      const total =
+                        pickNumber(
+                          sale?.total,
+                          sale?.amount,
+                          sale?.grandTotal
+                        );
 
-                      <td className="px-5 py-3.5 font-semibold text-slate-900">
-                        {formatUGX(
-                          sale?.total
-                        )}
-                      </td>
+                      const status =
+                        sale?.status ||
+                        sale?.paymentStatus ||
+                        "UNKNOWN";
 
-                      <td className="px-5 py-3.5">
-                        <StatusBadge
-                          status={
-                            sale?.status ||
-                            "COMPLETED"
+                      return (
+                        <tr
+                          key={
+                            sale?._id ||
+                            `${receipt}-${index}`
                           }
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="px-5 py-4">
+                            <span className="font-semibold text-slate-900">
+                              {receipt}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4 text-slate-600">
+                            {formatDate(
+                              date
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                              {String(
+                                paymentMethod
+                              ).replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4 text-right font-bold text-slate-900">
+                            {formatUGX(
+                              total
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4 text-right">
+                            <StatusBadge
+                              status={
+                                status
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
               </tbody>
             </table>
           </div>
@@ -955,18 +1450,27 @@ const Reports = () => {
       </section>
 
       {/* PRINT FOOTER */}
+
       <div className="hidden print:block">
-        <div className="mt-8 border-t border-slate-300 pt-4 text-center text-xs text-slate-500">
-          MOVA Business Management Platform
-          <br />
-          Report generated for{" "}
-          {branch?.name || "current branch"}
-          <br />
-          {startDate} — {endDate}
+        <div className="mt-8 border-t border-slate-300 pt-4 text-xs text-slate-500">
+          <p>
+            MOVA Business Management Platform
+          </p>
+
+          <p className="mt-1">
+            Report period: {startDate} to{" "}
+            {endDate}
+          </p>
+
+          <p className="mt-1">
+            Generated:{" "}
+            {formatDate(new Date())}
+          </p>
         </div>
       </div>
 
-      {/* MOVA BUSINESS COPILOT */}
+      {/* BUSINESS COPILOT */}
+
       <BusinessCopilot
         revenue={revenue}
         expenses={expenses}
@@ -976,124 +1480,18 @@ const Reports = () => {
         discounts={discounts}
         cancelled={cancelled}
         refunded={refunded}
-        paymentBreakdown={paymentBreakdown}
-        productPerformance={productPerformance}
-        expenseBreakdown={expenseBreakdown}
-        dailySales={dailySales}
+        paymentBreakdown={
+          report.paymentBreakdown
+        }
+        productPerformance={
+          report.productPerformance
+        }
+        expenseBreakdown={
+          report.expenseBreakdown
+        }
+        dailySales={report.dailySales}
       />
     </div>
-  );
-};
-
-const ReportCard = ({
-  title,
-  value,
-  description,
-  icon,
-  positive = true,
-}) => {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-            {title}
-          </p>
-
-          <p
-            className={`mt-2 text-2xl font-bold ${
-              positive
-                ? "text-slate-900"
-                : "text-red-600"
-            }`}
-          >
-            {value}
-          </p>
-
-          <p className="mt-1 text-xs text-slate-500">
-            {description}
-          </p>
-        </div>
-
-        <div
-          className={`rounded-xl p-2.5 ${
-            positive
-              ? "bg-slate-100 text-slate-700"
-              : "bg-red-50 text-red-600"
-          }`}
-        >
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const SmallStat = ({
-  title,
-  value,
-  icon,
-}) => {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-          {title}
-        </p>
-
-        <p className="mt-1 text-lg font-bold text-slate-900">
-          {value}
-        </p>
-      </div>
-
-      {icon && (
-        <div className="rounded-xl bg-slate-100 p-2 text-slate-500">
-          {icon}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const EmptyState = ({ message }) => {
-  return (
-    <div className="px-5 py-12 text-center">
-      <p className="text-sm text-slate-500">
-        {message}
-      </p>
-    </div>
-  );
-};
-
-const StatusBadge = ({ status }) => {
-  const normalized = String(
-    status || ""
-  ).toUpperCase();
-
-  const classes = {
-    COMPLETED:
-      "bg-emerald-50 text-emerald-700",
-
-    CANCELLED:
-      "bg-red-50 text-red-700",
-
-    PARTIALLY_REFUNDED:
-      "bg-amber-50 text-amber-700",
-
-    REFUNDED:
-      "bg-purple-50 text-purple-700",
-  };
-
-  return (
-    <span
-      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-        classes[normalized] ||
-        "bg-slate-100 text-slate-600"
-      }`}
-    >
-      {normalized.replaceAll("_", " ") ||
-        "UNKNOWN"}
-    </span>
   );
 };
 
