@@ -7,6 +7,7 @@ import SetupGuard from "./components/SetupGuard";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 import Login from "./pages/auth/Login";
+import Branches from "./pages/branches/Branches";
 
 import Dashboard from "./pages/dashboard/Dashboard";
 import POS from "./pages/pos/POS";
@@ -150,7 +151,10 @@ function App() {
           element={<Inventory />}
         />
 
-
+          <Route
+            path="branches"
+            element={<Branches />}
+          />
         {/* =======================================================
             CUSTOMERS
         ======================================================= */}

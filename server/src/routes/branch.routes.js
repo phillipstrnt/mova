@@ -1,3 +1,4 @@
+
 import express from "express";
 
 import {
@@ -10,25 +11,21 @@ import {
   switchBranch,
 } from "../controllers/branchController.js";
 
-import {
-  protect,
-  authorize,
-} from "../middleware/authMiddleware.js";
+import { protect } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
-const router =
-  express.Router();
+const router = express.Router();
 
 /*
 |--------------------------------------------------------------------------
 | BRANCH SWITCHING
 |--------------------------------------------------------------------------
 |
-| IMPORTANT:
-| This route must be before /:id.
+| Must appear before /:id.
 |
 */
 
-router.post(
+router.patch(
   "/switch",
   protect,
   switchBranch
@@ -40,9 +37,14 @@ router.post(
 |--------------------------------------------------------------------------
 */
 
+/*
+ * Any authenticated user who has branch access can
+ * load the business branches available to them.
+ */
 router.get(
   "/",
   protect,
+  requirePermission("branches.view"),
   getBranches
 );
 
@@ -50,15 +52,15 @@ router.get(
 |--------------------------------------------------------------------------
 | BUSINESS USERS
 |--------------------------------------------------------------------------
+|
+| Used when selecting a branch manager.
+|
 */
 
 router.get(
   "/users",
   protect,
-  authorize(
-    "OWNER",
-    "ADMIN"
-  ),
+  requirePermission("users.view"),
   getBusinessUsers
 );
 
@@ -66,15 +68,16 @@ router.get(
 |--------------------------------------------------------------------------
 | CREATE BRANCH
 |--------------------------------------------------------------------------
+|
+| OWNER, ADMIN and MANAGER can create branches because
+| their roles receive branches.create.
+|
 */
 
 router.post(
   "/",
   protect,
-  authorize(
-    "OWNER",
-    "ADMIN"
-  ),
+  requirePermission("branches.create"),
   createBranch
 );
 
@@ -87,6 +90,7 @@ router.post(
 router.get(
   "/:id",
   protect,
+  requirePermission("branches.view"),
   getBranch
 );
 
@@ -99,10 +103,7 @@ router.get(
 router.put(
   "/:id",
   protect,
-  authorize(
-    "OWNER",
-    "ADMIN"
-  ),
+  requirePermission("branches.update"),
   updateBranch
 );
 
@@ -110,15 +111,16 @@ router.put(
 |--------------------------------------------------------------------------
 | DELETE BRANCH
 |--------------------------------------------------------------------------
+|
+| We intentionally keep deletion restricted to OWNER and ADMIN.
+| Manager can create/update branches but cannot permanently
+| delete a branch.
+|
 */
 
 router.delete(
   "/:id",
   protect,
-  authorize(
-    "OWNER",
-    "ADMIN"
-  ),
   deleteBranch
 );
 

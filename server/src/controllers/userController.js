@@ -27,7 +27,7 @@ const isObjectId = (value) => {
 /**
  * Convert a user document into a safe response.
  *
- * Never send the password back to the frontend.
+ * Never send password fields back to the frontend.
  */
 const cleanUser = (user) => {
   const data =
@@ -44,7 +44,8 @@ const cleanUser = (user) => {
 };
 
 /**
- * Check whether the current user can manage the requested user.
+ * Check whether the current user can manage
+ * the requested user.
  */
 const canManageUser = (currentUser, targetUser) => {
   const currentRole = String(
@@ -107,7 +108,7 @@ const validateBranches = async (
       $in: uniqueBranchIds,
     },
     businessId,
-  }).select("_id name code active");
+  }).select("_id name code isActive");
 
   if (branches.length !== uniqueBranchIds.length) {
     return {
@@ -117,8 +118,11 @@ const validateBranches = async (
     };
   }
 
+  /*
+   * Branch model uses `isActive`, not `active`.
+   */
   const inactiveBranch = branches.find(
-    (branch) => branch.active === false
+    (branch) => branch.isActive === false
   );
 
   if (inactiveBranch) {
@@ -243,7 +247,7 @@ export const getUsers = async (req, res) => {
       .select("-password -passwordHash")
       .populate(
         "branchIds",
-        "name code active"
+        "name code isActive"
       )
       .sort({
         createdAt: -1,
@@ -291,7 +295,7 @@ export const getUser = async (req, res) => {
       .select("-password -passwordHash")
       .populate(
         "branchIds",
-        "name code active"
+        "name code isActive"
       )
       .lean();
 
@@ -504,21 +508,41 @@ export const createUser = async (req, res) => {
         12
       );
 
+    /*
+     * IMPORTANT:
+     * User model requires `passwordHash`.
+     *
+     * Previously this was being saved as:
+     *
+     * password: hashedPassword
+     *
+     * which caused:
+     *
+     * ValidationError:
+     * passwordHash: Path `passwordHash`
+     * is required.
+     */
     const newUser = await User.create({
       name: String(name).trim(),
       email: normalizedEmail,
       phone: phone
         ? String(phone).trim()
         : "",
-      password: hashedPassword,
+
+      passwordHash: hashedPassword,
+
       role: normalizedRole,
       businessId,
+
       branchIds:
         branchValidation.branchIds,
+
       branchId:
         branchValidation.branchIds[0],
+
       activeBranchId:
         branchValidation.branchIds[0],
+
       active: true,
     });
 
@@ -771,6 +795,13 @@ export const updateUser = async (req, res) => {
         Boolean(active);
     }
 
+    /*
+     * Password update.
+     *
+     * IMPORTANT:
+     * Store the hash in passwordHash,
+     * not password.
+     */
     if (password !== undefined) {
       if (
         String(password).length < 6
@@ -782,7 +813,7 @@ export const updateUser = async (req, res) => {
         });
       }
 
-      changes.password =
+      changes.passwordHash =
         await bcrypt.hash(
           String(password),
           12
