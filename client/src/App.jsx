@@ -1,243 +1,290 @@
-import {
-  Navigate,
-  Route,
-  Routes,
-} from "react-router-dom";
+
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import SetupGuard from "./components/SetupGuard";
-import NetworkStatus from "./components/NetworkStatus";
+
+import DashboardLayout from "./layouts/DashboardLayout";
+
+import Login from "./pages/auth/Login";
+
+import Dashboard from "./pages/dashboard/Dashboard";
+import POS from "./pages/pos/POS";
+import Sales from "./pages/sales/Sales";
+import Payments from "./pages/payments/Payments";
+import Receipts from "./pages/receipts/Receipts";
+
+import Products from "./pages/products/Products";
+import Inventory from "./pages/inventory/Inventory";
+import Categories from "./pages/products/Categories";
+
+import Customers from "./pages/customers/Customers";
+import Suppliers from "./pages/suppliers/Suppliers";
+
+import Purchases from "./pages/purchases/Purchases";
+import Expenses from "./pages/expenses/Expenses";
+
+import Reports from "./pages/reports/Reports";
+
 import Users from "./pages/users/Users";
 import AuditLogs from "./pages/audit/AuditLogs";
 
-import DashboardLayout from "./layouts/DashboardLayout";
-import AuthLayout from "./layouts/AuthLayout";
-
-import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
-import ForgotPassword from "./pages/auth/ForgotPassword";
-import ResetPassword from "./pages/auth/ResetPassword";
-
-import Dashboard from "./pages/dashboard/Dashboard";
-
-import POS from "./pages/pos/POS";
-import Products from "./pages/products/Products";
-import Categories from "./pages/products/Categories";
-import Inventory from "./pages/inventory/Inventory";
-import Suppliers from "./pages/suppliers/Suppliers";
-import Purchases from "./pages/purchases/Purchases";
-import Expenses from "./pages/expenses/Expenses";
-import Payments from "./pages/payments/Payments";
-import Sales from "./pages/sales/Sales";
-import Receipts from "./pages/receipts/Receipts";
-import Customers from "./pages/customers/Customers";
-import Reports from "./pages/reports/Reports";
 import Settings from "./pages/settings/Settings";
 
 import BusinessSetup from "./pages/setup/BusinessSetup";
 import BranchSetup from "./pages/setup/BranchSetup";
 import ReceiptSetup from "./pages/setup/ReceiptSetup";
 
-const App = () => {
+
+function App() {
   return (
-    <>
-      <Routes>
-        {/* ============================================================
-            AUTHENTICATION
-        ============================================================ */}
+    <Routes>
 
-        <Route element={<AuthLayout />}>
-          <Route
-            path="/login"
-            element={<Login />}
-          />
+      {/* =========================================================
+          PUBLIC ROUTES
+      ========================================================= */}
 
-          <Route
-            path="/register"
-            element={<Register />}
-          />
+      <Route
+        path="/login"
+        element={<Login />}
+      />
 
-          <Route
-            path="/forgot-password"
-            element={<ForgotPassword />}
-          />
 
-          <Route
-            path="/reset-password/:token"
-            element={<ResetPassword />}
-          />
-        </Route>
+      {/* =========================================================
+          BUSINESS SETUP
+      ========================================================= */}
 
-        {/* ============================================================
-            BUSINESS SETUP
-        ============================================================ */}
+      <Route
+        path="/setup"
+        element={
+          <ProtectedRoute>
+            <BusinessSetup />
+          </ProtectedRoute>
+        }
+      />
 
+
+      {/* =========================================================
+          MAIN APPLICATION
+      ========================================================= */}
+
+      <Route
+        path="/app"
+        element={
+          <ProtectedRoute>
+            <SetupGuard>
+              <DashboardLayout />
+            </SetupGuard>
+          </ProtectedRoute>
+        }
+      >
+
+        {/* Dashboard */}
         <Route
-          path="/setup/business"
-          element={
-            <ProtectedRoute>
-              <BusinessSetup />
-            </ProtectedRoute>
-          }
+          index
+          element={<Dashboard />}
         />
 
-        {/* ============================================================
-            BRANCH SETUP
-        ============================================================ */}
+
+        {/* =======================================================
+            POINT OF SALE
+        ======================================================= */}
 
         <Route
-          path="/setup/branch"
-          element={
-            <ProtectedRoute>
-              <BranchSetup />
-            </ProtectedRoute>
-          }
+          path="pos"
+          element={<POS />}
         />
 
-        {/* ============================================================
-            RECEIPT SETUP
-        ============================================================ */}
+
+        {/* =======================================================
+            SALES
+        ======================================================= */}
 
         <Route
-          path="/setup/receipt"
-          element={
-            <ProtectedRoute>
-              <ReceiptSetup />
-            </ProtectedRoute>
-          }
+          path="sales"
+          element={<Sales />}
         />
 
-        {/* ============================================================
-            MAIN APPLICATION
-        ============================================================ */}
+
+        {/* =======================================================
+            PAYMENTS
+        ======================================================= */}
 
         <Route
-          path="/app"
-          element={
-            <ProtectedRoute>
-              <SetupGuard>
-                <DashboardLayout />
-              </SetupGuard>
-            </ProtectedRoute>
-          }
-        >
-          {/* Dashboard */}
-          <Route
-            index
-            element={<Dashboard />}
-          />
-
-          {/* POS */}
-          <Route
-            path="pos"
-            element={<POS />}
-          />
-
-          {/* Products */}
-          <Route
-            path="products"
-            element={<Products />}
-          />
-
-          <Route
-            path="products/categories"
-            element={<Categories />}
-          />
-
-          {/* Inventory */}
-          <Route
-            path="inventory"
-            element={<Inventory />}
-          />
-
-          {/* Suppliers */}
-          <Route
-            path="suppliers"
-            element={<Suppliers />}
-          />
-
-          {/* Purchases */}
-          <Route
-            path="purchases"
-            element={<Purchases />}
-          />
-
-          {/* Expenses */}
-          <Route
-            path="expenses"
-            element={<Expenses />}
-          />
-
-          {/* Payments */}
-          <Route
-            path="payments"
-            element={<Payments />}
-          />
-
-          {/* Sales */}
-          <Route
-            path="sales"
-            element={<Sales />}
-          />
-
-          {/* Receipts */}
-          <Route
-            path="receipts"
-            element={<Receipts />}
-          />
+          path="payments"
+          element={<Payments />}
+        />
 
 
-          <Route path="/users" element={<Users />} />
-          {/* Customers */}
-          <Route
-            path="customers"
-            element={<Customers />}
-          />
-
-          {/* Users */} 
-            <Route path="/audit-logs" element={<AuditLogs />} />
-          {/* Reports */}
-          <Route
-            path="reports"
-            element={<Reports />}
-          />
-
-          {/* Settings */}
-          <Route
-            path="settings"
-            element={<Settings />}
-          />
-        </Route>
-
-        {/* ============================================================
-            DEFAULT ROUTES
-        ============================================================ */}
+        {/* =======================================================
+            RECEIPTS
+        ======================================================= */}
 
         <Route
-          path="/"
-          element={
-            <Navigate
-              to="/app"
-              replace
-            />
-          }
+          path="receipts"
+          element={<Receipts />}
+        />
+
+
+        {/* =======================================================
+            PRODUCTS
+        ======================================================= */}
+
+        <Route
+          path="products"
+          element={<Products />}
         />
 
         <Route
-          path="*"
-          element={
-            <Navigate
-              to="/app"
-              replace
-            />
-          }
+          path="categories"
+          element={<Categories />}
         />
-      </Routes>
 
-      {/* Network status remains useful for MOVA. */}
-      <NetworkStatus />
-    </>
+
+        {/* =======================================================
+            INVENTORY
+        ======================================================= */}
+
+        <Route
+          path="inventory"
+          element={<Inventory />}
+        />
+
+
+        {/* =======================================================
+            CUSTOMERS
+        ======================================================= */}
+
+        <Route
+          path="customers"
+          element={<Customers />}
+        />
+
+
+        {/* =======================================================
+            SUPPLIERS
+        ======================================================= */}
+
+        <Route
+          path="suppliers"
+          element={<Suppliers />}
+        />
+
+
+        {/* =======================================================
+            PURCHASES
+        ======================================================= */}
+
+        <Route
+          path="purchases"
+          element={<Purchases />}
+        />
+
+
+        {/* =======================================================
+            EXPENSES
+        ======================================================= */}
+
+        <Route
+          path="expenses"
+          element={<Expenses />}
+        />
+
+
+        {/* =======================================================
+            REPORTS
+        ======================================================= */}
+
+        <Route
+          path="reports"
+          element={<Reports />}
+        />
+
+
+        {/* =======================================================
+            USER MANAGEMENT
+        ======================================================= */}
+
+        <Route
+          path="users"
+          element={<Users />}
+        />
+
+
+        {/* =======================================================
+            AUDIT LOGS
+        ======================================================= */}
+
+        <Route
+          path="audit-logs"
+          element={<AuditLogs />}
+        />
+
+
+        {/* =======================================================
+            SETTINGS
+        ======================================================= */}
+
+        <Route
+          path="settings"
+          element={<Settings />}
+        />
+
+
+        {/* =======================================================
+            SETUP SUB-PAGES
+        ======================================================= */}
+
+        <Route
+          path="setup/business"
+          element={<BusinessSetup />}
+        />
+
+        <Route
+          path="setup/branch"
+          element={<BranchSetup />}
+        />
+
+        <Route
+          path="setup/receipt"
+          element={<ReceiptSetup />}
+        />
+
+      </Route>
+
+
+      {/* =========================================================
+          ROOT
+      ========================================================= */}
+
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to="/app"
+            replace
+          />
+        }
+      />
+
+
+      {/* =========================================================
+          UNKNOWN ROUTES
+      ========================================================= */}
+
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to="/app"
+            replace
+          />
+        }
+      />
+
+    </Routes>
   );
-};
+}
+
 
 export default App;

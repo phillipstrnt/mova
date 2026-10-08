@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 
 const notificationSchema = new mongoose.Schema(
   {
+    // The business that owns this notification
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -10,6 +11,8 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Optional branch associated with the notification
+    // null means the notification applies to the whole business
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Branch",
@@ -17,6 +20,9 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Optional specific user
+    // null means the notification is available to everyone
+    // who has access to the relevant business/branch
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -24,6 +30,7 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Notification category
     type: {
       type: String,
       enum: [
@@ -41,6 +48,7 @@ const notificationSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Notification heading
     title: {
       type: String,
       required: true,
@@ -48,6 +56,7 @@ const notificationSchema = new mongoose.Schema(
       maxlength: 150,
     },
 
+    // Notification message
     message: {
       type: String,
       required: true,
@@ -55,6 +64,7 @@ const notificationSchema = new mongoose.Schema(
       maxlength: 500,
     },
 
+    // How important the notification is
     priority: {
       type: String,
       enum: [
@@ -66,6 +76,10 @@ const notificationSchema = new mongoose.Schema(
       default: "NORMAL",
     },
 
+    // Optional frontend route
+    // Example: /inventory
+    // Example: /users
+    // Example: /sales
     link: {
       type: String,
       default: "",
@@ -73,17 +87,26 @@ const notificationSchema = new mongoose.Schema(
       maxlength: 300,
     },
 
+    // Whether the notification has been read
     read: {
       type: Boolean,
       default: false,
       index: true,
     },
 
+    // Date when it was read
     readAt: {
       type: Date,
       default: null,
     },
 
+    // Extra information related to the notification
+    // Example:
+    // {
+    //   productId: "...",
+    //   productName: "Sugar",
+    //   quantity: 3
+    // }
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
@@ -95,11 +118,13 @@ const notificationSchema = new mongoose.Schema(
 );
 
 /*
-|----------------------------------------------------------------------
-| INDEXES
-|----------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Indexes
+|--------------------------------------------------------------------------
 */
 
+// Used when retrieving notifications for a specific user
+// and calculating unread notifications.
 notificationSchema.index({
   businessId: 1,
   userId: 1,
@@ -107,6 +132,7 @@ notificationSchema.index({
   createdAt: -1,
 });
 
+// Used for branch-based notification filtering.
 notificationSchema.index({
   businessId: 1,
   branchId: 1,
@@ -114,16 +140,16 @@ notificationSchema.index({
 });
 
 /*
-|----------------------------------------------------------------------
-| MODEL
-|----------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Model
+|--------------------------------------------------------------------------
+|
+| Prevents Mongoose from creating the model more than once
+| when nodemon reloads files during development.
+|
 */
-
 const Notification =
   mongoose.models.Notification ||
-  mongoose.model(
-    "Notification",
-    notificationSchema
-  );
+  mongoose.model("Notification", notificationSchema);
 
 export default Notification;

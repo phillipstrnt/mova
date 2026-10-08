@@ -1,12 +1,12 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import {
   Activity,
-  AlertTriangle,
-  Building2,
+  AlertCircle,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Eye,
   Filter,
   Info,
@@ -17,68 +17,45 @@ import {
   X,
 } from "lucide-react";
 
-import { api } from "../../services/api";
+import api from "../../services/api";
 
 const ENTITY_OPTIONS = [
-  "All entities",
-  "User",
-  "Sale",
-  "Return",
-  "Product",
-  "Purchase",
-  "Expense",
-  "Business",
+  "ALL",
+  "USER",
+  "SALE",
+  "RETURN",
+  "PRODUCT",
+  "INVENTORY",
+  "EXPENSE",
+  "PURCHASE",
+  "BUSINESS",
+  "BRANCH",
+  "PAYMENT",
+  "SYSTEM",
 ];
 
 const SEVERITY_OPTIONS = [
-  "All severity",
+  "ALL",
   "INFO",
   "WARNING",
   "CRITICAL",
 ];
 
-const ACTION_LABELS = {
-  USER_CREATED: "User Created",
-  USER_UPDATED: "User Updated",
-  USER_DISABLED: "User Disabled",
-  USER_ENABLED: "User Enabled",
-  SALE_COMPLETED: "Sale Completed",
-  RETURN_CREATED: "Return Created",
-  STOCK_ADJUSTED: "Stock Adjusted",
-  PURCHASE_CREATED: "Purchase Created",
-  EXPENSE_CREATED: "Expense Created",
-  BUSINESS_SETTINGS_UPDATED:
-    "Business Settings Updated",
-};
-
-const formatAction = (action = "") => {
-  if (ACTION_LABELS[action]) {
-    return ACTION_LABELS[action];
-  }
-
-  return action
-    .replaceAll("_", " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) =>
-      letter.toUpperCase()
-    );
-};
+const PAGE_SIZE = 20;
 
 const formatDateTime = (value) => {
   if (!value) {
-    return "Unknown date";
+    return "—";
   }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown date";
+  try {
+    return new Intl.DateTimeFormat("en-UG", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return "—";
   }
-
-  return date.toLocaleString("en-UG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 };
 
 const formatRelativeTime = (value) => {
@@ -92,240 +69,367 @@ const formatRelativeTime = (value) => {
     return "";
   }
 
-  const difference =
-    Date.now() - date.getTime();
-
   const seconds = Math.floor(
-    difference / 1000
+    (Date.now() - date.getTime()) / 1000
   );
 
   if (seconds < 60) {
     return "Just now";
   }
 
-  const minutes = Math.floor(
-    seconds / 60
-  );
+  const minutes = Math.floor(seconds / 60);
 
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return `${minutes} min ago`;
   }
 
-  const hours = Math.floor(
-    minutes / 60
-  );
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
-    return `${hours}h ago`;
+    return `${hours} hr ago`;
   }
 
-  const days = Math.floor(
-    hours / 24
-  );
+  const days = Math.floor(hours / 24);
 
-  if (days < 7) {
-    return `${days}d ago`;
+  if (days < 30) {
+    return `${days} day${days === 1 ? "" : "s"} ago`;
   }
 
-  return date.toLocaleDateString("en-UG");
+  return formatDateTime(value);
 };
 
 const getSeverityClasses = (severity) => {
-  switch (severity) {
+  switch (String(severity || "").toUpperCase()) {
     case "CRITICAL":
-      return {
-        badge:
-          "bg-red-100 text-red-700 border-red-200",
-        icon:
-          "bg-red-100 text-red-600",
-      };
+      return "bg-red-100 text-red-700 border-red-200";
 
     case "WARNING":
-      return {
-        badge:
-          "bg-amber-100 text-amber-700 border-amber-200",
-        icon:
-          "bg-amber-100 text-amber-600",
-      };
+      return "bg-amber-100 text-amber-700 border-amber-200";
 
+    case "INFO":
     default:
-      return {
-        badge:
-          "bg-blue-100 text-blue-700 border-blue-200",
-        icon:
-          "bg-blue-100 text-blue-600",
-      };
+      return "bg-blue-100 text-blue-700 border-blue-200";
   }
 };
 
-const getEntityIcon = (entity) => {
-  switch (entity) {
-    case "User":
-      return User;
+const getSeverityIcon = (severity) => {
+  switch (String(severity || "").toUpperCase()) {
+    case "CRITICAL":
+      return <ShieldAlert size={14} />;
 
-    case "Business":
-      return Building2;
+    case "WARNING":
+      return <AlertCircle size={14} />;
 
-    case "Product":
-      return Activity;
-
+    case "INFO":
     default:
-      return Activity;
+      return <Info size={14} />;
   }
 };
 
-const AuditLogs = () => {
+const getEntityClasses = (entity) => {
+  switch (String(entity || "").toUpperCase()) {
+    case "USER":
+      return "bg-purple-100 text-purple-700";
+
+    case "SALE":
+      return "bg-emerald-100 text-emerald-700";
+
+    case "RETURN":
+      return "bg-orange-100 text-orange-700";
+
+    case "PRODUCT":
+      return "bg-blue-100 text-blue-700";
+
+    case "INVENTORY":
+      return "bg-cyan-100 text-cyan-700";
+
+    case "EXPENSE":
+      return "bg-rose-100 text-rose-700";
+
+    case "PURCHASE":
+      return "bg-indigo-100 text-indigo-700";
+
+    case "PAYMENT":
+      return "bg-green-100 text-green-700";
+
+    case "BUSINESS":
+    case "BRANCH":
+      return "bg-slate-100 text-slate-700";
+
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+};
+
+const getApiErrorMessage = (
+  error,
+  fallback = "Something went wrong."
+) => {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback
+  );
+};
+
+export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [branches, setBranches] = useState([]);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [search, setSearch] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const [entity, setEntity] = useState("ALL");
 
-  const [search, setSearch] =
-    useState("");
+  const [severity, setSeverity] = useState("ALL");
 
-  const [entity, setEntity] =
-    useState("");
+  const [branchId, setBranchId] = useState("");
 
-  const [severity, setSeverity] =
-    useState("");
+  const [page, setPage] = useState(1);
 
-  const [branchId, setBranchId] =
-    useState("");
+  const [totalPages, setTotalPages] = useState(1);
 
-  const [branches, setBranches] =
-    useState([]);
+  const [totalLogs, setTotalLogs] = useState(0);
 
-  const [page, setPage] =
-    useState(1);
+  const [loading, setLoading] = useState(true);
 
-  const [pagination, setPagination] =
-    useState({
-      page: 1,
-      limit: 30,
-      total: 0,
-      pages: 1,
-    });
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [selectedLog, setSelectedLog] =
-    useState(null);
+  const [error, setError] = useState("");
 
-  const [showFilters, setShowFilters] =
-    useState(false);
+  const [selectedLog, setSelectedLog] = useState(null);
 
-  const loadBranches = async () => {
+  const [showFilters, setShowFilters] = useState(false);
+
+  const [stats, setStats] = useState({
+    total: 0,
+    info: 0,
+    warning: 0,
+    critical: 0,
+  });
+
+  /*
+   * Load branches.
+   */
+  const loadBranches = useCallback(async () => {
     try {
-      const response =
-        await api.get("/branches");
+      const response = await api.get("/branches");
 
-      const data =
-        response.data?.branches ||
-        response.data?.data ||
-        response.data ||
-        [];
+      const data = response?.data;
 
-      if (Array.isArray(data)) {
-        setBranches(data);
-      }
-    } catch (branchError) {
-      console.warn(
-        "Unable to load branches:",
-        branchError
-      );
-    }
-  };
+      const branchList =
+        data?.branches ||
+        data?.data ||
+        (Array.isArray(data) ? data : []);
 
-  const loadAuditLogs = async (
-    showRefresh = false
-  ) => {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      setError("");
-
-      const params = new URLSearchParams();
-
-      params.set("page", String(page));
-      params.set("limit", "30");
-
-      if (search.trim()) {
-        params.set(
-          "search",
-          search.trim()
-        );
-      }
-
-      if (entity) {
-        params.set("entity", entity);
-      }
-
-      if (severity) {
-        params.set(
-          "severity",
-          severity
-        );
-      }
-
-      if (branchId) {
-        params.set(
-          "branchId",
-          branchId
-        );
-      }
-
-      const response =
-        await api.get(
-          `/audit-logs?${params.toString()}`
-        );
-
-      const data =
-        response.data || {};
-
-      setLogs(
-        Array.isArray(data.logs)
-          ? data.logs
+      setBranches(
+        Array.isArray(branchList)
+          ? branchList
           : []
       );
-
-      setPagination(
-        data.pagination || {
-          page,
-          limit: 30,
-          total: 0,
-          pages: 1,
-        }
+    } catch (error) {
+      /*
+       * Branch loading should not prevent
+       * the audit log page from working.
+       */
+      console.warn(
+        "Could not load branches:",
+        error
       );
-    } catch (requestError) {
-      console.error(
-        "Unable to load audit logs:",
-        requestError
-      );
-
-      setError(
-        requestError.response?.data
-          ?.message ||
-          requestError.message ||
-          "Unable to load audit logs."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadBranches();
   }, []);
 
+  /*
+   * Load audit logs.
+   */
+  const loadAuditLogs = useCallback(
+    async ({
+      showLoading = true,
+      showRefreshing = false,
+    } = {}) => {
+      try {
+        if (showLoading) {
+          setLoading(true);
+        }
+
+        if (showRefreshing) {
+          setRefreshing(true);
+        }
+
+        setError("");
+
+        const params = {
+          page,
+          limit: PAGE_SIZE,
+        };
+
+        const trimmedSearch = search.trim();
+
+        if (trimmedSearch) {
+          params.search = trimmedSearch;
+        }
+
+        if (entity !== "ALL") {
+          params.entity = entity;
+        }
+
+        if (severity !== "ALL") {
+          params.severity = severity;
+        }
+
+        if (branchId) {
+          params.branchId = branchId;
+        }
+
+        const response = await api.get(
+          "/audit-logs",
+          {
+            params,
+          }
+        );
+
+        const data = response?.data || {};
+
+        const returnedLogs =
+          data.logs ||
+          data.auditLogs ||
+          data.data ||
+          [];
+
+        setLogs(
+          Array.isArray(returnedLogs)
+            ? returnedLogs
+            : []
+        );
+
+        const pagination =
+          data.pagination || {};
+
+        const returnedTotalPages =
+          Number(
+            pagination.totalPages ||
+              data.totalPages ||
+              1
+          );
+
+        const returnedTotal =
+          Number(
+            pagination.total ||
+              data.total ||
+              data.count ||
+              returnedLogs.length
+          );
+
+        setTotalPages(
+          Math.max(
+            returnedTotalPages || 1,
+            1
+          )
+        );
+
+        setTotalLogs(
+          returnedTotal || 0
+        );
+
+        /*
+         * Calculate statistics from the
+         * returned logs when the API does not
+         * provide statistics.
+         */
+        const returnedStats =
+          data.stats || data.statistics;
+
+        if (returnedStats) {
+          setStats({
+            total:
+              Number(
+                returnedStats.total ??
+                  returnedTotal ??
+                  0
+              ),
+            info:
+              Number(
+                returnedStats.info ??
+                  returnedStats.INFO ??
+                  0
+              ),
+            warning:
+              Number(
+                returnedStats.warning ??
+                  returnedStats.WARNING ??
+                  0
+              ),
+            critical:
+              Number(
+                returnedStats.critical ??
+                  returnedStats.CRITICAL ??
+                  0
+              ),
+          });
+        } else {
+          setStats({
+            total: returnedTotal || returnedLogs.length,
+            info: returnedLogs.filter(
+              (log) =>
+                String(
+                  log.severity || ""
+                ).toUpperCase() === "INFO"
+            ).length,
+            warning: returnedLogs.filter(
+              (log) =>
+                String(
+                  log.severity || ""
+                ).toUpperCase() === "WARNING"
+            ).length,
+            critical: returnedLogs.filter(
+              (log) =>
+                String(
+                  log.severity || ""
+                ).toUpperCase() === "CRITICAL"
+            ).length,
+          });
+        }
+      } catch (error) {
+        console.error(
+          "Load audit logs error:",
+          error
+        );
+
+        setError(
+          getApiErrorMessage(
+            error,
+            "Unable to load audit logs."
+          )
+        );
+
+        setLogs([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [
+      page,
+      search,
+      entity,
+      severity,
+      branchId,
+    ]
+  );
+
+  /*
+   * Initial branch load.
+   */
+  useEffect(() => {
+    loadBranches();
+  }, [loadBranches]);
+
+  /*
+   * Load logs whenever a real filter/page changes.
+   *
+   * Search is debounced separately below.
+   */
   useEffect(() => {
     loadAuditLogs();
   }, [
@@ -336,35 +440,40 @@ const AuditLogs = () => {
   ]);
 
   /*
-   * Search with a small delay so we don't
-   * request the server on every keystroke.
+   * Debounced search.
    */
-
   useEffect(() => {
-    const timer =
-      window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      if (page !== 1) {
         setPage(1);
-        loadAuditLogs();
-      }, 450);
+        return;
+      }
 
-    return () =>
+      loadAuditLogs();
+    }, 450);
+
+    return () => {
       window.clearTimeout(timer);
+    };
   }, [search]);
 
-  const clearFilters = () => {
-    setSearch("");
-    setEntity("");
-    setSeverity("");
-    setBranchId("");
+  /*
+   * Reset page whenever filters change.
+   */
+  useEffect(() => {
     setPage(1);
-  };
+  }, [
+    entity,
+    severity,
+    branchId,
+  ]);
 
-  const hasFilters = useMemo(() => {
-    return Boolean(
-      search ||
-        entity ||
-        severity ||
-        branchId
+  const hasActiveFilters = useMemo(() => {
+    return (
+      search.trim() !== "" ||
+      entity !== "ALL" ||
+      severity !== "ALL" ||
+      branchId !== ""
     );
   }, [
     search,
@@ -373,887 +482,1135 @@ const AuditLogs = () => {
     branchId,
   ]);
 
-  const statistics = useMemo(() => {
-    const total =
-      pagination.total || 0;
+  const clearFilters = () => {
+    setSearch("");
+    setEntity("ALL");
+    setSeverity("ALL");
+    setBranchId("");
+    setPage(1);
+  };
 
-    const critical = logs.filter(
-      (log) =>
-        log.severity === "CRITICAL"
-    ).length;
+  const handleRefresh = async () => {
+    await loadAuditLogs({
+      showLoading: false,
+      showRefreshing: true,
+    });
+  };
 
-    const warnings = logs.filter(
-      (log) =>
-        log.severity === "WARNING"
-    ).length;
+  const goToPreviousPage = () => {
+    if (page <= 1) {
+      return;
+    }
 
-    return {
-      total,
-      critical,
-      warnings,
-      currentPage: logs.length,
-    };
-  }, [logs, pagination]);
+    setPage((current) =>
+      Math.max(current - 1, 1)
+    );
+  };
+
+  const goToNextPage = () => {
+    if (page >= totalPages) {
+      return;
+    }
+
+    setPage((current) =>
+      Math.min(
+        current + 1,
+        totalPages
+      )
+    );
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {/* HEADER */}
+    <div className="min-h-screen bg-slate-50 p-3 sm:p-5 lg:p-6">
+      <div className="mx-auto max-w-7xl space-y-5">
+        {/* Header */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm">
+                <Activity size={22} />
+              </div>
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-sm">
-              <ShieldAlert size={23} />
-            </div>
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
+                  Audit Logs
+                </h1>
 
-            <div>
-              <h1 className="text-3xl font-black text-slate-900">
-                Audit Logs
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Track important activity across
-                your MOVA business.
-              </p>
+                <p className="text-sm text-slate-500">
+                  Track important activities performed
+                  in your MOVA business.
+                </p>
+              </div>
             </div>
           </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setShowFilters(
+                  (current) => !current
+                )
+              }
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                showFilters
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <Filter size={16} />
+              Filters
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw
+                size={16}
+                className={
+                  refreshing
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+              <span className="hidden sm:inline">
+                Refresh
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Statistics */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon={<Activity size={19} />}
+            label="Total Events"
+            value={stats.total}
+            description="Audit activity"
+          />
+
+          <StatCard
+            icon={<Info size={19} />}
+            label="Information"
+            value={stats.info}
+            description="Normal activity"
+          />
+
+          <StatCard
+            icon={<AlertCircle size={19} />}
+            label="Warnings"
+            value={stats.warning}
+            description="Requires attention"
+          />
+
+          <StatCard
+            icon={<ShieldAlert size={19} />}
+            label="Critical"
+            value={stats.critical}
+            description="High-risk activity"
+          />
+        </div>
+
+        {/* Search / Filters */}
+        <div
+          className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${
+            showFilters
+              ? "block"
+              : "block"
+          }`}
+        >
+          <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_200px_auto]">
+            {/* Search */}
+            <div className="relative">
+              <Search
+                size={17}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+
+              <input
+                type="text"
+                value={search}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Search audit activity..."
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
+
+            {/* Entity */}
+            <select
+              value={entity}
+              onChange={(event) =>
+                setEntity(
+                  event.target.value
+                )
+              }
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            >
+              {ENTITY_OPTIONS.map(
+                (option) => (
+                  <option
+                    key={option}
+                    value={option}
+                  >
+                    {option === "ALL"
+                      ? "All entities"
+                      : option}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* Severity */}
+            <select
+              value={severity}
+              onChange={(event) =>
+                setSeverity(
+                  event.target.value
+                )
+              }
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            >
+              {SEVERITY_OPTIONS.map(
+                (option) => (
+                  <option
+                    key={option}
+                    value={option}
+                  >
+                    {option === "ALL"
+                      ? "All severity"
+                      : option}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* Branch */}
+            <select
+              value={branchId}
+              onChange={(event) =>
+                setBranchId(
+                  event.target.value
+                )
+              }
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            >
+              <option value="">
+                All branches
+              </option>
+
+              {branches.map(
+                (branch) => (
+                  <option
+                    key={branch._id}
+                    value={branch._id}
+                  >
+                    {branch.name ||
+                      branch.code ||
+                      "Branch"}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* Clear */}
+            {hasActiveFilters ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                <X size={16} />
+                Clear
+              </button>
+            ) : (
+              <div />
+            )}
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+            <AlertCircle
+              size={19}
+              className="mt-0.5 shrink-0"
+            />
+
+            <div className="flex-1">
+              <p className="font-semibold">
+                Audit logs could not be loaded
+              </p>
+
+              <p className="mt-1 text-sm">
+                {error}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                loadAuditLogs()
+              }
+              className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Desktop Table */}
+        <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px]">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Activity
+                  </th>
+
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    User
+                  </th>
+
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Entity
+                  </th>
+
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Severity
+                  </th>
+
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Date
+                  </th>
+
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loading ? (
+                  <TableLoading />
+                ) : logs.length === 0 ? (
+                  <EmptyTable
+                    hasFilters={
+                      hasActiveFilters
+                    }
+                  />
+                ) : (
+                  logs.map((log) => (
+                    <AuditTableRow
+                      key={
+                        log._id ||
+                        `${log.action}-${log.createdAt}`
+                      }
+                      log={log}
+                      onView={() =>
+                        setSelectedLog(log)
+                      }
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {!loading &&
+            logs.length > 0 && (
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                totalLogs={totalLogs}
+                pageSize={PAGE_SIZE}
+                onPrevious={
+                  goToPreviousPage
+                }
+                onNext={
+                  goToNextPage
+                }
+              />
+            )}
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="space-y-3 md:hidden">
+          {loading ? (
+            <MobileLoading />
+          ) : logs.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <Activity
+                size={30}
+                className="mx-auto text-slate-300"
+              />
+
+              <h3 className="mt-3 font-semibold text-slate-800">
+                No audit activity
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                {hasActiveFilters
+                  ? "Try changing or clearing your filters."
+                  : "MOVA will show important activities here."}
+              </p>
+            </div>
+          ) : (
+            logs.map((log) => (
+              <AuditMobileCard
+                key={
+                  log._id ||
+                  `${log.action}-${log.createdAt}`
+                }
+                log={log}
+                onView={() =>
+                  setSelectedLog(log)
+                }
+              />
+            ))
+          )}
+
+          {!loading &&
+            logs.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  totalLogs={totalLogs}
+                  pageSize={PAGE_SIZE}
+                  onPrevious={
+                    goToPreviousPage
+                  }
+                  onNext={goToNextPage}
+                  mobile
+                />
+              </div>
+            )}
+        </div>
+      </div>
+
+      {/* Details Modal */}
+      {selectedLog && (
+        <AuditDetailsModal
+          log={selectedLog}
+          onClose={() =>
+            setSelectedLog(null)
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Statistics Card
+|--------------------------------------------------------------------------
+*/
+
+function StatCard({
+  icon,
+  label,
+  value,
+  description,
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {label}
+          </p>
+
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            {Number(value || 0).toLocaleString(
+              "en-UG"
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            {description}
+          </p>
+        </div>
+
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Desktop Row
+|--------------------------------------------------------------------------
+*/
+
+function AuditTableRow({
+  log,
+  onView,
+}) {
+  const severity = String(
+    log.severity || "INFO"
+  ).toUpperCase();
+
+  const entity = String(
+    log.entity || "SYSTEM"
+  ).toUpperCase();
+
+  const actorName =
+    log.actorName ||
+    log.actor?.name ||
+    "System";
+
+  return (
+    <tr className="border-b border-slate-100 transition hover:bg-slate-50">
+      <td className="px-4 py-4">
+        <div>
+          <p className="font-semibold text-slate-800">
+            {log.action ||
+              "Activity"}
+          </p>
+
+          <p className="mt-1 max-w-md truncate text-sm text-slate-500">
+            {log.description ||
+              "No description available."}
+          </p>
+        </div>
+      </td>
+
+      <td className="px-4 py-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+            <User size={15} />
+          </div>
+
+          <div>
+            <p className="text-sm font-medium text-slate-700">
+              {actorName}
+            </p>
+
+            {log.actorRole && (
+              <p className="text-xs text-slate-400">
+                {log.actorRole}
+              </p>
+            )}
+          </div>
+        </div>
+      </td>
+
+      <td className="px-4 py-4">
+        <span
+          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getEntityClasses(
+            entity
+          )}`}
+        >
+          {entity}
+        </span>
+      </td>
+
+      <td className="px-4 py-4">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${getSeverityClasses(
+            severity
+          )}`}
+        >
+          {getSeverityIcon(
+            severity
+          )}
+          {severity}
+        </span>
+      </td>
+
+      <td className="px-4 py-4">
+        <div>
+          <p className="text-sm font-medium text-slate-700">
+            {formatRelativeTime(
+              log.createdAt
+            )}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            {formatDateTime(
+              log.createdAt
+            )}
+          </p>
+        </div>
+      </td>
+
+      <td className="px-4 py-4 text-right">
+        <button
+          type="button"
+          onClick={onView}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+        >
+          <Eye size={14} />
+          View
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mobile Card
+|--------------------------------------------------------------------------
+*/
+
+function AuditMobileCard({
+  log,
+  onView,
+}) {
+  const severity = String(
+    log.severity || "INFO"
+  ).toUpperCase();
+
+  const entity = String(
+    log.entity || "SYSTEM"
+  ).toUpperCase();
+
+  const actorName =
+    log.actorName ||
+    log.actor?.name ||
+    "System";
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-slate-800">
+            {log.action ||
+              "Activity"}
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            {log.description ||
+              "No description available."}
+          </p>
         </div>
 
         <button
           type="button"
-          onClick={() =>
-            loadAuditLogs(true)
-          }
-          disabled={refreshing}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={onView}
+          className="shrink-0 rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+          aria-label="View audit details"
         >
-          <RefreshCw
-            size={17}
-            className={
-              refreshing
-                ? "animate-spin"
-                : ""
-            }
-          />
-
-          {refreshing
-            ? "Refreshing..."
-            : "Refresh"}
+          <Eye size={16} />
         </button>
       </div>
 
-      {/* STATISTICS */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getEntityClasses(
+            entity
+          )}`}
+        >
+          {entity}
+        </span>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-500">
-                Total Activities
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-slate-900">
-                {statistics.total.toLocaleString()}
-              </p>
-            </div>
-
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Activity size={21} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-500">
-                Current Page
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-slate-900">
-                {statistics.currentPage}
-              </p>
-            </div>
-
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-              <Clock3 size={21} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-500">
-                Warnings
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-amber-600">
-                {statistics.warnings}
-              </p>
-            </div>
-
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-              <AlertTriangle size={21} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-500">
-                Critical
-              </p>
-
-              <p className="mt-2 text-2xl font-black text-red-600">
-                {statistics.critical}
-              </p>
-            </div>
-
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600">
-              <ShieldAlert size={21} />
-            </div>
-          </div>
-        </div>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${getSeverityClasses(
+            severity
+          )}`}
+        >
+          {getSeverityIcon(
+            severity
+          )}
+          {severity}
+        </span>
       </div>
 
-      {/* FILTER BAR */}
+      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+        <div>
+          <p className="text-xs text-slate-400">
+            User
+          </p>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="relative flex-1">
-            <Search
-              size={18}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
+          <p className="mt-1 text-sm font-medium text-slate-700">
+            {actorName}
+          </p>
+        </div>
 
-            <input
-              value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
-              }
-              placeholder="Search activity, user or action..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
-            />
+        <div>
+          <p className="text-xs text-slate-400">
+            Time
+          </p>
+
+          <p className="mt-1 text-sm font-medium text-slate-700">
+            {formatRelativeTime(
+              log.createdAt
+            )}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Pagination
+|--------------------------------------------------------------------------
+*/
+
+function Pagination({
+  page,
+  totalPages,
+  totalLogs,
+  pageSize,
+  onPrevious,
+  onNext,
+  mobile = false,
+}) {
+  const start =
+    totalLogs === 0
+      ? 0
+      : (page - 1) * pageSize + 1;
+
+  const end =
+    totalLogs === 0
+      ? 0
+      : Math.min(
+          page * pageSize,
+          totalLogs
+        );
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 ${
+        mobile
+          ? "flex-col sm:flex-row"
+          : "border-t border-slate-200 px-4 py-3"
+      }`}
+    >
+      <p className="text-xs text-slate-500">
+        Showing{" "}
+        <span className="font-semibold text-slate-700">
+          {start}
+        </span>{" "}
+        to{" "}
+        <span className="font-semibold text-slate-700">
+          {end}
+        </span>{" "}
+        of{" "}
+        <span className="font-semibold text-slate-700">
+          {totalLogs}
+        </span>
+      </p>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onPrevious}
+          disabled={page <= 1}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ChevronLeft size={15} />
+          Previous
+        </button>
+
+        <span className="min-w-[70px] text-center text-xs font-medium text-slate-500">
+          {page} /{" "}
+          {Math.max(
+            totalPages,
+            1
+          )}
+        </span>
+
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={
+            page >= totalPages
+          }
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Desktop Loading
+|--------------------------------------------------------------------------
+*/
+
+function TableLoading() {
+  return (
+    <>
+      {Array.from({
+        length: 6,
+      }).map((_, index) => (
+        <tr
+          key={index}
+          className="border-b border-slate-100"
+        >
+          {Array.from({
+            length: 6,
+          }).map(
+            (
+              __,
+              columnIndex
+            ) => (
+              <td
+                key={columnIndex}
+                className="px-4 py-5"
+              >
+                <div className="h-4 animate-pulse rounded bg-slate-100" />
+              </td>
+            )
+          )}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mobile Loading
+|--------------------------------------------------------------------------
+*/
+
+function MobileLoading() {
+  return (
+    <>
+      {Array.from({
+        length: 4,
+      }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <div className="h-4 w-1/2 animate-pulse rounded bg-slate-100" />
+
+          <div className="mt-3 h-3 w-full animate-pulse rounded bg-slate-100" />
+
+          <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-slate-100" />
+
+          <div className="mt-4 flex gap-2">
+            <div className="h-6 w-20 animate-pulse rounded-full bg-slate-100" />
+
+            <div className="h-6 w-20 animate-pulse rounded-full bg-slate-100" />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Empty Desktop Table
+|--------------------------------------------------------------------------
+*/
+
+function EmptyTable({
+  hasFilters,
+}) {
+  return (
+    <tr>
+      <td
+        colSpan={6}
+        className="px-6 py-14 text-center"
+      >
+        <Activity
+          size={34}
+          className="mx-auto text-slate-300"
+        />
+
+        <h3 className="mt-3 font-semibold text-slate-800">
+          No audit activity found
+        </h3>
+
+        <p className="mt-1 text-sm text-slate-500">
+          {hasFilters
+            ? "Try changing or clearing your filters."
+            : "MOVA will display important system activities here."}
+        </p>
+      </td>
+    </tr>
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Details Modal
+|--------------------------------------------------------------------------
+*/
+
+function AuditDetailsModal({
+  log,
+  onClose,
+}) {
+  const severity = String(
+    log.severity || "INFO"
+  ).toUpperCase();
+
+  const entity = String(
+    log.entity || "SYSTEM"
+  ).toUpperCase();
+
+  const actorName =
+    log.actorName ||
+    log.actor?.name ||
+    "System";
+
+  const actorEmail =
+    log.actor?.email ||
+    "";
+
+  const branchName =
+    log.branch?.name ||
+    log.branchName ||
+    "All branches";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-5"
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        {/* Modal Header */}
+        <div className="flex items-start justify-between border-b border-slate-200 p-5">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900">
+                Audit Details
+              </h2>
+
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getEntityClasses(
+                  entity
+                )}`}
+              >
+                {entity}
+              </span>
+
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${getSeverityClasses(
+                  severity
+                )}`}
+              >
+                {getSeverityIcon(
+                  severity
+                )}
+                {severity}
+              </span>
+            </div>
+
+            <p className="mt-1 text-sm text-slate-500">
+              {formatDateTime(
+                log.createdAt
+              )}
+            </p>
           </div>
 
           <button
             type="button"
-            onClick={() =>
-              setShowFilters(
-                (current) => !current
-              )
-            }
-            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition ${
-              showFilters ||
-              hasFilters
-                ? "border-blue-200 bg-blue-50 text-blue-700"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-            }`}
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
           >
-            <Filter size={17} />
-
-            Filters
-
-            {hasFilters && (
-              <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">
-                Active
-              </span>
-            )}
+            <X size={20} />
           </button>
-
-          {hasFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-            >
-              <X size={16} />
-              Clear
-            </button>
-          )}
         </div>
 
-        {showFilters && (
-          <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 md:grid-cols-3">
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Entity
-              </label>
-
-              <select
-                value={entity}
-                onChange={(event) => {
-                  setEntity(
-                    event.target.value
-                  );
-                  setPage(1);
-                }}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                {ENTITY_OPTIONS.map(
-                  (option) => (
-                    <option
-                      key={option}
-                      value={
-                        option ===
-                        "All entities"
-                          ? ""
-                          : option
-                      }
-                    >
-                      {option}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Severity
-              </label>
-
-              <select
-                value={severity}
-                onChange={(event) => {
-                  setSeverity(
-                    event.target.value
-                  );
-                  setPage(1);
-                }}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                {SEVERITY_OPTIONS.map(
-                  (option) => (
-                    <option
-                      key={option}
-                      value={
-                        option ===
-                        "All severity"
-                          ? ""
-                          : option
-                      }
-                    >
-                      {option}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Branch
-              </label>
-
-              <select
-                value={branchId}
-                onChange={(event) => {
-                  setBranchId(
-                    event.target.value
-                  );
-                  setPage(1);
-                }}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">
-                  All accessible branches
-                </option>
-
-                {branches.map(
-                  (branch) => (
-                    <option
-                      key={branch._id}
-                      value={branch._id}
-                    >
-                      {branch.name}
-                      {branch.code
-                        ? ` (${branch.code})`
-                        : ""}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ERROR */}
-
-      {error && (
-        <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
-          <AlertTriangle
-            size={20}
-            className="mt-0.5 shrink-0"
-          />
-
-          <div>
-            <p className="font-bold">
-              Audit logs could not be loaded
-            </p>
-
-            <p className="mt-1 text-sm">
-              {error}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* AUDIT TABLE */}
-
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-black text-slate-900">
-                Activity History
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Important actions performed in
-                your MOVA system.
+        {/* Modal Body */}
+        <div className="max-h-[70vh] overflow-y-auto p-5">
+          <div className="space-y-5">
+            {/* Description */}
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Activity
               </p>
-            </div>
 
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-              Page {pagination.page} of{" "}
-              {pagination.pages || 1}
-            </span>
-          </div>
-        </div>
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-800">
+                  {log.action ||
+                    "Activity"}
+                </p>
 
-        {loading ? (
-          <div className="space-y-3 p-5">
-            {[1, 2, 3, 4, 5].map(
-              (item) => (
-                <div
-                  key={item}
-                  className="h-20 animate-pulse rounded-xl bg-slate-100"
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {log.description ||
+                    "No description available."}
+                </p>
+              </div>
+            </section>
+
+            {/* Actor */}
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Performed By
+              </p>
+
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <DetailItem
+                  label="Name"
+                  value={actorName}
                 />
-              )
-            )}
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <Info size={25} />
-            </div>
 
-            <h3 className="mt-4 font-black text-slate-900">
-              No audit activity found
-            </h3>
-
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-              MOVA has not found any activity
-              matching your current filters.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Desktop table */}
-
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="w-full min-w-[900px]">
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-5 py-4 font-bold">
-                      Activity
-                    </th>
-
-                    <th className="px-5 py-4 font-bold">
-                      User
-                    </th>
-
-                    <th className="px-5 py-4 font-bold">
-                      Branch
-                    </th>
-
-                    <th className="px-5 py-4 font-bold">
-                      Severity
-                    </th>
-
-                    <th className="px-5 py-4 font-bold">
-                      Time
-                    </th>
-
-                    <th className="px-5 py-4 text-right font-bold">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {logs.map((log) => {
-                    const styles =
-                      getSeverityClasses(
-                        log.severity
-                      );
-
-                    return (
-                      <tr
-                        key={log._id}
-                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70"
-                      >
-                        <td className="px-5 py-4">
-                          <div className="flex items-start gap-3">
-                            <div
-                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${styles.icon}`}
-                            >
-                              {(() => {
-                                const Icon =
-                                  getEntityIcon(
-                                    log.entity
-                                  );
-
-                                return (
-                                  <Icon
-                                    size={18}
-                                  />
-                                );
-                              })()}
-                            </div>
-
-                            <div className="min-w-0">
-                              <p className="font-bold text-slate-900">
-                                {formatAction(
-                                  log.action
-                                )}
-                              </p>
-
-                              <p className="mt-1 max-w-md truncate text-sm text-slate-500">
-                                {log.description}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <div>
-                            <p className="font-semibold text-slate-800">
-                              {log.actorName ||
-                                log.actorId?.name ||
-                                "System"}
-                            </p>
-
-                            <p className="mt-1 text-xs text-slate-500">
-                              {log.actorRole ||
-                                log.actorId?.role ||
-                                "SYSTEM"}
-                            </p>
-                          </div>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <Building2
-                              size={15}
-                            />
-
-                            {log.branchId?.name ||
-                              "All branches"}
-                          </div>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${styles.badge}`}
-                          >
-                            {log.severity ||
-                              "INFO"}
-                          </span>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <p className="text-sm font-semibold text-slate-700">
-                            {formatRelativeTime(
-                              log.createdAt
-                            )}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-400">
-                            {formatDateTime(
-                              log.createdAt
-                            )}
-                          </p>
-                        </td>
-
-                        <td className="px-5 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedLog(
-                                log
-                              )
-                            }
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-white"
-                          >
-                            <Eye size={15} />
-                            Details
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-
-            <div className="divide-y divide-slate-100 lg:hidden">
-              {logs.map((log) => {
-                const styles =
-                  getSeverityClasses(
-                    log.severity
-                  );
-
-                const Icon =
-                  getEntityIcon(
-                    log.entity
-                  );
-
-                return (
-                  <div
-                    key={log._id}
-                    className="p-4"
-                  >
-                    <div className="flex gap-3">
-                      <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${styles.icon}`}
-                      >
-                        <Icon size={18} />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-bold text-slate-900">
-                              {formatAction(
-                                log.action
-                              )}
-                            </p>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                              {log.description}
-                            </p>
-                          </div>
-
-                          <span
-                            className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold ${styles.badge}`}
-                          >
-                            {log.severity ||
-                              "INFO"}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
-                          <span className="inline-flex items-center gap-1">
-                            <User size={13} />
-
-                            {log.actorName ||
-                              "System"}
-                          </span>
-
-                          <span className="inline-flex items-center gap-1">
-                            <Building2
-                              size={13}
-                            />
-
-                            {log.branchId?.name ||
-                              "All branches"}
-                          </span>
-
-                          <span className="inline-flex items-center gap-1">
-                            <Clock3
-                              size={13}
-                            />
-
-                            {formatRelativeTime(
-                              log.createdAt
-                            )}
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedLog(
-                              log
-                            )
-                          }
-                          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
-                        >
-                          <Eye size={14} />
-                          View details
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        {/* PAGINATION */}
-
-        {!loading &&
-          logs.length > 0 && (
-            <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-slate-500">
-                Showing{" "}
-                <span className="font-bold text-slate-700">
-                  {logs.length}
-                </span>{" "}
-                of{" "}
-                <span className="font-bold text-slate-700">
-                  {pagination.total}
-                </span>{" "}
-                activities
-              </p>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={
-                    pagination.page <= 1
+                <DetailItem
+                  label="Role"
+                  value={
+                    log.actorRole ||
+                    "—"
                   }
-                  onClick={() =>
-                    setPage(
-                      (current) =>
-                        Math.max(
-                          current - 1,
-                          1
-                        )
-                    )
-                  }
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronLeft size={18} />
-                </button>
+                />
 
-                <span className="px-3 text-sm font-bold text-slate-700">
-                  {pagination.page} /{" "}
-                  {pagination.pages ||
-                    1}
-                </span>
-
-                <button
-                  type="button"
-                  disabled={
-                    pagination.page >=
-                    pagination.pages
-                  }
-                  onClick={() =>
-                    setPage(
-                      (current) =>
-                        current + 1
-                    )
-                  }
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            </div>
-          )}
-      </section>
-
-      {/* DETAILS MODAL */}
-
-      {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Audit activity
-                </p>
-
-                <h2 className="mt-1 text-xl font-black text-slate-900">
-                  {formatAction(
-                    selectedLog.action
-                  )}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedLog(null)
-                }
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200"
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            <div className="space-y-5 p-6">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Description
-                </p>
-
-                <p className="mt-2 leading-7 text-slate-700">
-                  {selectedLog.description}
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    User
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-800">
-                    {selectedLog.actorName ||
-                      selectedLog.actorId?.name ||
-                      "System"}
-                  </p>
-
-                  <p className="text-sm text-slate-500">
-                    {selectedLog.actorRole ||
-                      selectedLog.actorId?.role ||
-                      "SYSTEM"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Branch
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-800">
-                    {selectedLog.branchId?.name ||
-                      "All branches"}
-                  </p>
-
-                  {selectedLog.branchId
-                    ?.code && (
-                    <p className="text-sm text-slate-500">
-                      {
-                        selectedLog
-                          .branchId
-                          .code
-                      }
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Entity
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-800">
-                    {selectedLog.entity}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Severity
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-800">
-                    {selectedLog.severity ||
-                      "INFO"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Date & Time
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-800">
-                    {formatDateTime(
-                      selectedLog.createdAt
-                    )}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Entity ID
-                  </p>
-
-                  <p className="mt-1 break-all font-mono text-xs text-slate-600">
-                    {selectedLog.entityId ||
-                      "N/A"}
-                  </p>
-                </div>
-              </div>
-
-              {selectedLog.metadata &&
-                Object.keys(
-                  selectedLog.metadata
-                ).length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                      Additional information
-                    </p>
-
-                    <pre className="mt-2 overflow-x-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-200">
-                      {JSON.stringify(
-                        selectedLog.metadata,
-                        null,
-                        2
-                      )}
-                    </pre>
-                  </div>
+                {actorEmail && (
+                  <DetailItem
+                    label="Email"
+                    value={actorEmail}
+                  />
                 )}
 
-              {(selectedLog.ipAddress ||
-                selectedLog.userAgent) && (
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                    Request information
+                <DetailItem
+                  label="Branch"
+                  value={branchName}
+                />
+              </div>
+            </section>
+
+            {/* Entity */}
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Entity
+              </p>
+
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <DetailItem
+                  label="Entity"
+                  value={entity}
+                />
+
+                <DetailItem
+                  label="Entity ID"
+                  value={
+                    log.entityId
+                      ? String(
+                          log.entityId
+                        )
+                      : "—"
+                  }
+                />
+              </div>
+            </section>
+
+            {/* Technical information */}
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Technical Information
+              </p>
+
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <DetailItem
+                  label="IP Address"
+                  value={
+                    log.ipAddress ||
+                    "—"
+                  }
+                />
+
+                <DetailItem
+                  label="Date"
+                  value={formatDateTime(
+                    log.createdAt
+                  )}
+                />
+              </div>
+
+              {log.userAgent && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-400">
+                    User Agent
                   </p>
 
-                  {selectedLog.ipAddress && (
-                    <p className="mt-2 text-sm text-slate-600">
-                      IP:{" "}
-                      <span className="font-mono">
-                        {
-                          selectedLog.ipAddress
-                        }
-                      </span>
-                    </p>
-                  )}
-
-                  {selectedLog.userAgent && (
-                    <p className="mt-2 break-all text-xs text-slate-500">
-                      {
-                        selectedLog.userAgent
-                      }
-                    </p>
-                  )}
+                  <p className="mt-1 break-all text-xs leading-5 text-slate-600">
+                    {log.userAgent}
+                  </p>
                 </div>
               )}
-            </div>
+            </section>
 
-            <div className="border-t border-slate-100 px-6 py-4 text-right">
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedLog(null)
-                }
-                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800"
-              >
-                Close
-              </button>
-            </div>
+            {/* Metadata */}
+            {log.metadata &&
+              typeof log.metadata ===
+                "object" &&
+              Object.keys(
+                log.metadata
+              ).length > 0 && (
+                <section>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Additional Data
+                  </p>
+
+                  <pre className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+                    {JSON.stringify(
+                      log.metadata,
+                      null,
+                      2
+                    )}
+                  </pre>
+                </section>
+              )}
           </div>
         </div>
-      )}
+
+        {/* Footer */}
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
-};
+}
 
-export default AuditLogs;
+/*
+|--------------------------------------------------------------------------
+| Detail Item
+|--------------------------------------------------------------------------
+*/
+
+function DetailItem({
+  label,
+  value,
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <p className="text-xs font-medium text-slate-400">
+        {label}
+      </p>
+
+      <p className="mt-1 break-words text-sm font-medium text-slate-700">
+        {value || "—"}
+      </p>
+    </div>
+  );
+}
