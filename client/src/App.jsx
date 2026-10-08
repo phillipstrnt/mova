@@ -7,6 +7,8 @@ import {
 import ProtectedRoute from "./components/ProtectedRoute";
 import SetupGuard from "./components/SetupGuard";
 import NetworkStatus from "./components/NetworkStatus";
+import Users from "./pages/users/Users";
+import AuditLogs from "./pages/audit/AuditLogs";
 
 import DashboardLayout from "./layouts/DashboardLayout";
 import AuthLayout from "./layouts/AuthLayout";
@@ -184,12 +186,16 @@ const App = () => {
             element={<Receipts />}
           />
 
+
+          <Route path="/users" element={<Users />} />
           {/* Customers */}
           <Route
             path="customers"
             element={<Customers />}
           />
 
+          {/* Users */} 
+            <Route path="/audit-logs" element={<AuditLogs />} />
           {/* Reports */}
           <Route
             path="reports"

@@ -7,7 +7,9 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 
 import connectDB from "./config/db.js";
-
+import notificationRoutes from "./routes/notification.routes.js";
+import userRoutes from "./routes/user.routes.js";
+import auditRoutes from "./routes/audit.routes.js";
 // ============================================================
 // ROUTES
 // ============================================================
@@ -249,6 +251,8 @@ app.use(
   businessRoutes
 );
 
+
+app.use("/api/audit-logs", auditRoutes);
 // ============================================================
 // BRANCHES
 // ============================================================
@@ -258,6 +262,15 @@ app.use(
   branchRoutes
 );
 
+
+app.use( "/api/notifications", notificationRoutes );
+
+
+
+app.use(
+  "/api/users",
+  userRoutes
+);
 // ============================================================
 // CATEGORIES
 // ============================================================
