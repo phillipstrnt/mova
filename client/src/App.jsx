@@ -6,8 +6,6 @@ import {
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import SetupGuard from "./components/SetupGuard";
-
-import PWAInstallPrompt from "./components/PWAInstallPrompt";
 import NetworkStatus from "./components/NetworkStatus";
 
 import DashboardLayout from "./layouts/DashboardLayout";
@@ -42,10 +40,9 @@ const App = () => {
   return (
     <>
       <Routes>
-
-        {/* =========================
+        {/* ============================================================
             AUTHENTICATION
-        ========================== */}
+        ============================================================ */}
 
         <Route element={<AuthLayout />}>
           <Route
@@ -69,12 +66,9 @@ const App = () => {
           />
         </Route>
 
-
-        {/* =========================
-            SETUP
-            IMPORTANT:
-            SetupGuard is NOT used here.
-        ========================== */}
+        {/* ============================================================
+            BUSINESS SETUP
+        ============================================================ */}
 
         <Route
           path="/setup/business"
@@ -85,6 +79,10 @@ const App = () => {
           }
         />
 
+        {/* ============================================================
+            BRANCH SETUP
+        ============================================================ */}
+
         <Route
           path="/setup/branch"
           element={
@@ -93,6 +91,10 @@ const App = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* ============================================================
+            RECEIPT SETUP
+        ============================================================ */}
 
         <Route
           path="/setup/receipt"
@@ -103,10 +105,9 @@ const App = () => {
           }
         />
 
-
-        {/* =========================
-            APPLICATION
-        ========================== */}
+        {/* ============================================================
+            MAIN APPLICATION
+        ============================================================ */}
 
         <Route
           path="/app"
@@ -118,16 +119,19 @@ const App = () => {
             </ProtectedRoute>
           }
         >
+          {/* Dashboard */}
           <Route
             index
             element={<Dashboard />}
           />
 
+          {/* POS */}
           <Route
             path="pos"
             element={<POS />}
           />
 
+          {/* Products */}
           <Route
             path="products"
             element={<Products />}
@@ -138,61 +142,70 @@ const App = () => {
             element={<Categories />}
           />
 
+          {/* Inventory */}
           <Route
             path="inventory"
             element={<Inventory />}
           />
 
+          {/* Suppliers */}
           <Route
             path="suppliers"
             element={<Suppliers />}
           />
 
+          {/* Purchases */}
           <Route
             path="purchases"
             element={<Purchases />}
           />
 
+          {/* Expenses */}
           <Route
             path="expenses"
             element={<Expenses />}
           />
 
+          {/* Payments */}
           <Route
             path="payments"
             element={<Payments />}
           />
 
+          {/* Sales */}
           <Route
             path="sales"
             element={<Sales />}
           />
 
+          {/* Receipts */}
           <Route
             path="receipts"
             element={<Receipts />}
           />
 
+          {/* Customers */}
           <Route
             path="customers"
             element={<Customers />}
           />
 
+          {/* Reports */}
           <Route
             path="reports"
             element={<Reports />}
           />
 
+          {/* Settings */}
           <Route
             path="settings"
             element={<Settings />}
           />
         </Route>
 
-
-        {/* =========================
+        {/* ============================================================
             DEFAULT ROUTES
-        ========================== */}
+        ============================================================ */}
 
         <Route
           path="/"
@@ -213,10 +226,9 @@ const App = () => {
             />
           }
         />
-
       </Routes>
 
-      <PWAInstallPrompt />
+      {/* Network status remains useful for MOVA. */}
       <NetworkStatus />
     </>
   );

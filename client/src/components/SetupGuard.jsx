@@ -1,72 +1,110 @@
-import { Navigate, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import {
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import api from "../services/api";
 
-const SetupGuard = ({ children }) => {
-  const location = useLocation();
+const SetupGuard = ({
+  children,
+}) => {
+  const location =
+    useLocation();
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
+
   const [setupComplete, setSetupComplete] =
     useState(false);
-  const [nextStep, setNextStep] = useState(null);
-  const [error, setError] = useState("");
+
+  const [nextStep, setNextStep] =
+    useState(null);
+
+  const [error, setError] =
+    useState("");
+
+  // ============================================================
+  // CHECK SETUP STATUS
+  // ============================================================
 
   useEffect(() => {
     let mounted = true;
 
-    const checkSetupStatus = async () => {
-      try {
-        setLoading(true);
-        setError("");
+    const checkSetupStatus =
+      async () => {
+        try {
+          setLoading(true);
+          setError("");
 
-        const response = await api.get(
-          "/business/setup-status"
-        );
+          const response =
+            await api.get(
+              "/business/setup-status"
+            );
 
-        if (!mounted) return;
+          if (!mounted) {
+            return;
+          }
 
-        const data = response?.data;
+          const data =
+            response?.data || {};
 
-        console.log(
-          "MOVA setup status:",
-          data
-        );
+          console.log(
+            "MOVA setup status:",
+            data
+          );
 
-        setSetupComplete(
-          data?.setupComplete === true
-        );
+          const complete =
+            data?.setupComplete ===
+            true;
 
-        setNextStep(
-          data?.nextStep || null
-        );
-      } catch (requestError) {
-        console.error(
-          "Setup status check failed:",
-          requestError
-        );
+          setSetupComplete(
+            complete
+          );
 
-        if (!mounted) return;
+          setNextStep(
+            data?.nextStep ||
+              null
+          );
+        } catch (requestError) {
+          console.error(
+            "Setup status check failed:",
+            requestError
+          );
 
-        setError(
-          requestError?.response?.data
-            ?.message ||
-            "Unable to verify business setup."
-        );
+          if (!mounted) {
+            return;
+          }
 
-        setSetupComplete(false);
+          const message =
+            requestError?.response
+              ?.data?.message ||
+            requestError?.message ||
+            "Unable to verify business setup.";
 
-        /*
-         * If setup status cannot be checked,
-         * send the user to business setup.
-         */
-        setNextStep("business");
-      } finally {
-        if (mounted) {
-          setLoading(false);
+          setError(message);
+
+          setSetupComplete(
+            false
+          );
+
+          /*
+           * If setup status cannot be verified,
+           * safely return the user to business setup.
+           */
+          setNextStep(
+            "business"
+          );
+        } finally {
+          if (mounted) {
+            setLoading(false);
+          }
         }
-      }
-    };
+      };
 
     checkSetupStatus();
 
@@ -74,6 +112,10 @@ const SetupGuard = ({ children }) => {
       mounted = false;
     };
   }, []);
+
+  // ============================================================
+  // LOADING
+  // ============================================================
 
   if (loading) {
     return (
@@ -93,39 +135,50 @@ const SetupGuard = ({ children }) => {
     );
   }
 
-  /*
-   * Setup is complete.
-   *
-   * Allow the dashboard to render.
-   */
+  // ============================================================
+  // SETUP COMPLETE
+  // ============================================================
+
   if (setupComplete) {
     return children;
   }
 
-  /*
-   * Determine which setup page should
-   * be displayed next.
-   */
-  let setupPath = "/setup/business";
+  // ============================================================
+  // DETERMINE NEXT SETUP PAGE
+  // ============================================================
 
-  if (nextStep === "branch") {
-    setupPath = "/setup/branch";
+  let setupPath =
+    "/setup/business";
+
+  if (
+    nextStep === "branch"
+  ) {
+    setupPath =
+      "/setup/branch";
   }
 
-  if (nextStep === "receipt") {
-    setupPath = "/setup/receipt";
+  if (
+    nextStep === "receipt"
+  ) {
+    setupPath =
+      "/setup/receipt";
   }
 
-  /*
-   * Prevent redirect loops.
-   */
-  if (location.pathname !== setupPath) {
+  // ============================================================
+  // REDIRECT TO REQUIRED SETUP
+  // ============================================================
+
+  if (
+    location.pathname !==
+    setupPath
+  ) {
     return (
       <Navigate
         to={setupPath}
         replace
         state={{
-          from: location.pathname,
+          from:
+            location.pathname,
           setupError: error,
         }}
       />
@@ -133,8 +186,9 @@ const SetupGuard = ({ children }) => {
   }
 
   /*
-   * If we're already on the correct setup page,
-   * don't redirect again.
+   * This normally won't be reached through the current
+   * App routing because SetupGuard is only wrapped around
+   * /app. It is kept as a safety mechanism against loops.
    */
   return null;
 };

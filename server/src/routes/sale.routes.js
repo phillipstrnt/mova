@@ -10,16 +10,9 @@ import {
   protect,
 } from "../middleware/authMiddleware.js";
 
-const router =
-  express.Router();
+const router = express.Router();
 
 router.use(protect);
-
-/*
-|--------------------------------------------------------------------------
-| SALES
-|--------------------------------------------------------------------------
-*/
 
 router.get(
   "/",

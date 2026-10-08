@@ -8,126 +8,119 @@ import rateLimit from "express-rate-limit";
 
 import connectDB from "./config/db.js";
 
-// Routes
+// ============================================================
+// ROUTES
+// ============================================================
+
 import authRoutes from "./routes/auth.routes.js";
 import businessRoutes from "./routes/business.routes.js";
+import branchRoutes from "./routes/branch.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import productRoutes from "./routes/product.routes.js";
-import salesRoutes from "./routes/sales.routes.js";
+import saleRoutes from "./routes/sale.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
+import receiptRoutes from "./routes/receipt.routes.js";
+import returnRoutes from "./routes/return.routes.js";
 import inventoryTransactionRoutes from "./routes/inventoryTransaction.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
-import returnRoutes from "./routes/return.routes.js";
-import paymentRoutes from "./routes/payment.routes.js";
+import supplierRoutes from "./routes/supplier.routes.js";
+import purchaseRoutes from "./routes/purchase.routes.js";
+import expenseRoutes from "./routes/expense.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import reportRoutes from "./routes/report.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
+
+// ============================================================
+// APP
+// ============================================================
 
 const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-/*
-|--------------------------------------------------------------------------
-| CORS CONFIGURATION
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// CORS
+// ============================================================
 
-const allowedOrigins = [
+const defaultOrigins = [
   "http://localhost:5173",
   "http://localhost:4173",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:4173",
 ];
 
-/*
-|--------------------------------------------------------------------------
-| Add CLIENT_URL values from .env
-|--------------------------------------------------------------------------
-*/
+const envOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  : [];
 
-if (process.env.CLIENT_URL) {
-  const configuredOrigins = process.env.CLIENT_URL
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+const allowedOrigins = [
+  ...new Set([
+    ...defaultOrigins,
+    ...envOrigins,
+  ]),
+];
 
-  configuredOrigins.forEach((origin) => {
-    if (!allowedOrigins.includes(origin)) {
-      allowedOrigins.push(origin);
-    }
-  });
-}
-
-console.log("");
-console.log("[MOVA CORS] Allowed origins:");
-
-allowedOrigins.forEach((origin) => {
-  console.log(`  - ${origin}`);
-});
-
-console.log("");
-
-/*
-|--------------------------------------------------------------------------
-| CORS
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests without an Origin header.
-      // Useful for Postman, curl and server-to-server requests.
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      console.warn(
-        `[MOVA CORS] Blocked origin: ${origin}`
-      );
-
-      return callback(
-        new Error(
-          `CORS policy blocked origin: ${origin}`
-        )
-      );
-    },
-
-    credentials: true,
-
-    methods: [
-      "GET",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-      "OPTIONS",
-    ],
-
-    allowedHeaders: [
-      "Origin",
-      "X-Requested-With",
-      "Content-Type",
-      "Accept",
-      "Authorization",
-    ],
-
-    exposedHeaders: [
-      "Content-Length",
-    ],
-
-    optionsSuccessStatus: 204,
-  })
+console.log(
+  "[MOVA] Allowed CORS origins:",
+  allowedOrigins
 );
 
-/*
-|--------------------------------------------------------------------------
-| SECURITY
-|--------------------------------------------------------------------------
-*/
+const corsOptions = {
+  origin: (origin, callback) => {
+    /*
+     * Requests without an Origin header are allowed.
+     * This is useful for direct browser requests,
+     * health checks and some development tools.
+     */
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(
+      `[MOVA CORS] Blocked origin: ${origin}`
+    );
+
+    return callback(
+      new Error(
+        `CORS policy: Origin ${origin} is not allowed`
+      )
+    );
+  },
+
+  credentials: true,
+
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ],
+
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+  ],
+
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
+// ============================================================
+// SECURITY
+// ============================================================
 
 app.use(
   helmet({
@@ -137,11 +130,9 @@ app.use(
   })
 );
 
-/*
-|--------------------------------------------------------------------------
-| BODY PARSING
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// BODY PARSING
+// ============================================================
 
 app.use(
   express.json({
@@ -156,59 +147,56 @@ app.use(
   })
 );
 
+// ============================================================
+// COOKIES
+// ============================================================
+
 app.use(cookieParser());
 
-/*
-|--------------------------------------------------------------------------
-| API RATE LIMIT
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// RATE LIMITING
+// ============================================================
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-
   max: 1000,
 
   standardHeaders: true,
-
   legacyHeaders: false,
 
   message: {
     success: false,
     message:
-      "Too many requests from this IP. Please try again later.",
+      "Too many requests. Please try again later.",
   },
 });
 
 app.use("/api", apiLimiter);
 
-/*
-|--------------------------------------------------------------------------
-| MOVA REQUEST LOGGER
-|--------------------------------------------------------------------------
-|
-| We use our own logger instead of morgan so you don't need
-| another npm package.
-|
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// REQUEST LOGGER
+// ============================================================
 
 app.use((req, res, next) => {
-  console.log(
-    `[MOVA API] ${req.method} ${req.originalUrl}`
-  );
+  const start = Date.now();
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+
+    console.log(
+      `[MOVA API] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`
+    );
+  });
 
   next();
 });
 
-/*
-|--------------------------------------------------------------------------
-| ROOT
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// ROOT
+// ============================================================
 
 app.get("/", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     message: "MOVA API is running 🚀",
     version: "0.1.0",
@@ -217,15 +205,14 @@ app.get("/", (req, res) => {
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| HEALTH CHECK
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// HEALTH CHECK
+// ============================================================
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
+    status: "healthy",
     message: "MOVA API is healthy 🚀",
     timestamp: new Date().toISOString(),
     environment:
@@ -233,171 +220,320 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| CORS / CONNECTION TEST
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// API TEST
+// ============================================================
 
 app.get("/api/test", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "MOVA API connection successful.",
-    origin: req.headers.origin || null,
+    message: "MOVA API test successful",
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| API ROUTES
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// AUTHENTICATION
+// ============================================================
 
-app.use("/api/auth", authRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
-app.use("/api/business", businessRoutes);
+// ============================================================
+// BUSINESS
+// ============================================================
 
-app.use("/api/categories", categoryRoutes);
+app.use(
+  "/api/business",
+  businessRoutes
+);
 
-app.use("/api/products", productRoutes);
+// ============================================================
+// BRANCHES
+// ============================================================
 
-app.use("/api/sales", salesRoutes);
+app.use(
+  "/api/branches",
+  branchRoutes
+);
+
+// ============================================================
+// CATEGORIES
+// ============================================================
+
+app.use(
+  "/api/categories",
+  categoryRoutes
+);
+
+// ============================================================
+// PRODUCTS
+// ============================================================
+
+app.use(
+  "/api/products",
+  productRoutes
+);
+
+// ============================================================
+// SALES
+// ============================================================
+
+app.use(
+  "/api/sales",
+  saleRoutes
+);
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+app.use(
+  "/api/payments",
+  paymentRoutes
+);
+
+// ============================================================
+// RECEIPTS
+// ============================================================
+
+app.use(
+  "/api/receipts",
+  receiptRoutes
+);
+
+// ============================================================
+// RETURNS
+// ============================================================
+
+app.use(
+  "/api/returns",
+  returnRoutes
+);
+
+// ============================================================
+// INVENTORY TRANSACTIONS
+// ============================================================
 
 app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
 
-app.use("/api/customers", customerRoutes);
+// ============================================================
+// CUSTOMERS
+// ============================================================
 
-app.use("/api/returns", returnRoutes);
+app.use(
+  "/api/customers",
+  customerRoutes
+);
 
-app.use("/api/payments", paymentRoutes);
+// ============================================================
+// SUPPLIERS
+// ============================================================
 
-app.use("/api/dashboard", dashboardRoutes);
+app.use(
+  "/api/suppliers",
+  supplierRoutes
+);
 
-app.use("/api/reports", reportRoutes);
+// ============================================================
+// PURCHASES
+// ============================================================
 
-/*
-|--------------------------------------------------------------------------
-| 404 HANDLER
-|--------------------------------------------------------------------------
-*/
+app.use(
+  "/api/purchases",
+  purchaseRoutes
+);
+
+// ============================================================
+// EXPENSES
+// ============================================================
+
+app.use(
+  "/api/expenses",
+  expenseRoutes
+);
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+
+app.use(
+  "/api/dashboard",
+  dashboardRoutes
+);
+
+// ============================================================
+// REPORTS
+// ============================================================
+
+app.use(
+  "/api/reports",
+  reportsRoutes
+);
+
+// Legacy/singular report endpoint
+app.use(
+  "/api/report",
+  reportRoutes
+);
+
+// ============================================================
+// 404 HANDLER
+// ============================================================
 
 app.use((req, res) => {
-  console.warn(
-    `[MOVA API] Route not found: ${req.method} ${req.originalUrl}`
-  );
-
   res.status(404).json({
     success: false,
-    message: "API route not found.",
-    path: req.originalUrl,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| GLOBAL ERROR HANDLER
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// GLOBAL ERROR HANDLER
+// ============================================================
 
-app.use((error, req, res, next) => {
+app.use((err, req, res, next) => {
   console.error(
-    "[MOVA API ERROR]",
-    error
+    "[MOVA ERROR]",
+    err
   );
 
-  /*
-  |--------------------------------------------------------------------------
-  | CORS ERROR
-  |--------------------------------------------------------------------------
-  */
+  // ----------------------------------------
+  // CORS ERROR
+  // ----------------------------------------
 
   if (
-    error.message &&
-    error.message.startsWith(
-      "CORS policy blocked"
-    )
+    err.message &&
+    err.message.startsWith("CORS policy:")
   ) {
     return res.status(403).json({
       success: false,
-      message:
-        "CORS policy blocked this request.",
-      error: error.message,
+      message: err.message,
     });
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | INVALID JSON
-  |--------------------------------------------------------------------------
-  */
+  // ----------------------------------------
+  // INVALID JSON
+  // ----------------------------------------
 
   if (
-    error instanceof SyntaxError &&
-    error.status === 400 &&
-    error.type === "entity.parse.failed"
+    err instanceof SyntaxError &&
+    err.status === 400 &&
+    "body" in err
   ) {
     return res.status(400).json({
       success: false,
-      message: "Invalid JSON request.",
+      message: "Invalid JSON request body.",
     });
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | GENERAL ERROR
-  |--------------------------------------------------------------------------
-  */
+  // ----------------------------------------
+  // MONGOOSE VALIDATION ERROR
+  // ----------------------------------------
 
-  return res.status(
-    error.status || 500
-  ).json({
+  if (err.name === "ValidationError") {
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed.",
+      errors: Object.values(
+        err.errors
+      ).map(
+        (error) => error.message
+      ),
+    });
+  }
+
+  // ----------------------------------------
+  // DUPLICATE KEY ERROR
+  // ----------------------------------------
+
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message:
+        "A record with the same unique value already exists.",
+      fields: err.keyValue || {},
+    });
+  }
+
+  // ----------------------------------------
+  // JWT ERROR
+  // ----------------------------------------
+
+  if (
+    err.name ===
+    "JsonWebTokenError"
+  ) {
+    return res.status(401).json({
+      success: false,
+      message:
+        "Invalid authentication token.",
+    });
+  }
+
+  if (
+    err.name ===
+    "TokenExpiredError"
+  ) {
+    return res.status(401).json({
+      success: false,
+      message:
+        "Authentication token has expired.",
+    });
+  }
+
+  // ----------------------------------------
+  // DEFAULT ERROR
+  // ----------------------------------------
+
+  const statusCode =
+    err.statusCode ||
+    err.status ||
+    500;
+
+  return res.status(statusCode).json({
     success: false,
     message:
-      error.message ||
+      err.message ||
       "Internal server error.",
-    ...(process.env.NODE_ENV !== "production"
-      ? {
-          stack: error.stack,
-        }
-      : {}),
+
+    ...(process.env.NODE_ENV ===
+      "development" && {
+      stack: err.stack,
+    }),
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| START SERVER
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// START SERVER
+// ============================================================
 
 const startServer = async () => {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | Connect MongoDB
-    |--------------------------------------------------------------------------
-    */
+    console.log(
+      "[MOVA] Connecting to MongoDB..."
+    );
 
     await connectDB();
 
-    /*
-    |--------------------------------------------------------------------------
-    | Start Express
-    |--------------------------------------------------------------------------
-    */
+    console.log(
+      "[MOVA] MongoDB connected successfully."
+    );
 
     app.listen(PORT, () => {
       console.log("");
       console.log(
-        "======================================="
+        "================================================"
       );
       console.log(
-        "          MOVA API SERVER"
+        "              MOVA API SERVER"
       );
       console.log(
-        "======================================="
+        "================================================"
       );
 
       console.log(
@@ -409,15 +545,25 @@ const startServer = async () => {
       );
 
       console.log(
-        `🧪 Test:   http://localhost:${PORT}/api/test`
+        `🧪 Test: http://localhost:${PORT}/api/test`
       );
 
       console.log(
-        "🗄️  Database: Connected"
+        `🌐 Client: ${
+          process.env.CLIENT_URL ||
+          "http://localhost:5173"
+        }`
       );
 
       console.log(
-        "======================================="
+        `📦 Environment: ${
+          process.env.NODE_ENV ||
+          "development"
+        }`
+      );
+
+      console.log(
+        "================================================"
       );
 
       console.log("");
@@ -425,19 +571,21 @@ const startServer = async () => {
   } catch (error) {
     console.error("");
     console.error(
-      "======================================="
+      "================================================"
     );
+
     console.error(
-      "       MOVA SERVER STARTUP ERROR"
+      "       MOVA SERVER STARTUP FAILED"
     );
+
     console.error(
-      "======================================="
+      "================================================"
     );
 
     console.error(error);
 
     console.error(
-      "======================================="
+      "================================================"
     );
 
     console.error("");

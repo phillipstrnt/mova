@@ -1,78 +1,34 @@
 import {
   createContext,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 
 import api from "../services/api";
+import { useAuth } from "./AuthContext";
 
-const BusinessContext = createContext(null);
+const BusinessContext =
+  createContext(null);
 
-export const BusinessProvider = ({ children }) => {
-  const [business, setBusinessState] =
-    useState(() => {
-      try {
-        const stored =
-          localStorage.getItem(
-            "mova_business"
-          );
+export const BusinessProvider = ({
+  children,
+}) => {
+  /*
+   * AuthContext is the single source of truth
+   * for the authenticated business and branches.
+   */
+  const {
+    business,
+    branch,
+    branches,
 
-        return stored
-          ? JSON.parse(stored)
-          : null;
-      } catch (error) {
-        console.error(
-          "Unable to restore MOVA business:",
-          error
-        );
+    setBusiness,
+    setBranch,
+    setBranches,
 
-        return null;
-      }
-    });
-
-  const [branches, setBranchesState] =
-    useState(() => {
-      try {
-        const stored =
-          localStorage.getItem(
-            "mova_branches"
-          );
-
-        return stored
-          ? JSON.parse(stored)
-          : [];
-      } catch (error) {
-        console.error(
-          "Unable to restore MOVA branches:",
-          error
-        );
-
-        return [];
-      }
-    });
-
-  const [branch, setBranchState] =
-    useState(() => {
-      try {
-        const stored =
-          localStorage.getItem(
-            "mova_branch"
-          );
-
-        return stored
-          ? JSON.parse(stored)
-          : null;
-      } catch (error) {
-        console.error(
-          "Unable to restore MOVA active branch:",
-          error
-        );
-
-        return null;
-      }
-    });
+    user,
+  } = useAuth();
 
   const [loading, setLoading] =
     useState(false);
@@ -80,73 +36,9 @@ export const BusinessProvider = ({ children }) => {
   const [error, setError] =
     useState("");
 
-  /*
-  |--------------------------------------------------------------------------
-  | SAVE BUSINESS
-  |--------------------------------------------------------------------------
-  */
-
-  const setBusiness = (value) => {
-    setBusinessState(value);
-
-    if (value) {
-      localStorage.setItem(
-        "mova_business",
-        JSON.stringify(value)
-      );
-    } else {
-      localStorage.removeItem(
-        "mova_business"
-      );
-    }
-  };
-
-  /*
-  |--------------------------------------------------------------------------
-  | SAVE BRANCHES
-  |--------------------------------------------------------------------------
-  */
-
-  const setBranches = (value) => {
-    const nextBranches =
-      Array.isArray(value)
-        ? value
-        : [];
-
-    setBranchesState(nextBranches);
-
-    localStorage.setItem(
-      "mova_branches",
-      JSON.stringify(nextBranches)
-    );
-  };
-
-  /*
-  |--------------------------------------------------------------------------
-  | SAVE ACTIVE BRANCH
-  |--------------------------------------------------------------------------
-  */
-
-  const setBranch = (value) => {
-    setBranchState(value);
-
-    if (value) {
-      localStorage.setItem(
-        "mova_branch",
-        JSON.stringify(value)
-      );
-    } else {
-      localStorage.removeItem(
-        "mova_branch"
-      );
-    }
-  };
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD BUSINESS
-  |--------------------------------------------------------------------------
-  */
+  // ============================================================
+  // LOAD BUSINESS
+  // ============================================================
 
   const loadBusiness = async () => {
     try {
@@ -159,11 +51,19 @@ export const BusinessProvider = ({ children }) => {
         );
 
       const loadedBusiness =
-        response?.data?.business;
+        response?.data?.business ||
+        null;
 
       if (loadedBusiness) {
         setBusiness(
           loadedBusiness
+        );
+
+        localStorage.setItem(
+          "mova_business",
+          JSON.stringify(
+            loadedBusiness
+          )
         );
       }
 
@@ -187,11 +87,9 @@ export const BusinessProvider = ({ children }) => {
     }
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD BRANCHES
-  |--------------------------------------------------------------------------
-  */
+  // ============================================================
+  // LOAD BRANCHES
+  // ============================================================
 
   const loadBranches = async () => {
     try {
@@ -199,42 +97,59 @@ export const BusinessProvider = ({ children }) => {
       setError("");
 
       const response =
-        await api.get("/branches");
+        await api.get(
+          "/branches"
+        );
 
       const loadedBranches =
-        response?.data?.branches || [];
+        Array.isArray(
+          response?.data?.branches
+        )
+          ? response.data.branches
+          : [];
 
       setBranches(
         loadedBranches
       );
 
       /*
-       * If there is no active branch,
-       * use the first available branch.
+       * Keep the current branch if it still exists.
        */
-      if (
-        loadedBranches.length > 0 &&
-        !branch
+      const currentBranchId =
+        branch?._id ||
+        branch?.id ||
+        null;
+
+      const matchingBranch =
+        currentBranchId
+          ? loadedBranches.find(
+              (item) =>
+                item?._id ===
+                  currentBranchId ||
+                item?.id ===
+                  currentBranchId
+            )
+          : null;
+
+      /*
+       * If the current branch is still valid,
+       * refresh it with the server version.
+       */
+      if (matchingBranch) {
+        setBranch(
+          matchingBranch
+        );
+      } else if (
+        loadedBranches.length > 0
       ) {
+        /*
+         * Otherwise select the first available branch.
+         */
         setBranch(
           loadedBranches[0]
         );
-      }
-
-      /*
-       * If the current branch no longer
-       * exists, select the first valid branch.
-       */
-      if (
-        branch?._id &&
-        !loadedBranches.some(
-          (item) =>
-            item._id === branch._id
-        )
-      ) {
-        setBranch(
-          loadedBranches[0] || null
-        );
+      } else {
+        setBranch(null);
       }
 
       return loadedBranches;
@@ -257,11 +172,9 @@ export const BusinessProvider = ({ children }) => {
     }
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | SWITCH BRANCH
-  |--------------------------------------------------------------------------
-  */
+  // ============================================================
+  // SWITCH BRANCH
+  // ============================================================
 
   const switchBranch = async (
     branchId
@@ -275,30 +188,28 @@ export const BusinessProvider = ({ children }) => {
     const selectedBranch =
       branches.find(
         (item) =>
-          item._id === branchId
+          item?._id === branchId ||
+          item?.id === branchId
       );
 
-    /*
-     * If the branch is already available
-     * locally, update the UI immediately.
-     */
-    if (selectedBranch) {
-      setBranch(
-        selectedBranch
+    if (!selectedBranch) {
+      throw new Error(
+        "Selected branch was not found."
       );
     }
+
+    /*
+     * Select immediately so the UI changes
+     * without waiting for the server.
+     */
+    setBranch(
+      selectedBranch
+    );
 
     try {
       setLoading(true);
       setError("");
 
-      /*
-       * Notify the backend about the active branch.
-       *
-       * If your backend already has this endpoint,
-       * it will update the authenticated user's
-       * active branch.
-       */
       const response =
         await api.patch(
           "/branches/switch",
@@ -314,59 +225,44 @@ export const BusinessProvider = ({ children }) => {
         setBranch(
           serverBranch
         );
-      } else if (selectedBranch) {
-        setBranch(
-          selectedBranch
-        );
+
+        return serverBranch;
       }
 
-      return (
-        serverBranch ||
-        selectedBranch ||
-        null
-      );
+      return selectedBranch;
     } catch (requestError) {
-      console.error(
-        "Branch switch request failed:",
+      console.warn(
+        "Backend branch switch failed. Keeping selected branch locally.",
         requestError
       );
 
       /*
-       * Keep the local branch selected if
-       * the server endpoint isn't available yet.
-       *
-       * This makes the UI usable while we
-       * finish the backend branch switching.
+       * Do not undo the user's branch selection.
        */
-      if (selectedBranch) {
-        setBranch(
-          selectedBranch
-        );
-      }
+      setBranch(
+        selectedBranch
+      );
 
-      const message =
-        requestError?.response?.data
-          ?.message ||
-        "Unable to switch branch.";
+      /*
+       * We don't throw here because branch switching
+       * should not crash the dashboard when the backend
+       * endpoint is unavailable.
+       */
 
-      setError(message);
-
-      throw requestError;
+      return selectedBranch;
     } finally {
       setLoading(false);
     }
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | CLEAR BUSINESS CONTEXT
-  |--------------------------------------------------------------------------
-  */
+  // ============================================================
+  // CLEAR BUSINESS CONTEXT
+  // ============================================================
 
   const clearBusinessContext = () => {
-    setBusinessState(null);
-    setBranchesState([]);
-    setBranchState(null);
+    setBusiness(null);
+    setBranches([]);
+    setBranch(null);
 
     localStorage.removeItem(
       "mova_business"
@@ -381,17 +277,17 @@ export const BusinessProvider = ({ children }) => {
     );
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | VALUE
-  |--------------------------------------------------------------------------
-  */
+  // ============================================================
+  // CONTEXT VALUE
+  // ============================================================
 
   const value = useMemo(
     () => ({
       business,
       branch,
       branches,
+
+      user,
 
       loading,
       error,
@@ -411,6 +307,7 @@ export const BusinessProvider = ({ children }) => {
       business,
       branch,
       branches,
+      user,
       loading,
       error,
     ]
@@ -424,6 +321,10 @@ export const BusinessProvider = ({ children }) => {
     </BusinessContext.Provider>
   );
 };
+
+// ============================================================
+// useBusiness
+// ============================================================
 
 export const useBusiness = () => {
   const context =

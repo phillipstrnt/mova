@@ -16,9 +16,10 @@ export const AuthProvider = ({ children }) => {
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // --------------------------------------------------
+  // ============================================================
   // SAVE SESSION
-  // --------------------------------------------------
+  // ============================================================
+
   const saveSession = ({
     token,
     user: userData,
@@ -27,7 +28,10 @@ export const AuthProvider = ({ children }) => {
     branches: branchList = [],
   }) => {
     if (token) {
-      localStorage.setItem("mova_token", token);
+      localStorage.setItem(
+        "mova_token",
+        token
+      );
     }
 
     if (userData) {
@@ -58,7 +62,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     const safeBranches =
-      Array.isArray(branchList) && branchList.length > 0
+      Array.isArray(branchList) &&
+      branchList.length > 0
         ? branchList
         : branchData
         ? [branchData]
@@ -72,15 +77,30 @@ export const AuthProvider = ({ children }) => {
     setBranches(safeBranches);
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // CLEAR SESSION
-  // --------------------------------------------------
+  // ============================================================
+
   const clearSession = () => {
-    localStorage.removeItem("mova_token");
-    localStorage.removeItem("mova_user");
-    localStorage.removeItem("mova_business");
-    localStorage.removeItem("mova_branch");
-    localStorage.removeItem("mova_branches");
+    localStorage.removeItem(
+      "mova_token"
+    );
+
+    localStorage.removeItem(
+      "mova_user"
+    );
+
+    localStorage.removeItem(
+      "mova_business"
+    );
+
+    localStorage.removeItem(
+      "mova_branch"
+    );
+
+    localStorage.removeItem(
+      "mova_branches"
+    );
 
     setUser(null);
     setBusiness(null);
@@ -88,74 +108,135 @@ export const AuthProvider = ({ children }) => {
     setBranches([]);
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // RESTORE SESSION
-  // --------------------------------------------------
-  useEffect(() => {
-    const restoreSession = async () => {
-      const token = localStorage.getItem("mova_token");
+  // ============================================================
 
+  useEffect(() => {
+    let mounted = true;
+
+    const restoreSession = async () => {
+      const token =
+        localStorage.getItem(
+          "mova_token"
+        );
+
+      // No authenticated session.
       if (!token) {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
+
         return;
       }
 
       /*
-       * Load local session first.
+       * ----------------------------------------------------------
+       * RESTORE LOCAL SESSION FIRST
+       * ----------------------------------------------------------
        *
-       * This is important for the future MOVA PWA/offline
-       * architecture because the application should still
-       * know the current user, business and branch when
-       * the internet is temporarily unavailable.
+       * This keeps the UI aware of the last authenticated
+       * session even if the API is temporarily unavailable.
        */
+
       try {
         const storedUser =
-          localStorage.getItem("mova_user");
+          localStorage.getItem(
+            "mova_user"
+          );
 
         const storedBusiness =
-          localStorage.getItem("mova_business");
+          localStorage.getItem(
+            "mova_business"
+          );
 
         const storedBranch =
-          localStorage.getItem("mova_branch");
+          localStorage.getItem(
+            "mova_branch"
+          );
 
         const storedBranches =
-          localStorage.getItem("mova_branches");
+          localStorage.getItem(
+            "mova_branches"
+          );
 
         if (storedUser) {
-          setUser(JSON.parse(storedUser));
+          const parsedUser =
+            JSON.parse(storedUser);
+
+          if (mounted) {
+            setUser(parsedUser);
+          }
         }
 
         if (storedBusiness) {
-          setBusiness(JSON.parse(storedBusiness));
+          const parsedBusiness =
+            JSON.parse(
+              storedBusiness
+            );
+
+          if (mounted) {
+            setBusiness(
+              parsedBusiness
+            );
+          }
         }
 
         if (storedBranch) {
-          setBranch(JSON.parse(storedBranch));
+          const parsedBranch =
+            JSON.parse(
+              storedBranch
+            );
+
+          if (mounted) {
+            setBranch(
+              parsedBranch
+            );
+          }
         }
 
         if (storedBranches) {
           const parsedBranches =
-            JSON.parse(storedBranches);
+            JSON.parse(
+              storedBranches
+            );
 
-          if (Array.isArray(parsedBranches)) {
-            setBranches(parsedBranches);
+          if (
+            mounted &&
+            Array.isArray(
+              parsedBranches
+            )
+          ) {
+            setBranches(
+              parsedBranches
+            );
           }
         }
       } catch (error) {
         console.error(
-          "Failed to restore local session:",
+          "Failed to restore local MOVA session:",
           error
         );
       }
 
       /*
-       * Verify session with backend when the server
-       * is available.
+       * ----------------------------------------------------------
+       * VERIFY SESSION WITH BACKEND
+       * ----------------------------------------------------------
        */
-      try {
-        const response = await api.get("/auth/me");
 
-        const data = response.data;
+      try {
+        const response =
+          await api.get(
+            "/auth/me"
+          );
+
+        if (!mounted) {
+          return;
+        }
+
+        const data =
+          response?.data || {};
 
         const userData =
           data?.user || null;
@@ -167,73 +248,108 @@ export const AuthProvider = ({ children }) => {
           data?.branch || null;
 
         const branchList =
-          Array.isArray(data?.branches) &&
-          data.branches.length > 0
+          Array.isArray(
+            data?.branches
+          )
             ? data.branches
             : branchData
             ? [branchData]
             : [];
 
         setUser(userData);
-        setBusiness(businessData);
+        setBusiness(
+          businessData
+        );
         setBranch(branchData);
-        setBranches(branchList);
+        setBranches(
+          branchList
+        );
+
+        /*
+         * Persist the server-confirmed session.
+         */
 
         if (userData) {
           localStorage.setItem(
             "mova_user",
-            JSON.stringify(userData)
+            JSON.stringify(
+              userData
+            )
           );
         }
 
         if (businessData) {
           localStorage.setItem(
             "mova_business",
-            JSON.stringify(businessData)
+            JSON.stringify(
+              businessData
+            )
+          );
+        } else {
+          localStorage.removeItem(
+            "mova_business"
           );
         }
 
         if (branchData) {
           localStorage.setItem(
             "mova_branch",
-            JSON.stringify(branchData)
+            JSON.stringify(
+              branchData
+            )
+          );
+        } else {
+          localStorage.removeItem(
+            "mova_branch"
           );
         }
 
         localStorage.setItem(
           "mova_branches",
-          JSON.stringify(branchList)
+          JSON.stringify(
+            branchList
+          )
         );
       } catch (error) {
         /*
-         * Do NOT delete the local session here.
+         * Do NOT immediately delete the session.
          *
-         * This is intentional because MOVA will eventually
-         * support offline/PWA operation and synchronization.
+         * The user may temporarily be offline.
          */
         console.warn(
-          "Could not verify session with server. Keeping local session.",
+          "Could not verify MOVA session with server. Keeping local session.",
           error?.message
         );
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     restoreSession();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // --------------------------------------------------
+  // ============================================================
   // REGISTER BUSINESS
-  // --------------------------------------------------
-  const register = async (registrationData) => {
-    try {
-      const response = await api.post(
-        "/auth/register",
-        registrationData
-      );
+  // ============================================================
 
-      const data = response.data;
+  const register = async (
+    registrationData
+  ) => {
+    try {
+      const response =
+        await api.post(
+          "/auth/register",
+          registrationData
+        );
+
+      const data =
+        response?.data || {};
 
       if (!data?.token) {
         throw new Error(
@@ -251,7 +367,9 @@ export const AuthProvider = ({ children }) => {
         data?.branch || null;
 
       const branchList =
-        Array.isArray(data?.branches) &&
+        Array.isArray(
+          data?.branches
+        ) &&
         data.branches.length > 0
           ? data.branches
           : branchData
@@ -274,28 +392,37 @@ export const AuthProvider = ({ children }) => {
       );
 
       const message =
-        error?.response?.data?.message ||
+        error?.response?.data
+          ?.message ||
         error?.message ||
         "Unable to create your business account.";
 
-      throw new Error(message);
+      throw new Error(
+        message
+      );
     }
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // LOGIN
-  // --------------------------------------------------
-  const login = async (email, password) => {
-    try {
-      const response = await api.post(
-        "/auth/login",
-        {
-          email,
-          password,
-        }
-      );
+  // ============================================================
 
-      const data = response.data;
+  const login = async (
+    email,
+    password
+  ) => {
+    try {
+      const response =
+        await api.post(
+          "/auth/login",
+          {
+            email,
+            password,
+          }
+        );
+
+      const data =
+        response?.data || {};
 
       if (!data?.token) {
         throw new Error(
@@ -313,7 +440,9 @@ export const AuthProvider = ({ children }) => {
         data?.branch || null;
 
       const branchList =
-        Array.isArray(data?.branches) &&
+        Array.isArray(
+          data?.branches
+        ) &&
         data.branches.length > 0
           ? data.branches
           : branchData
@@ -336,23 +465,35 @@ export const AuthProvider = ({ children }) => {
       );
 
       const message =
-        error?.response?.data?.message ||
+        error?.response?.data
+          ?.message ||
         error?.message ||
         "Unable to login.";
 
-      throw new Error(message);
+      throw new Error(
+        message
+      );
     }
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // SWITCH BRANCH
-  // --------------------------------------------------
-  const switchBranch = (branchId) => {
+  // ============================================================
+
+  const switchBranch = async (
+    branchId
+  ) => {
+    if (!branchId) {
+      throw new Error(
+        "A branch ID is required."
+      );
+    }
+
     const selectedBranch =
       branches.find(
         (item) =>
-          item._id === branchId ||
-          item.id === branchId
+          item?._id === branchId ||
+          item?.id === branchId
       );
 
     if (!selectedBranch) {
@@ -361,56 +502,109 @@ export const AuthProvider = ({ children }) => {
       );
     }
 
-    setBranch(selectedBranch);
+    /*
+     * Update the UI immediately.
+     */
+
+    setBranch(
+      selectedBranch
+    );
 
     localStorage.setItem(
       "mova_branch",
-      JSON.stringify(selectedBranch)
+      JSON.stringify(
+        selectedBranch
+      )
     );
+
+    /*
+     * Tell the backend about the active branch
+     * if the endpoint exists.
+     *
+     * We intentionally do not make a failed branch
+     * switch destroy the local session.
+     */
+
+    try {
+      const response =
+        await api.patch(
+          "/branches/switch",
+          {
+            branchId,
+          }
+        );
+
+      const serverBranch =
+        response?.data?.branch;
+
+      if (serverBranch) {
+        setBranch(
+          serverBranch
+        );
+
+        localStorage.setItem(
+          "mova_branch",
+          JSON.stringify(
+            serverBranch
+          )
+        );
+
+        return serverBranch;
+      }
+    } catch (error) {
+      console.warn(
+        "Backend branch switch was not completed. Keeping selected branch locally.",
+        error?.response?.data
+          ?.message ||
+          error?.message
+      );
+    }
 
     return selectedBranch;
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // LOGOUT
-  // --------------------------------------------------
+  // ============================================================
+
   const logout = () => {
     clearSession();
   };
 
-  // --------------------------------------------------
+  // ============================================================
   // AUTH STATUS
-  // --------------------------------------------------
+  // ============================================================
+
   const isAuthenticated =
     Boolean(user);
 
-  // --------------------------------------------------
-  // CONTEXT VALUE
-  // --------------------------------------------------
+  // ============================================================
+  // CONTEXT
+  // ============================================================
+
   return (
     <AuthContext.Provider
       value={{
-        // Current session data
         user,
         business,
         branch,
         branches,
+
         loading,
         isAuthenticated,
 
-        // State setters
-        // These are required by onboarding and
-        // multi-business / multi-branch features.
         setUser,
         setBusiness,
         setBranch,
         setBranches,
 
-        // Authentication actions
         register,
         login,
         switchBranch,
         logout,
+
+        saveSession,
+        clearSession,
       }}
     >
       {children}
@@ -418,16 +612,19 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// --------------------------------------------------
-// useAuth HOOK
-// --------------------------------------------------
+// ============================================================
+// useAuth
+// ============================================================
+
 export const useAuth = () => {
   const context =
-    useContext(AuthContext);
+    useContext(
+      AuthContext
+    );
 
   if (!context) {
     throw new Error(
-      "useAuth must be used inside an AuthProvider."
+      "useAuth must be used inside AuthProvider."
     );
   }
 
