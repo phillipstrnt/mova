@@ -31,7 +31,6 @@ import { useAuth } from "../../context/AuthContext";
 import { useBusiness } from "../../context/BusinessContext";
 
 import {
-  canInstallPWA,
   installPWA,
   isPWAInstalled,
   subscribeToPWAInstallState,
@@ -65,11 +64,8 @@ const Dashboard = () => {
      PWA STATE
   ========================================================= */
 
-  const [canInstall, setCanInstall] =
-    useState(canInstallPWA());
-
   const [installed, setInstalled] =
-    useState(isPWAInstalled());
+    useState(() => isPWAInstalled());
 
   const [installing, setInstalling] =
     useState(false);
@@ -78,20 +74,22 @@ const Dashboard = () => {
     useState(false);
 
   /* =========================================================
-     PWA INSTALL STATE LISTENER
+     PWA INSTALL STATE
+     
+     IMPORTANT:
+     We deliberately DO NOT use canInstallPWA()
+     to disable the button.
   ========================================================= */
 
   useEffect(() => {
     const unsubscribe =
       subscribeToPWAInstallState(
         ({
-          canInstall: available,
-          isInstalled: installedState,
+          isInstalled,
         }) => {
-          setCanInstall(available);
-          setInstalled(installedState);
+          setInstalled(isInstalled);
 
-          if (installedState) {
+          if (isInstalled) {
             setShowInstallHelp(false);
           }
         }
@@ -107,7 +105,6 @@ const Dashboard = () => {
   useEffect(() => {
     const handleInstalled = () => {
       setInstalled(true);
-      setCanInstall(false);
       setInstalling(false);
       setShowInstallHelp(false);
     };
@@ -130,36 +127,45 @@ const Dashboard = () => {
   ========================================================= */
 
   const handleInstallMova = async () => {
-    if (installing || installed) {
+    if (installing) {
+      return;
+    }
+
+    /*
+     * If MOVA is already installed, don't attempt
+     * another installation.
+     */
+    if (isPWAInstalled()) {
+      setInstalled(true);
       return;
     }
 
     setInstalling(true);
+    setShowInstallHelp(false);
 
     try {
       const result = await installPWA();
 
-      /*
-       * Native browser installation was available.
-       */
-      if (result.success) {
-        setInstalled(true);
-        setCanInstall(false);
-        setShowInstallHelp(false);
+      console.log(
+        "MOVA installation result:",
+        result
+      );
 
+      /*
+       * Native browser installation succeeded.
+       */
+      if (result?.success) {
+        setInstalled(true);
+        setShowInstallHelp(false);
         return;
       }
 
       /*
-       * Browser did not provide a native installation
-       * prompt, so show the manual instructions.
+       * No native browser prompt was available.
+       *
+       * Show manual installation instructions.
        */
-      if (
-        result.outcome === "manual" ||
-        result.outcome === "unavailable"
-      ) {
-        setShowInstallHelp(true);
-      }
+      setShowInstallHelp(true);
     } catch (installError) {
       console.error(
         "MOVA PWA installation failed:",
@@ -189,20 +195,22 @@ const Dashboard = () => {
 
         setError("");
 
-        const params = {};
+        const params = {
+          _t: Date.now(),
+        };
 
         if (activeBranchId) {
-          params.branchId = activeBranchId;
+          params.branchId =
+            activeBranchId;
         }
 
-        params._t = Date.now();
-
-        const response = await api.get(
-          "/dashboard/overview",
-          {
-            params,
-          }
-        );
+        const response =
+          await api.get(
+            "/dashboard/overview",
+            {
+              params,
+            }
+          );
 
         const data =
           response?.data?.data ??
@@ -221,7 +229,8 @@ const Dashboard = () => {
         );
 
         const message =
-          requestError?.response?.data?.message ||
+          requestError?.response?.data
+            ?.message ||
           requestError?.message ||
           "Unable to load dashboard data.";
 
@@ -247,11 +256,12 @@ const Dashboard = () => {
   ========================================================= */
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadDashboard({
-        silent: true,
-      });
-    }, 10000);
+    const interval =
+      setInterval(() => {
+        loadDashboard({
+          silent: true,
+        });
+      }, 10000);
 
     return () => {
       clearInterval(interval);
@@ -259,7 +269,7 @@ const Dashboard = () => {
   }, [loadDashboard]);
 
   /* =========================================================
-     REFRESH WHEN TAB RETURNS
+     REFRESH ON FOCUS / VISIBILITY
   ========================================================= */
 
   useEffect(() => {
@@ -304,7 +314,7 @@ const Dashboard = () => {
   }, [loadDashboard]);
 
   /* =========================================================
-     REFRESH WHEN MOVA DATA CHANGES
+     REFRESH ON MOVA DATA EVENTS
   ========================================================= */
 
   useEffect(() => {
@@ -325,20 +335,24 @@ const Dashboard = () => {
       });
     };
 
-    events.forEach((eventName) => {
-      window.addEventListener(
-        eventName,
-        handleDataChange
-      );
-    });
-
-    return () => {
-      events.forEach((eventName) => {
-        window.removeEventListener(
+    events.forEach(
+      (eventName) => {
+        window.addEventListener(
           eventName,
           handleDataChange
         );
-      });
+      }
+    );
+
+    return () => {
+      events.forEach(
+        (eventName) => {
+          window.removeEventListener(
+            eventName,
+            handleDataChange
+          );
+        }
+      );
     };
   }, [loadDashboard]);
 
@@ -346,39 +360,44 @@ const Dashboard = () => {
      FORMATTERS
   ========================================================= */
 
-  const formatCurrency = useCallback(
-    (value) => {
-      const amount =
-        Number(value) || 0;
+  const formatCurrency =
+    useCallback(
+      (value) => {
+        const amount =
+          Number(value) || 0;
 
-      return new Intl.NumberFormat(
-        "en-UG",
-        {
-          style: "currency",
-          currency:
-            business?.currency ||
-            "UGX",
-          maximumFractionDigits: 0,
-        }
-      ).format(amount);
-    },
-    [business?.currency]
-  );
+        return new Intl.NumberFormat(
+          "en-UG",
+          {
+            style: "currency",
+            currency:
+              business?.currency ||
+              "UGX",
+            maximumFractionDigits: 0,
+          }
+        ).format(amount);
+      },
+      [business?.currency]
+    );
 
-  const formatNumber = useCallback(
-    (value) => {
-      return new Intl.NumberFormat(
-        "en-UG"
-      ).format(Number(value) || 0);
-    },
-    []
-  );
+  const formatNumber =
+    useCallback(
+      (value) => {
+        return new Intl.NumberFormat(
+          "en-UG"
+        ).format(
+          Number(value) || 0
+        );
+      },
+      []
+    );
 
   /* =========================================================
-     SAFE DASHBOARD DATA
+     SAFE DATA
   ========================================================= */
 
-  const safeData = dashboardData || {};
+  const safeData =
+    dashboardData || {};
 
   const todaySales =
     Number(
@@ -479,7 +498,10 @@ const Dashboard = () => {
   const totalPayments =
     useMemo(() => {
       return paymentBreakdown.reduce(
-        (total, item) => {
+        (
+          total,
+          item
+        ) => {
           return (
             total +
             Number(
@@ -497,20 +519,21 @@ const Dashboard = () => {
      GREETING
   ========================================================= */
 
-  const greeting = useMemo(() => {
-    const hour =
-      new Date().getHours();
+  const greeting =
+    useMemo(() => {
+      const hour =
+        new Date().getHours();
 
-    if (hour < 12) {
-      return "Good morning";
-    }
+      if (hour < 12) {
+        return "Good morning";
+      }
 
-    if (hour < 18) {
-      return "Good afternoon";
-    }
+      if (hour < 18) {
+        return "Good afternoon";
+      }
 
-    return "Good evening";
-  }, []);
+      return "Good evening";
+    }, []);
 
   /* =========================================================
      LOADING STATE
@@ -522,31 +545,42 @@ const Dashboard = () => {
   ) {
     return (
       <div className="space-y-6">
+
         <div className="flex items-center justify-between">
+
           <div>
             <div className="h-8 w-64 animate-pulse rounded-lg bg-slate-200" />
+
             <div className="mt-2 h-4 w-48 animate-pulse rounded bg-slate-100" />
           </div>
 
           <div className="h-10 w-32 animate-pulse rounded-xl bg-slate-200" />
+
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
           {Array.from({
             length: 4,
-          }).map((_, index) => (
-            <div
-              key={index}
-              className="h-32 animate-pulse rounded-2xl bg-slate-100"
-            />
-          ))}
+          }).map(
+            (_, index) => (
+              <div
+                key={index}
+                className="h-32 animate-pulse rounded-2xl bg-slate-100"
+              />
+            )
+          )}
+
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+
           <div className="h-80 animate-pulse rounded-2xl bg-slate-100 xl:col-span-2" />
 
           <div className="h-80 animate-pulse rounded-2xl bg-slate-100" />
+
         </div>
+
       </div>
     );
   }
@@ -565,7 +599,9 @@ const Dashboard = () => {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 
         <div>
+
           <div className="flex flex-wrap items-center gap-2">
+
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               {greeting},{" "}
               {user?.name ||
@@ -579,6 +615,7 @@ const Dashboard = () => {
                 {activeBranch.name}
               </span>
             )}
+
           </div>
 
           <p className="mt-1 text-sm text-slate-500">
@@ -587,6 +624,7 @@ const Dashboard = () => {
 
           {lastUpdated && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+
               <Clock3 size={13} />
 
               Updated{" "}
@@ -597,23 +635,41 @@ const Dashboard = () => {
                   minute: "2-digit",
                 }
               )}
+
             </div>
           )}
+
         </div>
+
+        {/* ===================================================
+            HEADER ACTIONS
+        =================================================== */}
 
         <div className="flex flex-wrap items-center gap-2">
 
-          {/* =================================================
-              INSTALL MOVA BUTTON
-          ================================================= */}
-
           {!installed ? (
+
+            /*
+             * IMPORTANT:
+             *
+             * There is NO:
+             *
+             * disabled={!canInstall}
+             *
+             * here.
+             *
+             * Therefore the button is ALWAYS ACTIVE.
+             */
+
             <button
               type="button"
-              onClick={handleInstallMova}
+              onClick={
+                handleInstallMova
+              }
               disabled={installing}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
             >
+
               {installing ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -627,18 +683,22 @@ const Dashboard = () => {
                   Install MOVA App
                 </>
               )}
+
             </button>
+
           ) : (
+
             <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700">
-              <CheckCircle2 size={17} />
+
+              <CheckCircle2
+                size={17}
+              />
 
               MOVA Installed
-            </div>
-          )}
 
-          {/* =================================================
-              REFRESH BUTTON
-          ================================================= */}
+            </div>
+
+          )}
 
           <button
             type="button"
@@ -650,6 +710,7 @@ const Dashboard = () => {
             disabled={refreshing}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
+
             <RefreshCw
               size={17}
               className={
@@ -660,12 +721,15 @@ const Dashboard = () => {
             />
 
             Refresh
+
           </button>
+
         </div>
+
       </div>
 
       {/* =====================================================
-          INSTALL HELP
+          INSTALLATION HELP
       ===================================================== */}
 
       {showInstallHelp &&
@@ -681,6 +745,7 @@ const Dashboard = () => {
                 </div>
 
                 <div>
+
                   <h3 className="font-bold text-blue-900">
                     Install MOVA on this device
                   </h3>
@@ -688,104 +753,76 @@ const Dashboard = () => {
                   <p className="mt-1 text-sm leading-6 text-blue-800">
                     Your browser did not provide the automatic
                     installation prompt. You can still install
-                    MOVA manually.
+                    MOVA manually using your browser's installation
+                    option.
                   </p>
+
                 </div>
+
               </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  setShowInstallHelp(false)
+                  setShowInstallHelp(
+                    false
+                  )
                 }
                 className="rounded-lg p-1.5 text-blue-500 transition hover:bg-blue-100 hover:text-blue-800"
                 aria-label="Close installation instructions"
               >
                 <X size={18} />
               </button>
+
             </div>
 
             <div className="grid gap-3 border-t border-blue-200 bg-white/60 p-5 md:grid-cols-3">
 
               <div className="rounded-xl border border-blue-100 bg-white p-4">
+
                 <p className="text-sm font-bold text-slate-900">
                   Chrome / Edge
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-slate-600">
-                  Look for the install icon in the browser
-                  address bar, or open the browser menu and
-                  choose <strong>Install MOVA</strong> or
+                  Look for the install icon on the right side
+                  of the address bar. You can also open the
+                  browser menu and choose
+                  <strong> Install MOVA</strong> or
                   <strong> Install app</strong>.
                 </p>
+
               </div>
 
               <div className="rounded-xl border border-blue-100 bg-white p-4">
+
                 <p className="text-sm font-bold text-slate-900">
                   Android
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-slate-600">
                   Open the browser menu and choose
-                  <strong> Add to Home screen</strong> or
-                  <strong> Install app</strong>.
+                  <strong> Install app</strong> or
+                  <strong> Add to Home screen</strong>.
                 </p>
+
               </div>
 
               <div className="rounded-xl border border-blue-100 bg-white p-4">
+
                 <p className="text-sm font-bold text-slate-900">
                   iPhone / iPad
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-slate-600">
-                  In Safari, tap <strong>Share</strong>,
-                  then choose
+                  In Safari, tap
+                  <strong> Share</strong>, then choose
                   <strong> Add to Home Screen</strong>.
                 </p>
+
               </div>
 
             </div>
-          </div>
-        )}
-
-      {/* =====================================================
-          BROWSER INSTALL INFORMATION
-      ===================================================== */}
-
-      {!installed &&
-        !canInstall &&
-        !showInstallHelp && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-
-            <div className="flex items-start gap-3">
-
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-                <Smartphone size={19} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-slate-800">
-                  Use MOVA like a desktop or mobile app
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Click <strong>Install MOVA App</strong> above.
-                  If your browser does not show an automatic
-                  prompt, MOVA will show you how to install it.
-                </p>
-              </div>
-
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                setShowInstallHelp(true)
-              }
-              className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              Installation Help
-            </button>
 
           </div>
         )}
@@ -833,46 +870,51 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-        {/* TODAY SALES */}
-
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-start justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Today's Sales
               </p>
 
               <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-                {formatCurrency(todaySales)}
+                {formatCurrency(
+                  todaySales
+                )}
               </p>
+
             </div>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <DollarSign size={21} />
+              <DollarSign
+                size={21}
+              />
             </div>
 
           </div>
 
           <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+
             <ArrowUpRight
               size={14}
               className="text-emerald-600"
             />
 
             Current business day
+
           </div>
 
         </div>
-
-        {/* MONTHLY REVENUE */}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-start justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Monthly Revenue
               </p>
@@ -882,32 +924,36 @@ const Dashboard = () => {
                   monthlyRevenue
                 )}
               </p>
+
             </div>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <BarChart3 size={21} />
+              <BarChart3
+                size={21}
+              />
             </div>
 
           </div>
 
           <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+
             <ArrowUpRight
               size={14}
               className="text-blue-600"
             />
 
             This month
+
           </div>
 
         </div>
-
-        {/* EXPENSES */}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-start justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Monthly Expenses
               </p>
@@ -917,32 +963,36 @@ const Dashboard = () => {
                   monthlyExpenses
                 )}
               </p>
+
             </div>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-              <Wallet size={21} />
+              <Wallet
+                size={21}
+              />
             </div>
 
           </div>
 
           <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
+
             <ArrowDownRight
               size={14}
               className="text-orange-600"
             />
 
             Recorded expenses
+
           </div>
 
         </div>
-
-        {/* CUSTOMERS */}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-start justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Customers
               </p>
@@ -952,10 +1002,13 @@ const Dashboard = () => {
                   totalCustomers
                 )}
               </p>
+
             </div>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
-              <Users size={21} />
+              <Users
+                size={21}
+              />
             </div>
 
           </div>
@@ -965,10 +1018,11 @@ const Dashboard = () => {
           </div>
 
         </div>
+
       </div>
 
       {/* =====================================================
-          SECONDARY KPI ROW
+          SECONDARY KPI
       ===================================================== */}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -978,6 +1032,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Gross Profit
               </p>
@@ -987,10 +1042,13 @@ const Dashboard = () => {
                   grossProfit
                 )}
               </p>
+
             </div>
 
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <CheckCircle2 size={20} />
+              <CheckCircle2
+                size={20}
+              />
             </div>
 
           </div>
@@ -1009,6 +1067,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Low Stock
               </p>
@@ -1018,6 +1077,7 @@ const Dashboard = () => {
                   lowStockCount
                 )}
               </p>
+
             </div>
 
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600">
@@ -1037,6 +1097,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
 
             <div>
+
               <p className="text-sm font-medium text-slate-500">
                 Payments
               </p>
@@ -1046,6 +1107,7 @@ const Dashboard = () => {
                   totalPayments
                 )}
               </p>
+
             </div>
 
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -1063,18 +1125,17 @@ const Dashboard = () => {
       </div>
 
       {/* =====================================================
-          CHART + PAYMENTS
+          SALES + PAYMENTS
       ===================================================== */}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-
-        {/* SALES CHART */}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
 
           <div className="flex items-center justify-between">
 
             <div>
+
               <h2 className="font-bold text-slate-900">
                 Sales Overview
               </h2>
@@ -1082,6 +1143,7 @@ const Dashboard = () => {
               <p className="mt-1 text-xs text-slate-500">
                 Recent sales performance
               </p>
+
             </div>
 
             <BarChart3
@@ -1091,7 +1153,8 @@ const Dashboard = () => {
 
           </div>
 
-          {salesChart.length === 0 ? (
+          {salesChart.length ===
+          0 ? (
             <div className="flex h-64 items-center justify-center text-sm text-slate-400">
               No sales chart data available yet.
             </div>
@@ -1099,7 +1162,10 @@ const Dashboard = () => {
             <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto">
 
               {salesChart.map(
-                (item, index) => {
+                (
+                  item,
+                  index
+                ) => {
                   const amount =
                     Number(
                       item?.amount ??
@@ -1111,7 +1177,9 @@ const Dashboard = () => {
                   const maxAmount =
                     Math.max(
                       ...salesChart.map(
-                        (chartItem) =>
+                        (
+                          chartItem
+                        ) =>
                           Number(
                             chartItem?.amount ??
                               chartItem?.revenue ??
@@ -1139,6 +1207,7 @@ const Dashboard = () => {
                       }
                       className="flex min-w-[44px] flex-1 flex-col items-center justify-end gap-2"
                     >
+
                       <div className="group relative flex h-full w-full items-end justify-center">
 
                         <div
@@ -1162,6 +1231,7 @@ const Dashboard = () => {
                           item?.day ||
                           ""}
                       </span>
+
                     </div>
                   );
                 }
@@ -1172,13 +1242,12 @@ const Dashboard = () => {
 
         </div>
 
-        {/* PAYMENT BREAKDOWN */}
-
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
             <div>
+
               <h2 className="font-bold text-slate-900">
                 Payment Breakdown
               </h2>
@@ -1186,6 +1255,7 @@ const Dashboard = () => {
               <p className="mt-1 text-xs text-slate-500">
                 Payment methods
               </p>
+
             </div>
 
             <Wallet
@@ -1195,7 +1265,8 @@ const Dashboard = () => {
 
           </div>
 
-          {paymentBreakdown.length === 0 ? (
+          {paymentBreakdown.length ===
+          0 ? (
             <div className="flex h-64 items-center justify-center text-center text-sm text-slate-400">
               No payment data available yet.
             </div>
@@ -1203,7 +1274,10 @@ const Dashboard = () => {
             <div className="mt-6 space-y-4">
 
               {paymentBreakdown.map(
-                (item, index) => {
+                (
+                  item,
+                  index
+                ) => {
                   const amount =
                     Number(
                       item?.amount ??
@@ -1228,6 +1302,7 @@ const Dashboard = () => {
                         index
                       }
                     >
+
                       <div className="mb-2 flex items-center justify-between text-xs">
 
                         <span className="font-medium text-slate-600">
@@ -1258,6 +1333,7 @@ const Dashboard = () => {
                       <div className="mt-1 text-right text-[10px] text-slate-400">
                         {percentage}%
                       </div>
+
                     </div>
                   );
                 }
@@ -1276,13 +1352,12 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
 
-        {/* RECENT SALES */}
-
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
 
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
 
             <div>
+
               <h2 className="font-bold text-slate-900">
                 Recent Sales
               </h2>
@@ -1290,6 +1365,7 @@ const Dashboard = () => {
               <p className="mt-1 text-xs text-slate-500">
                 Latest transactions
               </p>
+
             </div>
 
             <ShoppingCart
@@ -1299,7 +1375,8 @@ const Dashboard = () => {
 
           </div>
 
-          {recentSales.length === 0 ? (
+          {recentSales.length ===
+          0 ? (
             <div className="flex min-h-56 items-center justify-center px-5 text-center text-sm text-slate-400">
               No recent sales available.
             </div>
@@ -1309,7 +1386,10 @@ const Dashboard = () => {
               {recentSales
                 .slice(0, 6)
                 .map(
-                  (sale, index) => {
+                  (
+                    sale,
+                    index
+                  ) => {
                     const total =
                       Number(
                         sale?.total ??
@@ -1334,11 +1414,15 @@ const Dashboard = () => {
                             {sale?.invoiceNumber ||
                               sale?.receiptNumber ||
                               sale?.reference ||
-                              `Sale #${index + 1}`}
+                              `Sale #${
+                                index +
+                                1
+                              }`}
                           </p>
 
                           <p className="mt-1 truncate text-xs text-slate-400">
-                            {sale?.customer?.name ||
+                            {sale?.customer
+                              ?.name ||
                               sale?.customerName ||
                               sale?.paymentMethod ||
                               "Walk-in customer"}
@@ -1380,13 +1464,12 @@ const Dashboard = () => {
 
         </div>
 
-        {/* LOW STOCK */}
-
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
 
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
 
             <div>
+
               <h2 className="font-bold text-slate-900">
                 Low Stock
               </h2>
@@ -1394,6 +1477,7 @@ const Dashboard = () => {
               <p className="mt-1 text-xs text-slate-500">
                 Products requiring attention
               </p>
+
             </div>
 
             <Package
@@ -1403,7 +1487,8 @@ const Dashboard = () => {
 
           </div>
 
-          {lowStockProducts.length === 0 ? (
+          {lowStockProducts.length ===
+          0 ? (
             <div className="flex min-h-56 items-center justify-center px-5 text-center">
 
               <div>
@@ -1430,7 +1515,10 @@ const Dashboard = () => {
               {lowStockProducts
                 .slice(0, 6)
                 .map(
-                  (product, index) => {
+                  (
+                    product,
+                    index
+                  ) => {
                     const stock =
                       Number(
                         product?.stock ??
@@ -1459,7 +1547,9 @@ const Dashboard = () => {
                         <div className="flex min-w-0 items-center gap-3">
 
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
-                            <Package size={17} />
+                            <Package
+                              size={17}
+                            />
                           </div>
 
                           <div className="min-w-0">
@@ -1507,7 +1597,7 @@ const Dashboard = () => {
       </div>
 
       {/* =====================================================
-          BUSINESS STATUS FOOTER
+          FOOTER
       ===================================================== */}
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -1517,7 +1607,9 @@ const Dashboard = () => {
           <div className="flex items-start gap-3">
 
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm">
-              <BarChart3 size={19} />
+              <BarChart3
+                size={19}
+              />
             </div>
 
             <div>
