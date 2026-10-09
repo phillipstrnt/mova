@@ -52,69 +52,129 @@ const Register = () => {
       ...previous,
       [name]: value,
     }));
+
+    // Remove the previous error once the user starts correcting the form.
+    if (error) {
+      setError("");
+    }
+  };
+
+  const getRegistrationError = (err) => {
+    const backendMessage = err?.response?.data?.message;
+
+    if (backendMessage) {
+      return backendMessage;
+    }
+
+    if (err?.response?.data?.error) {
+      return err.response.data.error;
+    }
+
+    if (err?.message) {
+      return err.message;
+    }
+
+    return "Registration failed. Please try again.";
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    if (loading) {
+      return;
+    }
+
     setError("");
 
     const businessName = form.businessName.trim();
+    const businessType = form.businessType.trim();
     const ownerName = form.ownerName.trim();
     const email = form.email.trim().toLowerCase();
     const phone = form.phone.trim();
+    const password = form.password;
+    const confirmPassword = form.confirmPassword;
+
+    // ---------------------------------------------------------
+    // Required fields
+    // ---------------------------------------------------------
 
     if (
       !businessName ||
-      !form.businessType ||
+      !businessType ||
       !ownerName ||
       !email ||
-      !form.password ||
-      !form.confirmPassword
+      !password ||
+      !confirmPassword
     ) {
       setError("Please complete all required fields.");
       return;
     }
 
-    if (form.password.length < 6) {
+    // ---------------------------------------------------------
+    // Basic email validation
+    // ---------------------------------------------------------
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailPattern.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    // ---------------------------------------------------------
+    // Password validation
+    // ---------------------------------------------------------
+
+    if (password.length < 6) {
       setError("Password must contain at least 6 characters.");
       return;
     }
 
-    if (form.password !== form.confirmPassword) {
+    if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
 
+    // ---------------------------------------------------------
+    // Registration
+    // ---------------------------------------------------------
+
     try {
       setLoading(true);
 
-      await register({
+      const registrationData = {
         businessName,
-        businessType: form.businessType,
+        businessType,
         ownerName,
         email,
         phone,
-        password: form.password,
+        password,
+      };
+
+      console.log("MOVA registration request:", {
+        ...registrationData,
+        password: "[hidden]",
       });
 
+      await register(registrationData);
+
       /*
-       * Registration creates the initial business/account.
+       * Registration creates:
        *
-       * The user must now complete the MOVA onboarding process
-       * before entering the main application.
+       * 1. Business
+       * 2. Main Branch
+       * 3. OWNER account
+       * 4. Authentication session
+       *
+       * The user then continues through MOVA onboarding.
        */
       navigate("/setup/business", {
         replace: true,
       });
     } catch (err) {
-      console.error("Registration error:", err);
+      console.error("MOVA registration error:", err);
 
-      setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Registration failed. Please try again."
-      );
+      setError(getRegistrationError(err));
     } finally {
       setLoading(false);
     }
@@ -132,6 +192,8 @@ const Register = () => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.20),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_35%)]" />
 
           <div className="relative z-10 flex w-full flex-col justify-between p-12 xl:p-16">
+
+            {/* Brand */}
 
             <div>
               <div className="flex items-center gap-3">
@@ -151,6 +213,8 @@ const Register = () => {
               </div>
             </div>
 
+            {/* Marketing content */}
+
             <div className="max-w-xl">
               <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-blue-400">
                 Start with MOVA
@@ -167,7 +231,6 @@ const Register = () => {
               </p>
 
               <div className="mt-10 space-y-4">
-
                 {[
                   "Point of Sale and digital receipts",
                   "Inventory and stock management",
@@ -179,12 +242,14 @@ const Register = () => {
                     className="flex items-center gap-3 text-sm text-slate-300"
                   >
                     <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                    {item}
+
+                    <span>{item}</span>
                   </div>
                 ))}
-
               </div>
             </div>
+
+            {/* Footer */}
 
             <p className="text-xs text-slate-500">
               © {new Date().getFullYear()} MOVA. Business management made
@@ -238,10 +303,15 @@ const Register = () => {
             {/* Error */}
 
             {error && (
-              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div
+                role="alert"
+                className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
                 {error}
               </div>
             )}
+
+            {/* Form */}
 
             <form
               onSubmit={handleSubmit}
@@ -251,7 +321,10 @@ const Register = () => {
               {/* Business name */}
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="businessName"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
                   Business name
                 </label>
 
@@ -259,12 +332,15 @@ const Register = () => {
                   <Building2 className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                   <input
+                    id="businessName"
                     type="text"
                     name="businessName"
                     value={form.businessName}
                     onChange={handleChange}
                     placeholder="e.g. Green Star Supermarket"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    autoComplete="organization"
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
                 </div>
               </div>
@@ -272,15 +348,20 @@ const Register = () => {
               {/* Business type */}
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="businessType"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
                   Business type
                 </label>
 
                 <select
+                  id="businessType"
                   name="businessType"
                   value={form.businessType}
                   onChange={handleChange}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  disabled={loading}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                 >
                   <option value="">
                     Select business type
@@ -300,7 +381,10 @@ const Register = () => {
               {/* Owner */}
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="ownerName"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
                   Your name
                 </label>
 
@@ -308,12 +392,15 @@ const Register = () => {
                   <User className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                   <input
+                    id="ownerName"
                     type="text"
                     name="ownerName"
                     value={form.ownerName}
                     onChange={handleChange}
                     placeholder="Your full name"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    autoComplete="name"
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
                 </div>
               </div>
@@ -322,8 +409,13 @@ const Register = () => {
 
               <div className="grid gap-5 sm:grid-cols-2">
 
+                {/* Email */}
+
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label
+                    htmlFor="email"
+                    className="mb-2 block text-sm font-medium text-slate-700"
+                  >
                     Email
                   </label>
 
@@ -331,18 +423,26 @@ const Register = () => {
                     <Mail className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                     <input
+                      id="email"
                       type="email"
                       name="email"
                       value={form.email}
                       onChange={handleChange}
                       placeholder="you@example.com"
-                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      autoComplete="email"
+                      disabled={loading}
+                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                     />
                   </div>
                 </div>
 
+                {/* Phone */}
+
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label
+                    htmlFor="phone"
+                    className="mb-2 block text-sm font-medium text-slate-700"
+                  >
                     Phone
                   </label>
 
@@ -350,22 +450,27 @@ const Register = () => {
                     <Phone className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                     <input
+                      id="phone"
                       type="tel"
                       name="phone"
                       value={form.phone}
                       onChange={handleChange}
                       placeholder="07XX XXX XXX"
-                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      autoComplete="tel"
+                      disabled={loading}
+                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                     />
                   </div>
                 </div>
-
               </div>
 
               {/* Password */}
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="password"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
                   Password
                 </label>
 
@@ -373,20 +478,29 @@ const Register = () => {
                   <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                   <input
+                    id="password"
                     type={showPassword ? "text" : "password"}
                     name="password"
                     value={form.password}
                     onChange={handleChange}
                     placeholder="At least 6 characters"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    autoComplete="new-password"
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
 
                   <button
                     type="button"
+                    aria-label={
+                      showPassword
+                        ? "Hide password"
+                        : "Show password"
+                    }
                     onClick={() =>
                       setShowPassword((previous) => !previous)
                     }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    disabled={loading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700 disabled:cursor-not-allowed"
                   >
                     {showPassword ? (
                       <EyeOff className="h-5 w-5" />
@@ -400,7 +514,10 @@ const Register = () => {
               {/* Confirm password */}
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="confirmPassword"
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                >
                   Confirm password
                 </label>
 
@@ -408,22 +525,35 @@ const Register = () => {
                   <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
                   <input
-                    type={showConfirmPassword ? "text" : "password"}
+                    id="confirmPassword"
+                    type={
+                      showConfirmPassword
+                        ? "text"
+                        : "password"
+                    }
                     name="confirmPassword"
                     value={form.confirmPassword}
                     onChange={handleChange}
                     placeholder="Repeat your password"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    autoComplete="new-password"
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
 
                   <button
                     type="button"
+                    aria-label={
+                      showConfirmPassword
+                        ? "Hide confirm password"
+                        : "Show confirm password"
+                    }
                     onClick={() =>
                       setShowConfirmPassword(
                         (previous) => !previous
                       )
                     }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    disabled={loading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700 disabled:cursor-not-allowed"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="h-5 w-5" />
@@ -442,7 +572,10 @@ const Register = () => {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
-                  "Creating account..."
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Creating account...
+                  </>
                 ) : (
                   <>
                     Create account
@@ -457,6 +590,7 @@ const Register = () => {
 
             <p className="mt-7 text-center text-sm text-slate-500">
               Already have an account?{" "}
+
               <Link
                 to="/login"
                 className="font-semibold text-blue-600 hover:text-blue-700"
@@ -467,7 +601,6 @@ const Register = () => {
 
           </div>
         </div>
-
       </div>
     </div>
   );

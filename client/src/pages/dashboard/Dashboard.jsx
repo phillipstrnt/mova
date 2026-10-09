@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -59,6 +60,8 @@ const Dashboard = () => {
 
   const [lastUpdated, setLastUpdated] =
     useState(null);
+
+  const dashboardRequestRef = useRef(0);
 
   /* =========================================================
      PWA STATE
@@ -186,6 +189,8 @@ const Dashboard = () => {
     async ({
       silent = false,
     } = {}) => {
+      const requestId = ++dashboardRequestRef.current;
+
       try {
         if (silent) {
           setRefreshing(true);
@@ -217,11 +222,10 @@ const Dashboard = () => {
           response?.data ??
           null;
 
-        setDashboardData(data);
-
-        setLastUpdated(
-          new Date()
-        );
+        if (requestId === dashboardRequestRef.current) {
+          setDashboardData(data);
+          setLastUpdated(new Date());
+        }
       } catch (requestError) {
         console.error(
           "MOVA Dashboard Error:",
@@ -234,10 +238,14 @@ const Dashboard = () => {
           requestError?.message ||
           "Unable to load dashboard data.";
 
-        setError(message);
+        if (requestId === dashboardRequestRef.current) {
+          setError(message);
+        }
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (requestId === dashboardRequestRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [activeBranchId]
@@ -319,6 +327,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     const events = [
+      "mova:data-updated",
       "mova:sale-created",
       "mova:sale-updated",
       "mova:inventory-updated",
@@ -327,6 +336,7 @@ const Dashboard = () => {
       "mova:payment-created",
       "mova:return-created",
       "mova:data-changed",
+      "mova:branch-changed",
     ];
 
     const handleDataChange = () => {
@@ -399,36 +409,50 @@ const Dashboard = () => {
   const safeData =
     dashboardData || {};
 
+  const stats = safeData.stats || {};
+  const summary = safeData.summary || {};
+
   const todaySales =
     Number(
-      safeData.todayRevenue ??
+      stats.todayRevenue ??
+        stats.todaySales ??
+        safeData.todayRevenue ??
         safeData.todaySales ??
         0
     );
 
   const monthlyRevenue =
     Number(
-      safeData.monthRevenue ??
+      stats.monthRevenue ??
+        stats.monthSales ??
+        summary.revenue ??
+        safeData.monthRevenue ??
         safeData.monthlyRevenue ??
         0
     );
 
   const monthlyExpenses =
     Number(
-      safeData.totalExpenses ??
+      stats.totalExpenses ??
+        summary.expenses ??
+        safeData.totalExpenses ??
         safeData.monthlyExpenses ??
         0
     );
 
   const totalCustomers =
     Number(
-      safeData.totalCustomers ??
+      stats.totalCustomers ??
+        summary.customers ??
+        safeData.totalCustomers ??
         safeData.customers ??
         0
     );
 
   const lowStockCount =
     Number(
+      summary.lowStock ??
+        stats.lowStock ??
       safeData.lowStock ??
         safeData.lowStockCount ??
         0
@@ -436,7 +460,9 @@ const Dashboard = () => {
 
   const grossProfit =
     Number(
-      safeData.grossProfit ??
+      stats.grossProfit ??
+        summary.grossProfit ??
+        safeData.grossProfit ??
         safeData.monthGrossProfit ??
         monthlyRevenue -
           monthlyExpenses
@@ -457,12 +483,16 @@ const Dashboard = () => {
       ? safeData.salesTrend
       : [];
 
-  const paymentBreakdown =
-    Array.isArray(
-      safeData.paymentBreakdown
-    )
-      ? safeData.paymentBreakdown
-      : [];
+  const rawPaymentBreakdown =
+    safeData.paymentBreakdown ??
+    stats.paymentBreakdown ??
+    {};
+
+  const paymentBreakdown = Array.isArray(rawPaymentBreakdown)
+    ? rawPaymentBreakdown
+    : Object.entries(rawPaymentBreakdown).map(
+        ([method, amount]) => ({ method, amount })
+      );
 
   const recentSales =
     Array.isArray(
@@ -1521,6 +1551,7 @@ const Dashboard = () => {
                   ) => {
                     const stock =
                       Number(
+                        product?.stockQuantity ??
                         product?.stock ??
                           product?.quantity ??
                           product?.currentStock ??

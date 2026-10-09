@@ -5,6 +5,7 @@ import {
   Check,
   Edit3,
   FolderPlus,
+  ImagePlus,
   Package,
   Plus,
   RefreshCw,
@@ -21,6 +22,7 @@ const emptyForm = {
   name: "",
   sku: "",
   barcode: "",
+  image: "",
   description: "",
   categoryId: "",
   buyingPrice: "",
@@ -241,6 +243,9 @@ const Products = () => {
 
       barcode:
         product?.barcode || "",
+
+      image:
+        product?.image || "",
 
       description:
         product?.description || "",
@@ -615,6 +620,9 @@ const Products = () => {
 
       barcode:
         form.barcode.trim(),
+
+      image:
+        form.image.trim(),
 
       description:
         form.description.trim(),
@@ -1475,20 +1483,35 @@ const Products = () => {
                         className="transition hover:bg-slate-50/70"
                       >
                         <td className="px-5 py-4">
-                          <div>
-                            <p className="font-bold text-slate-900">
-                              {product.name ||
-                                "Unnamed Product"}
-                            </p>
+                          <div className="flex items-center gap-3">
+                            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
+                              <Package size={19} />
+                              {product.image && (
+                                <img
+                                  src={product.image}
+                                  alt=""
+                                  loading="lazy"
+                                  className="absolute inset-0 h-full w-full object-cover"
+                                  onError={(event) =>
+                                    event.currentTarget.remove()
+                                  }
+                                />
+                              )}
+                            </div>
 
-                            {product.barcode && (
-                              <p className="mt-1 text-xs text-slate-400">
-                                Barcode:{" "}
-                                {
-                                  product.barcode
-                                }
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-slate-900">
+                                {product.name ||
+                                  "Unnamed Product"}
                               </p>
-                            )}
+
+                              {product.barcode && (
+                                <p className="mt-1 truncate text-xs text-slate-400">
+                                  Barcode:{" "}
+                                  {product.barcode}
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </td>
 
@@ -1931,6 +1954,43 @@ const Products = () => {
                     placeholder="Describe the product..."
                     className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
                   />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    Product image URL
+                  </label>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
+                      <ImagePlus size={24} />
+                      {form.image.trim() && (
+                        <img
+                          key={form.image}
+                          src={form.image.trim()}
+                          alt={`${form.name || "Product"} preview`}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          onError={(event) =>
+                            event.currentTarget.remove()
+                          }
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex-1">
+                      <input
+                        name="image"
+                        type="text"
+                        value={form.image}
+                        onChange={handleChange}
+                        placeholder="https://example.com/product.jpg"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">
+                        Add an image link to make products easier to recognize in the catalogue and POS.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">

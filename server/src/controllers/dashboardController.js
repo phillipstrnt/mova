@@ -2,6 +2,8 @@ import Sale from "../models/Sale.js";
 import Product from "../models/Product.js";
 import Customer from "../models/Customer.js";
 import Expense from "../models/Expense.js";
+import ProductBranchStock from "../models/ProductBranchStock.js";
+import Business from "../models/Business.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -51,27 +53,76 @@ const toNumber = (value) => {
 |--------------------------------------------------------------------------
 */
 
-const startOfDay = (date) => {
-  const result = new Date(date);
+const getTimeZoneParts = (date, timeZone) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
 
-  result.setHours(
-    0,
-    0,
-    0,
-    0
+  return Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)])
   );
-
-  return result;
 };
 
-const endOfDay = (date) => {
-  const result = startOfDay(date);
+const startOfCalendarDay = (year, month, day, timeZone) => {
+  const localMidnightAsUtc = Date.UTC(year, month - 1, day);
+  let timestamp = localMidnightAsUtc;
 
-  result.setDate(
-    result.getDate() + 1
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = getTimeZoneParts(new Date(timestamp), timeZone);
+    const representedAsUtc = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second
+    );
+    const adjustment = localMidnightAsUtc - representedAsUtc;
+
+    timestamp += adjustment;
+
+    if (adjustment === 0) break;
+  }
+
+  return new Date(timestamp);
+};
+
+const startOfDay = (date, timeZone) => {
+  const parts = getTimeZoneParts(date, timeZone);
+  return startOfCalendarDay(
+    parts.year,
+    parts.month,
+    parts.day,
+    timeZone
+  );
+};
+
+const shiftCalendarDay = (date, days, timeZone) => {
+  const parts = getTimeZoneParts(date, timeZone);
+  const shifted = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day + days)
   );
 
-  return result;
+  return startOfCalendarDay(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth() + 1,
+    shifted.getUTCDate(),
+    timeZone
+  );
+};
+
+const getDateKey = (date, timeZone) => {
+  const parts = getTimeZoneParts(date, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 };
 
 const getDateRange = (
@@ -384,6 +435,11 @@ export const getDashboard =
         });
       }
 
+      const business = await Business.findById(businessId)
+        .select("timezone")
+        .lean();
+      const timeZone = business?.timezone || "Africa/Kampala";
+
       /*
       |--------------------------------------------------------------------------
       | BRANCH
@@ -413,35 +469,35 @@ export const getDashboard =
 
       const todayStart =
         startOfDay(
-          now
+          now,
+          timeZone
         );
 
       const tomorrowStart =
-        endOfDay(
-          now
+        shiftCalendarDay(
+          now,
+          1,
+          timeZone
         );
 
-      const monthStart =
-        new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          1
-        );
-
-      const previousMonthStart =
-        new Date(
-          now.getFullYear(),
-          now.getMonth() -
-            1,
-          1
-        );
-
-      const previousMonthEnd =
-        new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          1
-        );
+      const currentDateParts = getTimeZoneParts(now, timeZone);
+      const monthStart = startOfCalendarDay(
+        currentDateParts.year,
+        currentDateParts.month,
+        1,
+        timeZone
+      );
+      const previousMonthStart = startOfCalendarDay(
+        currentDateParts.month === 1
+          ? currentDateParts.year - 1
+          : currentDateParts.year,
+        currentDateParts.month === 1
+          ? 12
+          : currentDateParts.month - 1,
+        1,
+        timeZone
+      );
+      const previousMonthEnd = monthStart;
 
       /*
       |--------------------------------------------------------------------------
@@ -459,6 +515,7 @@ export const getDashboard =
 
       const productFilter = {
         businessId,
+        isActive: true,
       };
 
       const customerFilter = {
@@ -470,9 +527,6 @@ export const getDashboard =
           branchId;
 
         expenseFilter.branchId =
-          branchId;
-
-        productFilter.branchId =
           branchId;
 
         customerFilter.branchId =
@@ -713,6 +767,41 @@ export const getDashboard =
           )
           .lean();
 
+      const branchStocks = branchId
+        ? await ProductBranchStock.find({
+            businessId,
+            branchId,
+            isActive: true,
+          })
+            .select("productId stockQuantity minimumStock")
+            .lean()
+        : [];
+      const branchStockByProduct = new Map(
+        branchStocks.map((stock) => [
+          String(stock.productId),
+          stock,
+        ])
+      );
+
+      const productsWithCurrentStock = products.map((product) => {
+        const branchStock = branchStockByProduct.get(
+          String(product._id)
+        );
+
+        if (!branchId) return product;
+
+        return {
+          ...product,
+          stockQuantity: branchStock?.stockQuantity ?? 0,
+          minimumStock:
+            branchStock?.minimumStock ??
+            product.minimumStock ??
+            product.minStock ??
+            product.reorderLevel ??
+            0,
+        };
+      });
+
       console.log(
         "Dashboard: products:",
         products.length
@@ -725,7 +814,7 @@ export const getDashboard =
       */
 
       const lowStockProducts =
-        products
+        productsWithCurrentStock
           .filter(
             (
               product
@@ -791,24 +880,23 @@ export const getDashboard =
         index >= 0;
         index--
       ) {
-        const date =
-          new Date(
-            now
-          );
-
-        date.setDate(
-          now.getDate() -
-            index
+        const date = shiftCalendarDay(
+          now,
+          -index,
+          timeZone
         );
 
         const dayStart =
           startOfDay(
-            date
+            date,
+            timeZone
           );
 
         const dayEnd =
-          endOfDay(
-            date
+          shiftCalendarDay(
+            date,
+            1,
+            timeZone
           );
 
         const daySales =
@@ -828,18 +916,14 @@ export const getDashboard =
 
         salesChart.push({
           date:
-            dayStart
-              .toISOString()
-              .split(
-                "T"
-              )[0],
+            getDateKey(dayStart, timeZone),
 
           label:
             dayStart.toLocaleDateString(
               "en-UG",
               {
-                weekday:
-                  "short",
+                timeZone,
+                weekday: "short",
               }
             ),
 

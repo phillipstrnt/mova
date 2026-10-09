@@ -1,39 +1,143 @@
 
+import mongoose from "mongoose";
 import Branch from "../models/Branch.js";
 import User from "../models/User.js";
+import AuditLog from "../models/AuditLog.js";
 
 /*
 |--------------------------------------------------------------------------
-| GET ALL BUSINESS BRANCHES
+| Helpers
 |--------------------------------------------------------------------------
 */
 
-const getBranches = async (req, res) => {
-  try {
-    const branches = await Branch.find({
-      businessId: req.user.businessId,
-    })
-      .populate(
-        "managerId",
-        "name email role"
-      )
-      .sort({
-        createdAt: 1,
-      });
+const normalizeRole = (role) => String(role || "").toUpperCase();
 
-    return res.status(200).json({
+const isValidObjectId = (id) =>
+  mongoose.Types.ObjectId.isValid(String(id || ""));
+
+const getBusinessId = (req) => {
+  const businessId = req.user?.businessId;
+
+  if (!businessId || !isValidObjectId(businessId)) {
+    const error = new Error("A valid business is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return businessId;
+};
+
+const getUserBranchIds = (req) => {
+  if (!Array.isArray(req.user?.branchIds)) {
+    return [];
+  }
+
+  return req.user.branchIds.map((id) => String(id));
+};
+
+const userHasBranchAccess = (req, branchId) => {
+  const role = normalizeRole(req.user?.role);
+
+  if (role === "OWNER" || role === "ADMIN") {
+    return true;
+  }
+
+  return getUserBranchIds(req).includes(String(branchId));
+};
+
+const canManageBranches = (req) => {
+  const role = normalizeRole(req.user?.role);
+
+  return (
+    role === "OWNER" ||
+    role === "ADMIN" ||
+    role === "MANAGER"
+  );
+};
+
+const canDeleteBranches = (req) => {
+  const role = normalizeRole(req.user?.role);
+
+  return role === "OWNER" || role === "ADMIN";
+};
+
+const audit = async ({
+  req,
+  action,
+  description,
+  branchId = null,
+  metadata = {},
+}) => {
+  try {
+    if (!AuditLog) return;
+
+    await AuditLog.create({
+      businessId: req.user?.businessId,
+      branchId,
+      userId: req.user?._id,
+      action,
+      description,
+      metadata,
+    });
+  } catch (error) {
+    // Audit failure should not break the main business operation.
+    console.error("Audit log error:", error.message);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET ALL BRANCHES
+|--------------------------------------------------------------------------
+| OWNER / ADMIN:
+|   Can see all business branches.
+|
+| MANAGER / CASHIER / INVENTORY_MANAGER / ACCOUNTANT:
+|   Can only see branches assigned to them.
+|--------------------------------------------------------------------------
+*/
+
+export const getBranches = async (req, res) => {
+  try {
+    const businessId = getBusinessId(req);
+    const role = normalizeRole(req.user?.role);
+
+    const filter = {
+      businessId,
+      isActive: true,
+    };
+
+    if (role !== "OWNER" && role !== "ADMIN") {
+      const branchIds = getUserBranchIds(req);
+
+      if (branchIds.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          branches: [],
+        });
+      }
+
+      filter._id = {
+        $in: branchIds,
+      };
+    }
+
+    const branches = await Branch.find(filter)
+      .sort({ isMain: -1, name: 1 })
+      .lean();
+
+    return res.json({
       success: true,
+      data: branches,
       branches,
     });
   } catch (error) {
-    console.error(
-      "Get branches error:",
-      error
-    );
+    console.error("Get branches error:", error);
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: "Failed to load branches",
+      message: error.message || "Failed to load branches.",
     });
   }
 };
@@ -44,37 +148,48 @@ const getBranches = async (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-const getBranch = async (req, res) => {
+export const getBranch = async (req, res) => {
   try {
-    const branch =
-      await Branch.findOne({
-        _id: req.params.id,
-        businessId: req.user.businessId,
-      }).populate(
-        "managerId",
-        "name email role"
-      );
+    const businessId = getBusinessId(req);
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    if (!userHasBranchAccess(req, id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to access this branch.",
+      });
+    }
+
+    const branch = await Branch.findOne({
+      _id: id,
+      businessId,
+    }).lean();
 
     if (!branch) {
       return res.status(404).json({
         success: false,
-        message: "Branch not found",
+        message: "Branch not found.",
       });
     }
 
-    return res.status(200).json({
+    return res.json({
       success: true,
+      data: branch,
       branch,
     });
   } catch (error) {
-    console.error(
-      "Get branch error:",
-      error
-    );
+    console.error("Get branch error:", error);
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: "Failed to load branch",
+      message: error.message || "Failed to load branch.",
     });
   }
 };
@@ -83,248 +198,173 @@ const getBranch = async (req, res) => {
 |--------------------------------------------------------------------------
 | CREATE BRANCH
 |--------------------------------------------------------------------------
+| OWNER / ADMIN / MANAGER
+|
+| If a MANAGER creates a branch, the manager is automatically assigned
+| to that branch.
+|--------------------------------------------------------------------------
 */
 
-const createBranch = async (req, res) => {
+export const createBranch = async (req, res) => {
   try {
-    const businessId =
-      req.user.businessId;
+    const businessId = getBusinessId(req);
+
+    if (!canManageBranches(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to create branches.",
+      });
+    }
 
     const {
       name,
       code,
-      phone,
       address,
+      phone,
+      email,
       managerId,
-    } = req.body;
+      isMain,
+    } = req.body || {};
 
-    if (!name || !name.trim()) {
+    if (!name || !String(name).trim()) {
       return res.status(400).json({
         success: false,
-        message: "Branch name is required",
+        message: "Branch name is required.",
       });
     }
 
-    if (!code || !code.trim()) {
+    if (!code || !String(code).trim()) {
       return res.status(400).json({
         success: false,
-        message: "Branch code is required",
+        message: "Branch code is required.",
       });
     }
 
-    const normalizedCode =
-      code.trim().toUpperCase();
+    const normalizedCode = String(code).trim().toUpperCase();
 
-    const existingBranch =
-      await Branch.findOne({
-        businessId,
-        code: normalizedCode,
-      });
+    const existingBranch = await Branch.findOne({
+      businessId,
+      code: normalizedCode,
+    });
 
     if (existingBranch) {
       return res.status(409).json({
         success: false,
-        message: `Branch code "${normalizedCode}" already exists`,
+        message: "A branch with this code already exists.",
       });
     }
 
-    /*
-     * --------------------------------------------------------------
-     * DETERMINE BRANCH MANAGER
-     * --------------------------------------------------------------
-     *
-     * If OWNER/ADMIN supplies a managerId, validate it.
-     *
-     * If a MANAGER creates a branch without selecting another
-     * manager, the current manager becomes the branch manager.
-     */
+    const role = normalizeRole(req.user?.role);
 
-    let selectedManagerId =
-      managerId || null;
+    let assignedManagerId = null;
 
-    if (
-      !selectedManagerId &&
-      req.user.role === "MANAGER"
-    ) {
-      selectedManagerId =
-        req.user._id;
-    }
-
-    /*
-     * Validate selected manager.
-     */
-
-    if (selectedManagerId) {
-      const manager =
-        await User.findOne({
-          _id: selectedManagerId,
-          businessId,
-          status: "ACTIVE",
+    if (role === "MANAGER") {
+      assignedManagerId = req.user._id;
+    } else if (managerId) {
+      if (!isValidObjectId(managerId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid manager ID.",
         });
+      }
+
+      const manager = await User.findOne({
+        _id: managerId,
+        businessId,
+        role: "MANAGER",
+      });
 
       if (!manager) {
         return res.status(400).json({
           success: false,
-          message:
-            "Selected branch manager does not belong to this business",
+          message: "Selected manager was not found in this business.",
         });
       }
 
-      /*
-       * Only appropriate management roles should be
-       * assigned as branch managers.
-       */
-
-      if (
-        ![
-          "OWNER",
-          "ADMIN",
-          "MANAGER",
-        ].includes(manager.role)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Only an Owner, Admin or Manager can be assigned as a branch manager",
-        });
-      }
+      assignedManagerId = manager._id;
     }
 
     /*
-     * --------------------------------------------------------------
-     * CREATE BRANCH
-     * --------------------------------------------------------------
+     * Only OWNER / ADMIN can explicitly create a main branch.
      */
+    const branchIsMain =
+      (role === "OWNER" || role === "ADMIN") &&
+      Boolean(isMain);
 
-    const branch =
-      await Branch.create({
-        businessId,
-        name: name.trim(),
-        code: normalizedCode,
-        phone: phone?.trim() || "",
-        address: address?.trim() || "",
-        managerId:
-          selectedManagerId || null,
-        isActive: true,
-      });
-
-    /*
-     * --------------------------------------------------------------
-     * ADD BRANCH TO CREATOR'S AUTHORIZED BRANCHES
-     * --------------------------------------------------------------
-     */
-
-    const creator =
-      await User.findById(
-        req.user._id
-      );
-
-    if (creator) {
-      if (!Array.isArray(creator.branchIds)) {
-        creator.branchIds = [];
-      }
-
-      const alreadyAssigned =
-        creator.branchIds.some(
-          (id) =>
-            id.toString() ===
-            branch._id.toString()
-        );
-
-      if (!alreadyAssigned) {
-        creator.branchIds.push(
-          branch._id
-        );
-      }
-
-      if (!creator.activeBranchId) {
-        creator.activeBranchId =
-          branch._id;
-      }
-
-      if (!creator.branchId) {
-        creator.branchId =
-          branch._id;
-      }
-
-      await creator.save();
-    }
-
-    /*
-     * --------------------------------------------------------------
-     * ADD BRANCH TO MANAGER
-     * --------------------------------------------------------------
-     */
-
-    if (selectedManagerId) {
-      const manager =
-        await User.findOne({
-          _id: selectedManagerId,
+    if (branchIsMain) {
+      await Branch.updateMany(
+        {
           businessId,
-        });
-
-      if (manager) {
-        if (!Array.isArray(manager.branchIds)) {
-          manager.branchIds = [];
+          isMain: true,
+        },
+        {
+          $set: {
+            isMain: false,
+          },
         }
-
-        const alreadyAssigned =
-          manager.branchIds.some(
-            (id) =>
-              id.toString() ===
-              branch._id.toString()
-          );
-
-        if (!alreadyAssigned) {
-          manager.branchIds.push(
-            branch._id
-          );
-        }
-
-        if (!manager.activeBranchId) {
-          manager.activeBranchId =
-            branch._id;
-        }
-
-        if (!manager.branchId) {
-          manager.branchId =
-            branch._id;
-        }
-
-        await manager.save();
-      }
+      );
     }
 
-    /*
-     * --------------------------------------------------------------
-     * RETURN POPULATED BRANCH
-     * --------------------------------------------------------------
-     */
+    const branch = await Branch.create({
+      businessId,
+      name: String(name).trim(),
+      code: normalizedCode,
+      address: address ? String(address).trim() : "",
+      phone: phone ? String(phone).trim() : "",
+      email: email ? String(email).trim().toLowerCase() : "",
+      managerId: assignedManagerId,
+      isMain: branchIsMain,
+      isActive: true,
+    });
 
-    const createdBranch =
-      await Branch.findById(
-        branch._id
-      ).populate(
-        "managerId",
-        "name email role"
+    /*
+     * Automatically assign a manager to the new branch.
+     */
+    if (assignedManagerId) {
+      await User.findByIdAndUpdate(
+        assignedManagerId,
+        {
+          $addToSet: {
+            branchIds: branch._id,
+          },
+          $set: {
+            branchId: branch._id,
+            activeBranchId: branch._id,
+          },
+        }
       );
+    }
+
+    await audit({
+      req,
+      action: "BRANCH_CREATED",
+      description: `Created branch ${branch.name} (${branch.code}).`,
+      branchId: branch._id,
+      metadata: {
+        branchName: branch.name,
+        branchCode: branch.code,
+      },
+    });
 
     return res.status(201).json({
       success: true,
-      message:
-        "Branch created successfully",
-      branch: createdBranch,
+      message: "Branch created successfully.",
+      data: branch,
+      branch,
     });
   } catch (error) {
-    console.error(
-      "Create branch error:",
-      error
-    );
+    console.error("Create branch error:", error);
 
-    return res.status(500).json({
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A branch with this code already exists.",
+      });
+    }
+
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: "Failed to create branch",
-      error: error.message,
+      message: error.message || "Failed to create branch.",
     });
   }
 };
@@ -333,371 +373,316 @@ const createBranch = async (req, res) => {
 |--------------------------------------------------------------------------
 | UPDATE BRANCH
 |--------------------------------------------------------------------------
+| OWNER / ADMIN / MANAGER
+|
+| Managers may only update branches assigned to them.
+|--------------------------------------------------------------------------
 */
 
-const updateBranch = async (req, res) => {
+export const updateBranch = async (req, res) => {
   try {
-    const businessId =
-      req.user.businessId;
+    const businessId = getBusinessId(req);
+    const { id } = req.params;
 
-    const {
-      name,
-      code,
-      phone,
-      address,
-      managerId,
-      isActive,
-    } = req.body;
-
-    const branch =
-      await Branch.findOne({
-        _id: req.params.id,
-        businessId,
+    if (!canManageBranches(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to update branches.",
       });
+    }
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    if (!userHasBranchAccess(req, id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update this branch.",
+      });
+    }
+
+    const branch = await Branch.findOne({
+      _id: id,
+      businessId,
+    });
 
     if (!branch) {
       return res.status(404).json({
         success: false,
-        message: "Branch not found",
+        message: "Branch not found.",
       });
     }
 
-    /*
-     * NAME
-     */
+    const {
+      name,
+      code,
+      address,
+      phone,
+      email,
+      managerId,
+      isMain,
+      isActive,
+    } = req.body || {};
+
+    const role = normalizeRole(req.user?.role);
 
     if (name !== undefined) {
       if (!String(name).trim()) {
         return res.status(400).json({
           success: false,
-          message:
-            "Branch name cannot be empty",
+          message: "Branch name cannot be empty.",
         });
       }
 
-      branch.name =
-        String(name).trim();
+      branch.name = String(name).trim();
     }
 
-    /*
-     * CODE
-     */
-
     if (code !== undefined) {
-      const normalizedCode =
-        String(code)
-          .trim()
-          .toUpperCase();
+      const normalizedCode = String(code).trim().toUpperCase();
 
       if (!normalizedCode) {
         return res.status(400).json({
           success: false,
-          message:
-            "Branch code cannot be empty",
+          message: "Branch code cannot be empty.",
         });
       }
 
-      const duplicate =
-        await Branch.findOne({
-          businessId,
-          code: normalizedCode,
-          _id: {
-            $ne: branch._id,
-          },
-        });
+      const duplicate = await Branch.findOne({
+        businessId,
+        code: normalizedCode,
+        _id: {
+          $ne: branch._id,
+        },
+      });
 
       if (duplicate) {
         return res.status(409).json({
           success: false,
-          message:
-            `Branch code "${normalizedCode}" already exists`,
+          message: "Another branch already uses this code.",
         });
       }
 
-      branch.code =
-        normalizedCode;
+      branch.code = normalizedCode;
     }
-
-    /*
-     * PHONE
-     */
-
-    if (phone !== undefined) {
-      branch.phone =
-        String(phone).trim();
-    }
-
-    /*
-     * ADDRESS
-     */
 
     if (address !== undefined) {
-      branch.address =
-        String(address).trim();
+      branch.address = String(address || "").trim();
+    }
+
+    if (phone !== undefined) {
+      branch.phone = String(phone || "").trim();
+    }
+
+    if (email !== undefined) {
+      branch.email = String(email || "").trim().toLowerCase();
     }
 
     /*
-     * MANAGER
+     * Only OWNER / ADMIN can change branch manager explicitly.
+     * Managers remain assigned to branches they manage.
      */
-
-    if (managerId !== undefined) {
-      if (managerId) {
-        const manager =
-          await User.findOne({
-            _id: managerId,
-            businessId,
-            status: "ACTIVE",
+    if (
+      managerId !== undefined &&
+      (role === "OWNER" || role === "ADMIN")
+    ) {
+      if (managerId === null || managerId === "") {
+        branch.managerId = null;
+      } else {
+        if (!isValidObjectId(managerId)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid manager ID.",
           });
+        }
+
+        const manager = await User.findOne({
+          _id: managerId,
+          businessId,
+          role: "MANAGER",
+        });
 
         if (!manager) {
           return res.status(400).json({
             success: false,
-            message:
-              "Selected manager does not belong to this business",
+            message: "Selected manager was not found in this business.",
           });
         }
 
-        if (
-          ![
-            "OWNER",
-            "ADMIN",
-            "MANAGER",
-          ].includes(manager.role)
-        ) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "Only an Owner, Admin or Manager can be assigned as a branch manager",
-          });
-        }
+        branch.managerId = manager._id;
 
-        if (!Array.isArray(manager.branchIds)) {
-          manager.branchIds = [];
-        }
-
-        const alreadyAssigned =
-          manager.branchIds.some(
-            (id) =>
-              id.toString() ===
-              branch._id.toString()
-          );
-
-        if (!alreadyAssigned) {
-          manager.branchIds.push(
-            branch._id
-          );
-        }
-
-        if (!manager.activeBranchId) {
-          manager.activeBranchId =
-            branch._id;
-        }
-
-        if (!manager.branchId) {
-          manager.branchId =
-            branch._id;
-        }
-
-        await manager.save();
+        await User.findByIdAndUpdate(
+          manager._id,
+          {
+            $addToSet: {
+              branchIds: branch._id,
+            },
+          }
+        );
       }
-
-      branch.managerId =
-        managerId || null;
     }
 
     /*
-     * ACTIVE STATUS
+     * Only OWNER / ADMIN can change main status.
      */
+    if (
+      isMain !== undefined &&
+      (role === "OWNER" || role === "ADMIN")
+    ) {
+      if (Boolean(isMain)) {
+        await Branch.updateMany(
+          {
+            businessId,
+            _id: {
+              $ne: branch._id,
+            },
+            isMain: true,
+          },
+          {
+            $set: {
+              isMain: false,
+            },
+          }
+        );
+      }
 
-    if (isActive !== undefined) {
-      branch.isActive =
-        Boolean(isActive);
+      branch.isMain = Boolean(isMain);
+    }
+
+    /*
+     * Only OWNER / ADMIN can deactivate branches.
+     */
+    if (
+      isActive !== undefined &&
+      (role === "OWNER" || role === "ADMIN")
+    ) {
+      branch.isActive = Boolean(isActive);
     }
 
     await branch.save();
 
-    const updatedBranch =
-      await Branch.findById(
-        branch._id
-      ).populate(
-        "managerId",
-        "name email role"
-      );
+    await audit({
+      req,
+      action: "BRANCH_UPDATED",
+      description: `Updated branch ${branch.name} (${branch.code}).`,
+      branchId: branch._id,
+      metadata: {
+        branchName: branch.name,
+        branchCode: branch.code,
+      },
+    });
 
-    return res.status(200).json({
+    return res.json({
       success: true,
-      message:
-        "Branch updated successfully",
-      branch: updatedBranch,
+      message: "Branch updated successfully.",
+      data: branch,
+      branch,
     });
   } catch (error) {
-    console.error(
-      "Update branch error:",
-      error
-    );
+    console.error("Update branch error:", error);
 
-    return res.status(500).json({
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A branch with this code already exists.",
+      });
+    }
+
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message:
-        "Failed to update branch",
-      error: error.message,
+      message: error.message || "Failed to update branch.",
     });
   }
 };
 
 /*
 |--------------------------------------------------------------------------
-| DELETE BRANCH
+| DELETE / DEACTIVATE BRANCH
 |--------------------------------------------------------------------------
 |
-| Deletion remains restricted to OWNER / ADMIN at the
-| route/security level.
-|
+| We use a soft delete rather than physically deleting the branch.
+| This protects historical sales, inventory, payments and reports.
+|--------------------------------------------------------------------------
 */
 
-const deleteBranch = async (req, res) => {
+export const deleteBranch = async (req, res) => {
   try {
-    if (
-      !["OWNER", "ADMIN"].includes(
-        req.user.role
-      )
-    ) {
+    const businessId = getBusinessId(req);
+    const { id } = req.params;
+
+    if (!canDeleteBranches(req)) {
       return res.status(403).json({
         success: false,
-        message:
-          "Only an Owner or Admin can delete a branch",
+        message: "Only owners and administrators can deactivate branches.",
       });
     }
 
-    const businessId =
-      req.user.businessId;
-
-    const branch =
-      await Branch.findOne({
-        _id: req.params.id,
-        businessId,
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
       });
+    }
+
+    const branch = await Branch.findOne({
+      _id: id,
+      businessId,
+    });
 
     if (!branch) {
       return res.status(404).json({
         success: false,
-        message: "Branch not found",
+        message: "Branch not found.",
       });
     }
 
-    const branchCount =
-      await Branch.countDocuments({
-        businessId,
-        isActive: true,
-      });
-
-    if (branchCount <= 1) {
+    if (branch.isMain) {
       return res.status(400).json({
         success: false,
         message:
-          "A business must have at least one active branch.",
+          "The main branch cannot be deactivated. Set another branch as the main branch first.",
       });
     }
 
-    const users =
-      await User.find({
+    branch.isActive = false;
+
+    await branch.save();
+
+    /*
+     * Remove the branch from users' assigned branch lists.
+     */
+    await User.updateMany(
+      {
         businessId,
         branchIds: branch._id,
-      });
-
-    for (const user of users) {
-      user.branchIds =
-        user.branchIds.filter(
-          (id) =>
-            id.toString() !==
-            branch._id.toString()
-        );
-
-      if (
-        user.activeBranchId &&
-        user.activeBranchId.toString() ===
-          branch._id.toString()
-      ) {
-        user.activeBranchId =
-          user.branchIds[0] || null;
+      },
+      {
+        $pull: {
+          branchIds: branch._id,
+        },
       }
-
-      if (
-        user.branchId &&
-        user.branchId.toString() ===
-          branch._id.toString()
-      ) {
-        user.branchId =
-          user.activeBranchId ||
-          user.branchIds[0] ||
-          null;
-      }
-
-      await user.save();
-    }
-
-    await Branch.findByIdAndDelete(
-      branch._id
     );
 
-    return res.status(200).json({
+    await audit({
+      req,
+      action: "BRANCH_DEACTIVATED",
+      description: `Deactivated branch ${branch.name} (${branch.code}).`,
+      branchId: branch._id,
+    });
+
+    return res.json({
       success: true,
-      message:
-        "Branch deleted successfully",
+      message: "Branch deactivated successfully.",
     });
   } catch (error) {
-    console.error(
-      "Delete branch error:",
-      error
-    );
+    console.error("Delete branch error:", error);
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message:
-        "Failed to delete branch",
-      error: error.message,
-    });
-  }
-};
-
-/*
-|--------------------------------------------------------------------------
-| GET BUSINESS USERS
-|--------------------------------------------------------------------------
-*/
-
-const getBusinessUsers = async (
-  req,
-  res
-) => {
-  try {
-    const users =
-      await User.find({
-        businessId:
-          req.user.businessId,
-        status: "ACTIVE",
-      })
-        .select(
-          "name email role phone branchId branchIds activeBranchId"
-        )
-        .sort({
-          name: 1,
-        });
-
-    return res.status(200).json({
-      success: true,
-      users,
-    });
-  } catch (error) {
-    console.error(
-      "Get business users error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Failed to load business users",
+      message: error.message || "Failed to deactivate branch.",
     });
   }
 };
@@ -706,144 +691,242 @@ const getBusinessUsers = async (
 |--------------------------------------------------------------------------
 | SWITCH ACTIVE BRANCH
 |--------------------------------------------------------------------------
+| OWNER / ADMIN / MANAGER only.
+|
+| CASHIERS and other restricted users cannot switch branches.
+|--------------------------------------------------------------------------
 */
 
-const switchBranch = async (
-  req,
-  res
-) => {
+export const switchBranch = async (req, res) => {
   try {
-    const userId =
-      req.user._id;
+    const businessId = getBusinessId(req);
+    const { branchId } = req.body || {};
 
-    const businessId =
-      req.user.businessId;
+    const role = normalizeRole(req.user?.role);
 
-    const { branchId } =
-      req.body;
-
-    if (!branchId) {
-      return res.status(400).json({
+    if (
+      role !== "OWNER" &&
+      role !== "ADMIN" &&
+      role !== "MANAGER"
+    ) {
+      return res.status(403).json({
         success: false,
-        message:
-          "Branch ID is required",
+        message: "You are not allowed to switch branches.",
       });
     }
 
-    const branch =
-      await Branch.findOne({
-        _id: branchId,
-        businessId,
-        isActive: true,
+    if (!branchId || !isValidObjectId(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid branch ID is required.",
       });
+    }
+
+    const branch = await Branch.findOne({
+      _id: branchId,
+      businessId,
+      isActive: true,
+    });
 
     if (!branch) {
       return res.status(404).json({
         success: false,
-        message:
-          "Branch not found or inactive",
+        message: "Branch not found or inactive.",
       });
     }
 
-    const user =
-      await User.findOne({
-        _id: userId,
-        businessId,
-        status: "ACTIVE",
-      });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "User account not found",
-      });
-    }
-
-    const hasBranchAccess =
-      Array.isArray(user.branchIds) &&
-      user.branchIds.some(
-        (id) =>
-          id.toString() ===
-          branch._id.toString()
-      );
-
-    const businessWideRole =
-      ["OWNER", "ADMIN"].includes(
-        user.role
-      );
-
+    /*
+     * Managers may only switch to branches assigned to them.
+     */
     if (
-      !hasBranchAccess &&
-      !businessWideRole
+      role === "MANAGER" &&
+      !getUserBranchIds(req).includes(String(branch._id))
     ) {
       return res.status(403).json({
         success: false,
-        message:
-          "You are not authorized to access this branch",
+        message: "You are not assigned to this branch.",
       });
     }
 
-    if (
-      businessWideRole &&
-      !hasBranchAccess
-    ) {
-      if (!Array.isArray(user.branchIds)) {
-        user.branchIds = [];
-      }
+    /*
+     * OWNER / ADMIN may switch to any active branch.
+     */
+    req.user.activeBranchId = branch._id;
+    req.user.branchId = branch._id;
 
-      user.branchIds.push(
-        branch._id
-      );
-    }
+    await req.user.save();
 
-    user.activeBranchId =
-      branch._id;
-
-    user.branchId =
-      branch._id;
-
-    await user.save();
-
-    const updatedUser =
-      await User.findById(
-        user._id
+    /*
+     * IMPORTANT:
+     * Do not populate/select fields that don't exist in the User model.
+     */
+    const updatedUser = await User.findById(req.user._id)
+      .select(
+        "name email role phone status businessId branchId branchIds activeBranchId"
       )
-        .select(
-          "name email role phone status businessId branchId branchIds activeBranchId"
-        )
-        .populate(
-          "activeBranchId",
-          "name code phone address isActive"
-        );
+      .lean();
 
-    return res.status(200).json({
+    await audit({
+      req,
+      action: "BRANCH_SWITCHED",
+      description: `Switched active branch to ${branch.name}.`,
+      branchId: branch._id,
+      metadata: {
+        branchName: branch.name,
+      },
+    });
+
+    return res.json({
       success: true,
-      message:
-        "Branch switched successfully",
-      branch,
+      message: `Active branch switched to ${branch.name}.`,
+      data: {
+        user: updatedUser,
+        branch,
+      },
       user: updatedUser,
+      branch,
     });
   } catch (error) {
-    console.error(
-      "Switch branch error:",
-      error
-    );
+    console.error("Switch branch error:", error);
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message:
-        "Failed to switch branch",
+      message: error.message || "Failed to switch branch.",
     });
   }
 };
 
-export {
+/*
+|--------------------------------------------------------------------------
+| GET USERS FOR A BRANCH
+|--------------------------------------------------------------------------
+|
+| OWNER / ADMIN:
+|   Can see users from any branch in their business.
+|
+| MANAGER:
+|   Can only see users belonging to their assigned branches.
+|
+| CASHIER / INVENTORY_MANAGER / ACCOUNTANT:
+|   Their route should normally be blocked by permission middleware.
+|--------------------------------------------------------------------------
+*/
+
+export const getBranchUsers = async (req, res) => {
+  try {
+    const businessId = getBusinessId(req);
+
+    /*
+     * Support both:
+     *   GET /branches/users?branchId=...
+     * and
+     *   GET /branches/:id/users
+     */
+    const branchId =
+      req.params?.id ||
+      req.query?.branchId ||
+      req.query?.branch;
+
+    if (branchId && !isValidObjectId(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    const role = normalizeRole(req.user?.role);
+
+    const filter = {
+      businessId,
+    };
+
+    if (branchId) {
+      if (!userHasBranchAccess(req, branchId)) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to view users in this branch.",
+        });
+      }
+
+      filter.branchIds = branchId;
+    } else if (role !== "OWNER" && role !== "ADMIN") {
+      /*
+       * Never return every business user to a restricted role.
+       */
+      const allowedBranchIds = getUserBranchIds(req);
+
+      if (allowedBranchIds.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          users: [],
+        });
+      }
+
+      filter.branchIds = {
+        $in: allowedBranchIds,
+      };
+    }
+
+    const users = await User.find(filter)
+      .select(
+        "name email role phone status businessId branchId branchIds activeBranchId active createdAt updatedAt"
+      )
+      .populate({
+        path: "branchIds",
+        select: "name code isActive isMain",
+      })
+      .sort({ name: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      data: users,
+      users,
+    });
+  } catch (error) {
+    console.error("Get branch users error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to load branch users.",
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| COMPATIBILITY ALIAS
+|--------------------------------------------------------------------------
+|
+| Your current branch.routes.js imports:
+|
+|     getBusinessUsers
+|
+| The newer controller uses:
+|
+|     getBranchUsers
+|
+| Exporting both keeps the existing route working without forcing you
+| to change the route file immediately.
+|--------------------------------------------------------------------------
+*/
+
+export const getBusinessUsers = getBranchUsers;
+
+/*
+|--------------------------------------------------------------------------
+| DEFAULT EXPORT
+|--------------------------------------------------------------------------
+*/
+
+export default {
   getBranches,
   getBranch,
   createBranch,
   updateBranch,
   deleteBranch,
-  getBusinessUsers,
   switchBranch,
+  getBranchUsers,
+  getBusinessUsers,
 };

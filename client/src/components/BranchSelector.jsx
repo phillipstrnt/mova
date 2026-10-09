@@ -1,274 +1,169 @@
-import {
-  Building2,
-  Check,
-  ChevronDown,
-  Loader2,
-} from "lucide-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
 
-import {
-  useBusiness,
-} from "../context/BusinessContext";
+import { useMemo } from "react";
+import { useAuth } from "../context/AuthContext";
+
+const getId = (value) => {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "object") {
+    return String(value._id || value.id || value.$oid || "");
+  }
+
+  return "";
+};
 
 const BranchSelector = () => {
   const {
+    user,
     branch,
     branches,
     switchBranch,
-    loadBranches,
     loading,
-  } = useBusiness();
+  } = useAuth();
 
-  const [open, setOpen] =
-    useState(false);
-
-  const [switching, setSwitching] =
-    useState(false);
-
-  const containerRef =
-    useRef(null);
+  const role = String(user?.role || "")
+    .trim()
+    .toUpperCase();
 
   /*
-  |--------------------------------------------------------------------------
-  | LOAD BRANCHES
-  |--------------------------------------------------------------------------
-  */
+   * Cashiers must remain in their assigned branch.
+   *
+   * OWNER / ADMIN / MANAGER may need to switch branches.
+   * Other roles only see their assigned branch as well.
+   */
+  const canSwitchBranches =
+    role === "OWNER" ||
+    role === "ADMIN" ||
+    role === "MANAGER";
 
-  useEffect(() => {
-    if (!branches.length) {
-      loadBranches().catch(() => {
-        // Error is already handled
-        // by BusinessContext.
-      });
+  const availableBranches = useMemo(() => {
+    if (!Array.isArray(branches)) {
+      return [];
     }
-  }, []);
 
-  /*
-  |--------------------------------------------------------------------------
-  | CLOSE DROPDOWN WHEN CLICKING OUTSIDE
-  |--------------------------------------------------------------------------
-  */
+    /*
+     * OWNER and ADMIN can see all branches supplied by AuthContext.
+     */
+    if (role === "OWNER" || role === "ADMIN") {
+      return branches;
+    }
 
-  useEffect(() => {
-    const handleClickOutside = (
-      event
-    ) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(
-          event.target
-        )
-      ) {
-        setOpen(false);
-      }
-    };
+    /*
+     * Other users should only see branches assigned to them.
+     */
+    const assignedBranchIds = Array.isArray(user?.branchIds)
+      ? user.branchIds.map(getId).filter(Boolean)
+      : [];
 
-    document.addEventListener(
-      "mousedown",
-      handleClickOutside
+    const legacyBranchId = getId(user?.branchId);
+
+    if (legacyBranchId && !assignedBranchIds.includes(legacyBranchId)) {
+      assignedBranchIds.push(legacyBranchId);
+    }
+
+    return branches.filter((item) =>
+      assignedBranchIds.includes(getId(item))
     );
+  }, [branches, role, user?.branchIds, user?.branchId]);
 
-    return () => {
-      document.removeEventListener(
-        "mousedown",
-        handleClickOutside
-      );
-    };
-  }, []);
+  const handleChange = async (event) => {
+    const branchId = event.target.value;
 
-  /*
-  |--------------------------------------------------------------------------
-  | SELECT BRANCH
-  |--------------------------------------------------------------------------
-  */
+    if (!branchId) {
+      return;
+    }
 
-  const handleSelect = async (
-    selectedBranch
-  ) => {
-    if (
-      !selectedBranch?._id ||
-      selectedBranch._id === branch?._id
-    ) {
-      setOpen(false);
+    if (!canSwitchBranches) {
+      return;
+    }
+
+    if (String(branchId) === getId(branch)) {
       return;
     }
 
     try {
-      setSwitching(true);
-
-      await switchBranch(
-        selectedBranch._id
-      );
-
-      setOpen(false);
-
-      /*
-       * Reload the page data so that
-       * branch-dependent modules such as
-       * dashboard, POS and inventory refresh.
-       */
-      window.dispatchEvent(
-        new CustomEvent(
-          "mova:branch-changed",
-          {
-            detail: {
-              branch:
-                selectedBranch,
-            },
-          }
-        )
-      );
+      await switchBranch(branchId);
     } catch (error) {
-      console.error(
-        "Unable to switch branch:",
-        error
-      );
-    } finally {
-      setSwitching(false);
+      console.error("Branch switch failed:", error);
     }
   };
 
+  /*
+   * No selector is necessary if the user has only one branch.
+   */
+  if (availableBranches.length <= 1) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Branch
+          </p>
+
+          <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+            {branch?.name || "No branch assigned"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * Cashiers and restricted users should not receive a branch switcher.
+   */
+  if (!canSwitchBranches) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Branch
+          </p>
+
+          <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+            {branch?.name || "No branch assigned"}
+          </p>
+
+          {role === "CASHIER" && (
+            <p className="text-[10px] text-slate-400">
+              Assigned branch
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full"
-    >
-      <button
-        type="button"
-        onClick={() =>
-          setOpen((value) => !value)
-        }
-        disabled={
-          loading ||
-          switching
-        }
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
-            {switching ? (
-              <Loader2
-                size={18}
-                className="animate-spin"
-              />
-            ) : (
-              <Building2 size={18} />
-            )}
-          </div>
+    <div className="flex items-center gap-2">
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Branch
+        </p>
 
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-              Active branch
-            </p>
-
-            <p className="truncate text-sm font-semibold text-slate-900">
-              {branch?.name ||
-                "Select branch"}
-            </p>
-          </div>
-        </div>
-
-        <ChevronDown
-          size={18}
-          className={`shrink-0 text-slate-400 transition-transform ${
-            open
-              ? "rotate-180"
-              : ""
-          }`}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Your branches
-            </p>
-          </div>
-
-          <div className="max-h-72 overflow-y-auto p-2">
-            {branches.length === 0 ? (
-              <div className="px-3 py-6 text-center">
-                <Building2
-                  size={24}
-                  className="mx-auto mb-2 text-slate-300"
-                />
-
-                <p className="text-sm font-medium text-slate-600">
-                  No branches found
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Create a branch to continue.
-                </p>
-              </div>
-            ) : (
-              branches.map(
-                (item) => {
-                  const active =
-                    item._id ===
-                    branch?._id;
-
-                  return (
-                    <button
-                      key={item._id}
-                      type="button"
-                      onClick={() =>
-                        handleSelect(
-                          item
-                        )
-                      }
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-3 text-left transition ${
-                        active
-                          ? "bg-slate-100"
-                          : "hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                            active
-                              ? "bg-slate-900 text-white"
-                              : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          <Building2
-                            size={17}
-                          />
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-800">
-                            {item.name ||
-                              "Unnamed Branch"}
-                          </p>
-
-                          {item.code && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              {item.code}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {active && (
-                        <Check
-                          size={18}
-                          className="shrink-0 text-emerald-600"
-                        />
-                      )}
-                    </button>
-                  );
-                }
-              )
-            )}
-          </div>
-        </div>
-      )}
+        <select
+          value={getId(branch)}
+          onChange={handleChange}
+          disabled={loading || availableBranches.length === 0}
+          className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-700"
+        >
+          {availableBranches.length === 0 ? (
+            <option value="">No branches</option>
+          ) : (
+            availableBranches.map((item) => (
+              <option
+                key={getId(item)}
+                value={getId(item)}
+              >
+                {item.name}
+                {item.code ? ` (${item.code})` : ""}
+              </option>
+            ))
+          )}
+        </select>
+      </div>
     </div>
   );
 };

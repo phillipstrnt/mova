@@ -1,4 +1,9 @@
+
 @import "tailwindcss";
+
+/* =========================================================
+   MOVA — PROFESSIONAL BLUE THEME
+   ========================================================= */
 
 :root {
   font-family:
@@ -11,23 +16,53 @@
     sans-serif;
 
   color: #172033;
-  background: #f7f9fc;
+  background: #f5f8ff;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 
+  /* Brand colors */
   --mova-primary: #2563eb;
   --mova-primary-dark: #1d4ed8;
-  --mova-secondary: #0f172a;
-  --mova-background: #f7f9fc;
+  --mova-primary-hover: #1e40af;
+  --mova-primary-light: #eff6ff;
+  --mova-primary-soft: #dbeafe;
+
+  /* Layout colors */
+  --mova-secondary: #334155;
+  --mova-background: #f5f8ff;
   --mova-card: #ffffff;
-  --mova-border: #e5e7eb;
+  --mova-border: #e2e8f0;
   --mova-muted: #64748b;
+  --mova-heading: #172033;
+
+  /* Status colors */
   --mova-success: #16a34a;
+  --mova-success-light: #f0fdf4;
   --mova-warning: #d97706;
+  --mova-warning-light: #fffbeb;
   --mova-danger: #dc2626;
+  --mova-danger-light: #fef2f2;
+
+  /* Sidebar colors */
+  --mova-sidebar-bg: #ffffff;
+  --mova-sidebar-text: #475569;
+  --mova-sidebar-hover: #eff6ff;
+  --mova-sidebar-active: #2563eb;
+  --mova-sidebar-active-text: #ffffff;
+
+  /* Effects */
+  --mova-radius: 12px;
+  --mova-shadow:
+    0 1px 3px rgb(15 23 42 / 5%),
+    0 4px 12px rgb(15 23 42 / 3%);
 }
+
+/* =========================================================
+   GLOBAL RESET
+   ========================================================= */
 
 * {
   box-sizing: border-box;
@@ -42,6 +77,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: var(--mova-background);
+  color: var(--mova-heading);
 }
 
 button,
@@ -53,6 +89,11 @@ textarea {
 
 button {
   cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 a {
@@ -67,4 +108,275 @@ img {
 
 #root {
   min-height: 100vh;
+}
+
+/* =========================================================
+   TEXT AND SELECTION
+   ========================================================= */
+
+::selection {
+  color: #ffffff;
+  background: var(--mova-primary);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--mova-heading);
+}
+
+p {
+  line-height: 1.6;
+}
+
+small,
+.text-muted {
+  color: var(--mova-muted);
+}
+
+/* =========================================================
+   BUTTONS
+   Apply these classes where appropriate in JSX.
+   ========================================================= */
+
+.mova-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--mova-primary);
+  border-radius: 8px;
+  background: var(--mova-primary);
+  color: #ffffff;
+  font-weight: 600;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.mova-btn-primary:hover {
+  background: var(--mova-primary-dark);
+  border-color: var(--mova-primary-dark);
+  box-shadow: 0 4px 10px rgb(37 99 235 / 18%);
+}
+
+.mova-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--mova-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 600;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.mova-btn-secondary:hover {
+  background: var(--mova-primary-light);
+  border-color: #bfdbfe;
+}
+
+/* =========================================================
+   FORMS
+   ========================================================= */
+
+input,
+select,
+textarea {
+  color: #172033;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--mova-primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+}
+
+/* =========================================================
+   REUSABLE CARDS AND PANELS
+   ========================================================= */
+
+.mova-card {
+  background: var(--mova-card);
+  border: 1px solid var(--mova-border);
+  border-radius: var(--mova-radius);
+  box-shadow: var(--mova-shadow);
+}
+
+.mova-section-title {
+  color: var(--mova-heading);
+  font-weight: 700;
+}
+
+.mova-link {
+  color: var(--mova-primary);
+  font-weight: 500;
+}
+
+.mova-link:hover {
+  color: var(--mova-primary-dark);
+}
+
+/* =========================================================
+   SCROLLBARS
+   ========================================================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 20px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* =========================================================
+   ACCESSIBILITY
+   ========================================================= */
+
+:focus-visible {
+  outline: 2px solid var(--mova-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+
+```css
+/* =========================================================
+   MOVA THEME FIX — SIDEBAR, SALES AND BUTTON READABILITY
+   ========================================================= */
+
+/* Restore light page surfaces */
+html,
+body,
+#root {
+  color: #172033;
+}
+
+/* Replace common dark sidebar and panel backgrounds */
+[class~="bg-black"],
+[class~="bg-gray-950"],
+[class~="bg-slate-950"],
+[class~="bg-gray-900"],
+[class~="bg-slate-900"],
+[class~="bg-gray-800"],
+[class~="bg-slate-800"],
+[class~="dark:bg-gray-900"],
+[class~="dark:bg-slate-900"],
+[class~="dark:bg-gray-800"],
+[class~="dark:bg-slate-800"] {
+  background-color: #ffffff !important;
+  color: #172033 !important;
+}
+
+/* Make sidebar navigation readable */
+aside a,
+aside button,
+nav a,
+nav button {
+  color: #334155;
+}
+
+/* Sidebar hover and selected navigation */
+aside a:hover,
+aside button:hover,
+nav a:hover,
+nav button:hover {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* Blue active navigation and selected buttons */
+aside a[aria-current="page"],
+nav a[aria-current="page"],
+button[aria-pressed="true"],
+[role="tab"][aria-selected="true"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #2563eb !important;
+}
+
+/* Keep text and icons readable on primary blue buttons */
+[class~="bg-blue-500"],
+[class~="bg-blue-600"],
+[class~="bg-blue-700"],
+[class~="bg-indigo-600"] {
+  color: #ffffff !important;
+}
+
+/* Ensure disabled buttons remain distinguishable */
+button:disabled {
+  opacity: 0.55;
+}
+
+/* Sales page cards and tables */
+[class~="dark:bg-gray-900"],
+[class~="dark:bg-gray-800"] {
+  background-color: #ffffff !important;
+}
+
+[class~="dark:text-white"],
+[class~="dark:text-gray-100"],
+[class~="dark:text-gray-200"] {
+  color: #172033 !important;
+}
+
+/* Preserve white text on explicitly blue buttons */
+button[class~="bg-blue-500"],
+button[class~="bg-blue-600"],
+button[class~="bg-blue-700"],
+a[class~="bg-blue-600"],
+a[class~="bg-blue-700"] {
+  color: #ffffff !important;
+}
+
+/* Light-blue focus ring for keyboard and form controls */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }

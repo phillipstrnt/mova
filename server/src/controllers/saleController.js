@@ -37,6 +37,27 @@ const VALID_SALE_STATUSES = [
 
 /*
 |--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+const getId = (value) => {
+  if (!value) return null;
+
+  if (typeof value === "object") {
+    return value._id || value.id || null;
+  }
+
+  return value;
+};
+
+const normalizeId = (value) => {
+  const id = getId(value);
+  return id ? String(id) : null;
+};
+
+/*
+|--------------------------------------------------------------------------
 | GENERATE RECEIPT NUMBER
 |--------------------------------------------------------------------------
 */
@@ -55,8 +76,7 @@ const generateReceiptNumber = () => {
   ).padStart(2, "0");
 
   const random = Math.floor(
-    100000 +
-      Math.random() * 900000
+    100000 + Math.random() * 900000
   );
 
   return `MOVA-${year}${month}${day}-${random}`;
@@ -66,64 +86,97 @@ const generateReceiptNumber = () => {
 |--------------------------------------------------------------------------
 | RESOLVE ACTIVE BRANCH
 |--------------------------------------------------------------------------
+|
+| Branch selection priority:
+|
+| 1. Explicit branch ID sent by the request.
+| 2. Authenticated user's activeBranchId.
+| 3. Authenticated user's branchId.
+|
+| Security:
+| - The branch must belong to the user's business.
+| - The branch must be active.
+| - OWNER and ADMIN can access any branch in their business.
+| - Other users must be assigned to the requested branch.
+|--------------------------------------------------------------------------
 */
 
-const resolveActiveBranch = async (req) => {
-  const businessId =
-    req.user.businessId;
+const resolveActiveBranch = async (
+  req,
+  requestedBranchId = null
+) => {
+  const businessId = getId(
+    req.user?.businessId
+  );
 
-  const activeBranchId =
-    req.user.activeBranchId ||
-    req.user.branchId;
-
-  if (!activeBranchId) {
+  if (!businessId) {
     return null;
   }
 
+  const role = String(
+    req.user?.role || ""
+  ).trim().toUpperCase();
+
+  const isOwnerOrAdmin =
+    role === "OWNER" ||
+    role === "ADMIN";
+
+  const activeBranchId =
+    requestedBranchId ||
+    req.user?.activeBranchId ||
+    req.user?.branchId ||
+    null;
+
+  const normalizedBranchId =
+    normalizeId(activeBranchId);
+
   if (
+    !normalizedBranchId ||
     !mongoose.Types.ObjectId.isValid(
-      activeBranchId
+      normalizedBranchId
     )
   ) {
     return null;
   }
 
-  const branch =
-    await Branch.findOne({
-      _id: activeBranchId,
-      businessId,
-      isActive: true,
-    });
+  /*
+  |--------------------------------------------------------------------------
+  | CHECK BRANCH PERMISSIONS
+  |--------------------------------------------------------------------------
+  */
 
-  if (!branch) {
-    return null;
+  if (!isOwnerOrAdmin) {
+    const assignedBranchIds = [
+      ...(Array.isArray(req.user?.branchIds)
+        ? req.user.branchIds.map(normalizeId)
+        : []),
+
+      normalizeId(req.user?.branchId),
+      normalizeId(req.user?.activeBranchId),
+    ].filter(Boolean);
+
+    if (
+      !assignedBranchIds.includes(
+        normalizedBranchId
+      )
+    ) {
+      return null;
+    }
   }
 
-  const isOwnerOrAdmin =
-    req.user.role === "OWNER" ||
-    req.user.role === "ADMIN";
+  /*
+  |--------------------------------------------------------------------------
+  | VERIFY BUSINESS OWNERSHIP AND ACTIVE STATUS
+  |--------------------------------------------------------------------------
+  */
 
-  if (isOwnerOrAdmin) {
-    return branch;
-  }
+  const branch = await Branch.findOne({
+    _id: normalizedBranchId,
+    businessId,
+    isActive: true,
+  });
 
-  const assignedBranches =
-    Array.isArray(req.user.branchIds)
-      ? req.user.branchIds.map(
-          (id) => String(id)
-        )
-      : [];
-
-  const hasAccess =
-    assignedBranches.includes(
-      String(branch._id)
-    );
-
-  if (!hasAccess) {
-    return null;
-  }
-
-  return branch;
+  return branch || null;
 };
 
 /*
@@ -142,15 +195,28 @@ export const createSale = async (
       discount = 0,
       paymentMethod,
       paymentTransactionId = null,
+      paymentReference = "",
       customerId = null,
       notes = "",
+      branchId: requestedBranchId = null,
+      activeBranchId: requestedActiveBranchId = null,
     } = req.body;
 
-    const businessId =
-      req.user.businessId;
+    const businessId = getId(
+      req.user?.businessId
+    );
 
-    const cashierId =
-      req.user._id;
+    const cashierId = getId(
+      req.user?._id
+    );
+
+    if (!businessId || !cashierId) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Your login session is invalid. Please sign in again.",
+      });
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -158,19 +224,21 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    const branch =
-      await resolveActiveBranch(req);
+    const branch = await resolveActiveBranch(
+      req,
+      requestedActiveBranchId ||
+        requestedBranchId
+    );
 
     if (!branch) {
       return res.status(400).json({
         success: false,
         message:
-          "No valid active branch is selected. Please select a branch before making a sale.",
+          "No valid active branch is selected, or you do not have access to the selected branch. Please select an assigned branch and try again.",
       });
     }
 
-    const branchId =
-      branch._id;
+    const branchId = branch._id;
 
     /*
     |--------------------------------------------------------------------------
@@ -202,59 +270,28 @@ export const createSale = async (
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Invalid payment method.",
+        message: "Invalid payment method.",
       });
     }
 
+    const normalizedPaymentReference =
+      typeof paymentReference === "string"
+        ? paymentReference.trim()
+        : "";
+
     /*
     |--------------------------------------------------------------------------
-    | PAYMENT TRANSACTION
+    | CARD PAYMENT TRANSACTION
+    |--------------------------------------------------------------------------
     |
-    | IMPORTANT:
-    |
-    | ONLY CARD payments use the electronic
-    | PaymentTransaction system.
-    |
-    | CASH:
-    | No transaction required.
-    |
-    | MOBILE MONEY:
-    | Cashier manually verifies payment.
-    | No transaction required.
-    |
-    | BANK:
-    | Cashier manually verifies payment.
-    | No transaction required.
-    |
-    | CARD:
-    | Must have an APPROVED PaymentTransaction.
+    | CARD can be linked to an approved PaymentTransaction when a terminal
+    | integration is used. Payment references are optional for every method.
     |--------------------------------------------------------------------------
     */
 
     let paymentTransaction = null;
 
-    if (paymentMethod === "CARD") {
-      /*
-      |--------------------------------------------------------------------------
-      | CARD TRANSACTION IS REQUIRED
-      |--------------------------------------------------------------------------
-      */
-
-      if (!paymentTransactionId) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "An approved card payment transaction is required before completing a card sale.",
-        });
-      }
-
-      /*
-      |--------------------------------------------------------------------------
-      | VALIDATE TRANSACTION ID
-      |--------------------------------------------------------------------------
-      */
-
+    if (paymentMethod === "CARD" && paymentTransactionId) {
       if (
         !mongoose.Types.ObjectId.isValid(
           paymentTransactionId
@@ -266,12 +303,6 @@ export const createSale = async (
             "Invalid card payment transaction ID.",
         });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | FIND CARD TRANSACTION
-      |--------------------------------------------------------------------------
-      */
 
       paymentTransaction =
         await PaymentTransaction.findOne({
@@ -289,15 +320,8 @@ export const createSale = async (
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | VERIFY CARD PAYMENT METHOD
-      |--------------------------------------------------------------------------
-      */
-
       if (
-        paymentTransaction.method !==
-        "CARD"
+        paymentTransaction.method !== "CARD"
       ) {
         return res.status(400).json({
           success: false,
@@ -306,15 +330,8 @@ export const createSale = async (
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | VERIFY CARD APPROVAL
-      |--------------------------------------------------------------------------
-      */
-
       if (
-        paymentTransaction.status !==
-        "APPROVED"
+        paymentTransaction.status !== "APPROVED"
       ) {
         return res.status(400).json({
           success: false,
@@ -322,21 +339,6 @@ export const createSale = async (
             `Card payment has not been approved. Current status: ${paymentTransaction.status}.`,
         });
       }
-    } else {
-      /*
-      |--------------------------------------------------------------------------
-      | NON-CARD PAYMENTS
-      |--------------------------------------------------------------------------
-      |
-      | CASH, MOBILE MONEY AND BANK DO NOT
-      | REQUIRE PaymentTransaction.
-      |
-      | The cashier is responsible for confirming
-      | that the payment has been received.
-      |--------------------------------------------------------------------------
-      */
-
-      paymentTransaction = null;
     }
 
     /*
@@ -345,13 +347,10 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    const numericDiscount =
-      Number(discount);
+    const numericDiscount = Number(discount);
 
     if (
-      !Number.isFinite(
-        numericDiscount
-      ) ||
+      !Number.isFinite(numericDiscount) ||
       numericDiscount < 0
     ) {
       return res.status(400).json({
@@ -377,17 +376,15 @@ export const createSale = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid customer ID.",
+          message: "Invalid customer ID.",
         });
       }
 
-      customer =
-        await Customer.findOne({
-          _id: customerId,
-          businessId,
-          isActive: true,
-        });
+      customer = await Customer.findOne({
+        _id: customerId,
+        businessId,
+        isActive: true,
+      });
 
       if (!customer) {
         return res.status(404).json({
@@ -400,12 +397,11 @@ export const createSale = async (
 
     /*
     |--------------------------------------------------------------------------
-    | NORMALIZE CART
+    | NORMALIZE CART AND CHECK STOCK
     |--------------------------------------------------------------------------
     */
 
     const normalizedItems = [];
-
     let subtotal = 0;
 
     for (const item of items) {
@@ -422,8 +418,7 @@ export const createSale = async (
         });
       }
 
-      const quantity =
-        Number(item.quantity);
+      const quantity = Number(item.quantity);
 
       if (
         !Number.isInteger(quantity) ||
@@ -436,12 +431,11 @@ export const createSale = async (
         });
       }
 
-      const product =
-        await Product.findOne({
-          _id: item.productId,
-          businessId,
-          isActive: true,
-        });
+      const product = await Product.findOne({
+        _id: item.productId,
+        businessId,
+        isActive: true,
+      });
 
       if (!product) {
         return res.status(404).json({
@@ -455,8 +449,7 @@ export const createSale = async (
         await ProductBranchStock.findOne({
           businessId,
           branchId,
-          productId:
-            product._id,
+          productId: product._id,
           isActive: true,
         });
 
@@ -473,53 +466,23 @@ export const createSale = async (
             isActive: true,
           });
 
-        if (
-          activeBranchCount === 1
-        ) {
-          branchStock =
-            await ProductBranchStock.create(
-              {
-                businessId,
-                branchId,
-                productId:
-                  product._id,
+        branchStock =
+          await ProductBranchStock.create({
+            businessId,
+            branchId,
+            productId: product._id,
 
-                stockQuantity:
-                  Number(
-                    product.stockQuantity ||
-                      0
-                  ),
+            stockQuantity:
+              activeBranchCount === 1
+                ? Number(product.stockQuantity || 0)
+                : 0,
 
-                minimumStock:
-                  Number(
-                    product.minimumStock ||
-                      0
-                  ),
+            minimumStock: Number(
+              product.minimumStock || 0
+            ),
 
-                isActive: true,
-              }
-            );
-        } else {
-          branchStock =
-            await ProductBranchStock.create(
-              {
-                businessId,
-                branchId,
-                productId:
-                  product._id,
-
-                stockQuantity: 0,
-
-                minimumStock:
-                  Number(
-                    product.minimumStock ||
-                      0
-                  ),
-
-                isActive: true,
-              }
-            );
-        }
+            isActive: true,
+          });
       }
 
       /*
@@ -530,9 +493,8 @@ export const createSale = async (
 
       if (
         product.trackStock &&
-        Number(
-          branchStock.stockQuantity
-        ) < quantity
+        Number(branchStock.stockQuantity) <
+          quantity
       ) {
         return res.status(400).json({
           success: false,
@@ -547,15 +509,12 @@ export const createSale = async (
       |--------------------------------------------------------------------------
       */
 
-      const unitPrice =
-        Number(
-          product.sellingPrice
-        );
+      const unitPrice = Number(
+        product.sellingPrice
+      );
 
       if (
-        !Number.isFinite(
-          unitPrice
-        ) ||
+        !Number.isFinite(unitPrice) ||
         unitPrice < 0
       ) {
         return res.status(400).json({
@@ -565,34 +524,20 @@ export const createSale = async (
         });
       }
 
-      const itemSubtotal =
-        unitPrice * quantity;
+      const itemSubtotal = unitPrice * quantity;
 
-      subtotal +=
-        itemSubtotal;
+      subtotal += itemSubtotal;
 
       normalizedItems.push({
         product,
         branchStock,
-
-        productId:
-          product._id,
-
-        name:
-          product.name,
-
-        sku:
-          product.sku,
-
+        productId: product._id,
+        name: product.name,
+        sku: product.sku,
         quantity,
-
         unitPrice,
-
-        buyingPrice:
-          product.buyingPrice,
-
-        subtotal:
-          itemSubtotal,
+        buyingPrice: product.buyingPrice,
+        subtotal: itemSubtotal,
       });
     }
 
@@ -602,10 +547,7 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    if (
-      numericDiscount >
-      subtotal
-    ) {
+    if (numericDiscount > subtotal) {
       return res.status(400).json({
         success: false,
         message:
@@ -619,24 +561,18 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    const total =
-      subtotal -
-      numericDiscount;
+    const total = subtotal - numericDiscount;
 
     /*
     |--------------------------------------------------------------------------
-    | VERIFY CARD PAYMENT AMOUNT
-    |
-    | Only CARD reaches this section because
-    | only CARD creates paymentTransaction.
+    | VERIFY CARD PAYMENT AMOUNT AND REUSE
     |--------------------------------------------------------------------------
     */
 
     if (paymentTransaction) {
       if (
-        Number(
-          paymentTransaction.amount
-        ) !== Number(total)
+        Number(paymentTransaction.amount) !==
+        Number(total)
       ) {
         return res.status(400).json({
           success: false,
@@ -645,15 +581,7 @@ export const createSale = async (
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | PREVENT REUSING A CARD TRANSACTION
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-        paymentTransaction.saleId
-      ) {
+      if (paymentTransaction.saleId) {
         return res.status(400).json({
           success: false,
           message:
@@ -668,40 +596,19 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    const saleItems =
-      normalizedItems.map(
-        (item) => ({
-          productId:
-            item.productId,
+    const saleItems = normalizedItems.map(
+      (item) => ({
+        productId: item.productId,
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        buyingPrice: item.buyingPrice,
+        subtotal: item.subtotal,
+      })
+    );
 
-          name:
-            item.name,
-
-          sku:
-            item.sku,
-
-          quantity:
-            item.quantity,
-
-          unitPrice:
-            item.unitPrice,
-
-          buyingPrice:
-            item.buyingPrice,
-
-          subtotal:
-            item.subtotal,
-        })
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | GENERATE RECEIPT
-    |--------------------------------------------------------------------------
-    */
-
-    const receiptNumber =
-      generateReceiptNumber();
+    const receiptNumber = generateReceiptNumber();
 
     /*
     |--------------------------------------------------------------------------
@@ -711,49 +618,32 @@ export const createSale = async (
 
     const inventoryEntries = [];
 
-    for (
-      const item of normalizedItems
-    ) {
-      const product =
-        item.product;
+    for (const item of normalizedItems) {
+      const product = item.product;
 
-      if (
-        !product.trackStock
-      ) {
+      if (!product.trackStock) {
         continue;
       }
 
-      const stockBefore =
-        Number(
-          item.branchStock
-            .stockQuantity
-        );
+      const stockBefore = Number(
+        item.branchStock.stockQuantity
+      );
 
       const updatedBranchStock =
         await ProductBranchStock.findOneAndUpdate(
           {
-            _id:
-              item.branchStock
-                ._id,
-
+            _id: item.branchStock._id,
             businessId,
-
             branchId,
-
-            productId:
-              product._id,
-
+            productId: product._id,
             isActive: true,
-
             stockQuantity: {
-              $gte:
-                item.quantity,
+              $gte: item.quantity,
             },
           },
           {
             $inc: {
-              stockQuantity:
-                -item.quantity,
+              stockQuantity: -item.quantity,
             },
           },
           {
@@ -761,9 +651,32 @@ export const createSale = async (
           }
         );
 
-      if (
-        !updatedBranchStock
-      ) {
+      if (!updatedBranchStock) {
+        /*
+         * Restore any earlier stock deductions from this request.
+         */
+        for (const previous of normalizedItems) {
+          if (
+            previous.product.trackStock &&
+            previous.product._id.toString() !==
+              product._id.toString()
+          ) {
+            await ProductBranchStock.updateOne(
+              {
+                _id: previous.branchStock._id,
+                businessId,
+                branchId,
+                productId: previous.product._id,
+              },
+              {
+                $inc: {
+                  stockQuantity: previous.quantity,
+                },
+              }
+            );
+          }
+        }
+
         return res.status(400).json({
           success: false,
           message:
@@ -773,32 +686,15 @@ export const createSale = async (
 
       inventoryEntries.push({
         businessId,
-
         branchId,
-
-        productId:
-          product._id,
-
-        userId:
-          cashierId,
-
-        type:
-          "SALE",
-
-        quantity:
-          item.quantity,
-
+        productId: product._id,
+        userId: cashierId,
+        type: "SALE",
+        quantity: item.quantity,
         stockBefore,
-
-        stockAfter:
-          updatedBranchStock.stockQuantity,
-
-        reason:
-          "Product sold",
-
-        referenceType:
-          "SALE",
-
+        stockAfter: updatedBranchStock.stockQuantity,
+        reason: "Product sold",
+        referenceType: "SALE",
         notes:
           `Sale of ${item.quantity} ${product.unit}(s) at ${branch.name}.`,
       });
@@ -813,80 +709,45 @@ export const createSale = async (
     let sale;
 
     try {
-      sale =
-        await Sale.create({
-          businessId,
+      sale = await Sale.create({
+        businessId,
+        branchId,
+        cashierId,
 
-          branchId,
+        customerId: customer
+          ? customer._id
+          : null,
 
-          cashierId,
+        receiptNumber,
+        items: saleItems,
+        subtotal,
+        discount: numericDiscount,
+        total,
+        paymentMethod,
+        paymentStatus: "PAID",
+        status: "COMPLETED",
 
-          customerId:
-            customer
-              ? customer._id
-              : null,
-
-          receiptNumber,
-
-          items:
-            saleItems,
-
-          subtotal,
-
-          discount:
-            numericDiscount,
-
-          total,
-
-          paymentMethod,
-
-          paymentStatus:
-            "PAID",
-
-          status:
-            "COMPLETED",
-
-          notes:
-            typeof notes ===
-            "string"
-              ? notes.trim()
-              : "",
-        });
+        notes:
+          typeof notes === "string"
+            ? notes.trim()
+            : "",
+      });
     } catch (saleError) {
-      /*
-      |--------------------------------------------------------------------------
-      | ROLLBACK STOCK
-      |--------------------------------------------------------------------------
-      */
-
-      for (
-        const item of normalizedItems
-      ) {
-        if (
-          !item.product
-            .trackStock
-        ) {
+      for (const item of normalizedItems) {
+        if (!item.product.trackStock) {
           continue;
         }
 
         await ProductBranchStock.updateOne(
           {
-            _id:
-              item.branchStock
-                ._id,
-
+            _id: item.branchStock._id,
             businessId,
-
             branchId,
-
-            productId:
-              item.product
-                ._id,
+            productId: item.product._id,
           },
           {
             $inc: {
-              stockQuantity:
-                item.quantity,
+              stockQuantity: item.quantity,
             },
           }
         );
@@ -902,55 +763,39 @@ export const createSale = async (
     */
 
     try {
-      for (
-        const entry of
-          inventoryEntries
-      ) {
-        await InventoryTransaction.create(
-          {
-            ...entry,
-
-            referenceId:
-              sale._id,
-          }
-        );
+      for (const entry of inventoryEntries) {
+        await InventoryTransaction.create({
+          ...entry,
+          referenceId: sale._id,
+        });
       }
     } catch (inventoryError) {
       await Sale.deleteOne({
-        _id:
-          sale._id,
-
+        _id: sale._id,
         businessId,
       });
 
-      for (
-        const item of normalizedItems
-      ) {
-        if (
-          !item.product
-            .trackStock
-        ) {
+      await InventoryTransaction.deleteMany({
+        referenceId: sale._id,
+        businessId,
+        branchId,
+      });
+
+      for (const item of normalizedItems) {
+        if (!item.product.trackStock) {
           continue;
         }
 
         await ProductBranchStock.updateOne(
           {
-            _id:
-              item.branchStock
-                ._id,
-
+            _id: item.branchStock._id,
             businessId,
-
             branchId,
-
-            productId:
-              item.product
-                ._id,
+            productId: item.product._id,
           },
           {
             $inc: {
-              stockQuantity:
-                item.quantity,
+              stockQuantity: item.quantity,
             },
           }
         );
@@ -964,121 +809,69 @@ export const createSale = async (
     | CREATE PAYMENT
     |--------------------------------------------------------------------------
     |
-    | All payment methods create a completed
-    | Payment record.
-    |
-    | The difference is:
-    |
-    | CARD -> linked to PaymentTransaction.
-    | CASH -> manually received by cashier.
-    | MOBILE_MONEY -> manually verified by cashier.
-    | BANK -> manually verified by cashier.
+    | Every payment method creates a completed Payment record.
+    | Only CARD is linked to a PaymentTransaction.
     |--------------------------------------------------------------------------
     */
 
     let payment;
 
     try {
-      payment =
-        await Payment.create({
-          businessId,
+      payment = await Payment.create({
+        businessId,
+        branchId,
+        saleId: sale._id,
 
-          branchId,
+        customerId: customer
+          ? customer._id
+          : null,
 
-          saleId:
-            sale._id,
+        receivedBy: cashierId,
+        amount: total,
+        paymentMethod,
 
-          customerId:
-            customer
-              ? customer._id
-              : null,
+        reference: paymentTransaction
+          ? paymentTransaction.transactionReference ||
+            paymentTransaction.providerReference ||
+            normalizedPaymentReference
+          : normalizedPaymentReference,
 
-          receivedBy:
-            cashierId,
-
-          amount:
-            total,
-
-          paymentMethod,
-
-          reference:
-            paymentTransaction
-              ? paymentTransaction
-                  .transactionReference ||
-                paymentTransaction
-                  .providerReference ||
-                ""
-              : "",
-
-          notes:
-            `Payment for receipt ${receiptNumber}`,
-
-          status:
-            "COMPLETED",
-
-          paymentDate:
-            new Date(),
-        });
+        notes: `Payment for receipt ${receiptNumber}`,
+        status: "COMPLETED",
+        paymentDate: new Date(),
+      });
     } catch (paymentError) {
-      /*
-      |--------------------------------------------------------------------------
-      | ROLLBACK PAYMENT FAILURE
-      |--------------------------------------------------------------------------
-      */
-
       await Payment.deleteMany({
-        saleId:
-          sale._id,
-
+        saleId: sale._id,
         businessId,
       });
 
-      await InventoryTransaction.deleteMany(
-        {
-          referenceId:
-            sale._id,
-
-          businessId,
-
-          branchId,
-        }
-      );
+      await InventoryTransaction.deleteMany({
+        referenceId: sale._id,
+        businessId,
+        branchId,
+      });
 
       await Sale.deleteOne({
-        _id:
-          sale._id,
-
+        _id: sale._id,
         businessId,
       });
 
-      for (
-        const item of normalizedItems
-      ) {
-        if (
-          !item.product
-            .trackStock
-        ) {
+      for (const item of normalizedItems) {
+        if (!item.product.trackStock) {
           continue;
         }
 
         await ProductBranchStock.updateOne(
           {
-            _id:
-              item.branchStock
-                ._id,
-
+            _id: item.branchStock._id,
             businessId,
-
             branchId,
-
-            productId:
-              item.product
-                ._id,
+            productId: item.product._id,
           },
           {
             $inc: {
-              stockQuantity:
-                item.quantity,
+              stockQuantity: item.quantity,
             },
           }
         );
@@ -1091,40 +884,76 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     | LINK CARD TRANSACTION TO SALE
     |--------------------------------------------------------------------------
-    |
-    | This executes ONLY for CARD.
-    |--------------------------------------------------------------------------
     */
 
     if (paymentTransaction) {
-      await PaymentTransaction.updateOne(
-        {
-          _id:
-            paymentTransaction._id,
-
-          businessId,
-
-          branchId,
-
-          cashierId,
-
-          status:
-            "APPROVED",
-
-          saleId: null,
-        },
-        {
-          $set: {
-            saleId:
-              sale._id,
-
-            verifiedAt:
-              paymentTransaction
-                .verifiedAt ||
-              new Date(),
+      const linkedTransaction =
+        await PaymentTransaction.updateOne(
+          {
+            _id: paymentTransaction._id,
+            businessId,
+            branchId,
+            cashierId,
+            status: "APPROVED",
+            saleId: null,
           },
+          {
+            $set: {
+              saleId: sale._id,
+              verifiedAt:
+                paymentTransaction.verifiedAt ||
+                new Date(),
+            },
+          }
+        );
+
+      if (linkedTransaction.modifiedCount !== 1) {
+        /*
+         * Do not silently report success if the card transaction
+         * could not be linked to this sale.
+         */
+        await Payment.deleteMany({
+          saleId: sale._id,
+          businessId,
+        });
+
+        await InventoryTransaction.deleteMany({
+          referenceId: sale._id,
+          businessId,
+          branchId,
+        });
+
+        await Sale.deleteOne({
+          _id: sale._id,
+          businessId,
+        });
+
+        for (const item of normalizedItems) {
+          if (!item.product.trackStock) {
+            continue;
+          }
+
+          await ProductBranchStock.updateOne(
+            {
+              _id: item.branchStock._id,
+              businessId,
+              branchId,
+              productId: item.product._id,
+            },
+            {
+              $inc: {
+                stockQuantity: item.quantity,
+              },
+            }
+          );
         }
-      );
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "The card payment transaction has already been used or changed. Please verify the payment status before trying again.",
+        });
+      }
     }
 
     /*
@@ -1136,18 +965,13 @@ export const createSale = async (
     if (customer) {
       await Customer.updateOne(
         {
-          _id:
-            customer._id,
-
+          _id: customer._id,
           businessId,
         },
         {
           $inc: {
-            totalOrders:
-              1,
-
-            totalSpent:
-              total,
+            totalOrders: 1,
+            totalSpent: total,
           },
         }
       );
@@ -1161,107 +985,52 @@ export const createSale = async (
 
     return res.status(201).json({
       success: true,
-
-      message:
-        "Sale completed successfully.",
+      message: "Sale completed successfully.",
 
       sale: {
-        id:
-          sale._id,
-
-        receiptNumber:
-          sale.receiptNumber,
-
-        businessId:
-          sale.businessId,
-
-        branchId:
-          sale.branchId,
-
-        customerId:
-          sale.customerId,
-
-        items:
-          sale.items,
-
-        subtotal:
-          sale.subtotal,
-
-        discount:
-          sale.discount,
-
-        total:
-          sale.total,
-
-        paymentMethod:
-          sale.paymentMethod,
-
-        paymentStatus:
-          sale.paymentStatus,
-
-        status:
-          sale.status,
-
-        createdAt:
-          sale.createdAt,
+        id: sale._id,
+        receiptNumber: sale.receiptNumber,
+        businessId: sale.businessId,
+        branchId: sale.branchId,
+        customerId: sale.customerId,
+        items: sale.items,
+        subtotal: sale.subtotal,
+        discount: sale.discount,
+        total: sale.total,
+        paymentMethod: sale.paymentMethod,
+        paymentStatus: sale.paymentStatus,
+        status: sale.status,
+        createdAt: sale.createdAt,
       },
 
       payment: {
-        id:
-          payment._id,
-
-        saleId:
-          payment.saleId,
-
-        amount:
-          payment.amount,
-
-        paymentMethod:
-          payment.paymentMethod,
-
-        status:
-          payment.status,
-
-        reference:
-          payment.reference,
-
-        paymentDate:
-          payment.paymentDate,
+        id: payment._id,
+        saleId: payment.saleId,
+        amount: payment.amount,
+        paymentMethod: payment.paymentMethod,
+        status: payment.status,
+        reference: payment.reference,
+        paymentDate: payment.paymentDate,
       },
 
-      paymentTransaction:
-        paymentTransaction
-          ? {
-              id:
-                paymentTransaction._id,
-
-              transactionReference:
-                paymentTransaction.transactionReference,
-
-              provider:
-                paymentTransaction.provider,
-
-              status:
-                paymentTransaction.status,
-            }
-          : null,
+      paymentTransaction: paymentTransaction
+        ? {
+            id: paymentTransaction._id,
+            transactionReference:
+              paymentTransaction.transactionReference,
+            provider: paymentTransaction.provider,
+            status: paymentTransaction.status,
+          }
+        : null,
 
       branch: {
-        id:
-          branch._id,
-
-        name:
-          branch.name,
-
-        code:
-          branch.code,
+        id: branch._id,
+        name: branch.name,
+        code: branch.code,
       },
     });
   } catch (error) {
-    console.error(
-      "Create sale error:",
-      error
-    );
+    console.error("Create sale error:", error);
 
     return res.status(500).json({
       success: false,
@@ -1278,10 +1047,7 @@ export const createSale = async (
 |--------------------------------------------------------------------------
 */
 
-export const getSales = async (
-  req,
-  res
-) => {
+export const getSales = async (req, res) => {
   try {
     const {
       search = "",
@@ -1294,15 +1060,17 @@ export const getSales = async (
       limit = 20,
       startDate,
       endDate,
+      branchId: requestedBranchId,
     } = req.query;
 
-    const businessId =
-      req.user.businessId;
+    const businessId = getId(
+      req.user?.businessId
+    );
 
-    const branch =
-      await resolveActiveBranch(
-        req
-      );
+    const branch = await resolveActiveBranch(
+      req,
+      requestedBranchId
+    );
 
     if (!branch) {
       return res.status(400).json({
@@ -1312,8 +1080,7 @@ export const getSales = async (
       });
     }
 
-    const branchId =
-      branch._id;
+    const branchId = branch._id;
 
     const filter = {
       businessId,
@@ -1325,9 +1092,7 @@ export const getSales = async (
       search.trim()
     ) {
       filter.receiptNumber = {
-        $regex:
-          search.trim(),
-
+        $regex: search.trim(),
         $options: "i",
       };
     }
@@ -1340,13 +1105,11 @@ export const getSales = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid payment method.",
+          message: "Invalid payment method.",
         });
       }
 
-      filter.paymentMethod =
-        paymentMethod;
+      filter.paymentMethod = paymentMethod;
     }
 
     if (paymentStatus) {
@@ -1357,30 +1120,24 @@ export const getSales = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid payment status.",
+          message: "Invalid payment status.",
         });
       }
 
-      filter.paymentStatus =
-        paymentStatus;
+      filter.paymentStatus = paymentStatus;
     }
 
     if (status) {
       if (
-        !VALID_SALE_STATUSES.includes(
-          status
-        )
+        !VALID_SALE_STATUSES.includes(status)
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid sale status.",
+          message: "Invalid sale status.",
         });
       }
 
-      filter.status =
-        status;
+      filter.status = status;
     }
 
     if (cashierId) {
@@ -1391,13 +1148,11 @@ export const getSales = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid cashier ID.",
+          message: "Invalid cashier ID.",
         });
       }
 
-      filter.cashierId =
-        cashierId;
+      filter.cashierId = cashierId;
     }
 
     if (customerId) {
@@ -1408,171 +1163,95 @@ export const getSales = async (
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid customer ID.",
+          message: "Invalid customer ID.",
         });
       }
 
-      filter.customerId =
-        customerId;
+      filter.customerId = customerId;
     }
 
-    if (
-      startDate ||
-      endDate
-    ) {
+    if (startDate || endDate) {
       filter.createdAt = {};
 
       if (startDate) {
-        const start =
-          new Date(
-            `${startDate}T00:00:00`
-          );
+        const start = new Date(
+          `${startDate}T00:00:00`
+        );
 
-        if (
-          Number.isNaN(
-            start.getTime()
-          )
-        ) {
+        if (Number.isNaN(start.getTime())) {
           return res.status(400).json({
             success: false,
-            message:
-              "Invalid start date.",
+            message: "Invalid start date.",
           });
         }
 
-        filter.createdAt.$gte =
-          start;
+        filter.createdAt.$gte = start;
       }
 
       if (endDate) {
-        const end =
-          new Date(
-            `${endDate}T23:59:59.999`
-          );
+        const end = new Date(
+          `${endDate}T23:59:59.999`
+        );
 
-        if (
-          Number.isNaN(
-            end.getTime()
-          )
-        ) {
+        if (Number.isNaN(end.getTime())) {
           return res.status(400).json({
             success: false,
-            message:
-              "Invalid end date.",
+            message: "Invalid end date.",
           });
         }
 
-        filter.createdAt.$lte =
-          end;
+        filter.createdAt.$lte = end;
       }
     }
 
-    const parsedPage =
-      Number(page);
+    const parsedPage = Number(page);
+    const parsedLimit = Number(limit);
 
-    const parsedLimit =
-      Number(limit);
+    const pageNumber = Number.isFinite(parsedPage)
+      ? Math.max(parsedPage, 1)
+      : 1;
 
-    const pageNumber =
-      Number.isFinite(
-        parsedPage
-      )
-        ? Math.max(
-            parsedPage,
-            1
-          )
-        : 1;
+    const limitNumber = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 100)
+      : 20;
 
-    const limitNumber =
-      Number.isFinite(
-        parsedLimit
-      )
-        ? Math.min(
-            Math.max(
-              parsedLimit,
-              1
-            ),
-            100
-          )
-        : 20;
+    const skip = (pageNumber - 1) * limitNumber;
 
-    const skip =
-      (pageNumber - 1) *
-      limitNumber;
-
-    const [
-      sales,
-      total,
-    ] = await Promise.all([
+    const [sales, total] = await Promise.all([
       Sale.find(filter)
-        .populate(
-          "cashierId",
-          "name email role"
-        )
-        .populate(
-          "customerId",
-          "name phone email"
-        )
-        .populate(
-          "branchId",
-          "name code phone address"
-        )
-        .sort({
-          createdAt: -1,
-        })
+        .populate("cashierId", "name email role")
+        .populate("customerId", "name phone email")
+        .populate("branchId", "name code phone address")
+        .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(
-          limitNumber
-        ),
+        .limit(limitNumber),
 
-      Sale.countDocuments(
-        filter
-      ),
+      Sale.countDocuments(filter),
     ]);
 
     return res.json({
       success: true,
-
       sales,
 
       branch: {
-        id:
-          branch._id,
-
-        name:
-          branch.name,
-
-        code:
-          branch.code,
+        id: branch._id,
+        name: branch.name,
+        code: branch.code,
       },
 
       pagination: {
-        page:
-          pageNumber,
-
-        limit:
-          limitNumber,
-
+        page: pageNumber,
+        limit: limitNumber,
         total,
-
-        pages:
-          Math.ceil(
-            total /
-              limitNumber
-          ),
+        pages: Math.ceil(total / limitNumber),
       },
     });
   } catch (error) {
-    console.error(
-      "Get sales error:",
-      error
-    );
+    console.error("Get sales error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to fetch sales.",
+      message: "Failed to fetch sales.",
     });
   }
 };
@@ -1583,162 +1262,108 @@ export const getSales = async (
 |--------------------------------------------------------------------------
 */
 
-export const getSaleById =
-  async (
-    req,
-    res
-  ) => {
-    try {
-      const { id } =
-        req.params;
+export const getSaleById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { branchId: requestedBranchId } = req.query;
 
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          id
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid sale ID.",
-        });
-      }
-
-      const branch =
-        await resolveActiveBranch(
-          req
-        );
-
-      if (!branch) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "No valid active branch is selected.",
-        });
-      }
-
-      const sale =
-        await Sale.findOne({
-          _id: id,
-
-          businessId:
-            req.user.businessId,
-
-          branchId:
-            branch._id,
-        })
-          .populate(
-            "cashierId",
-            "name email role"
-          )
-          .populate(
-            "customerId",
-            "name phone email address"
-          )
-          .populate(
-            "branchId",
-            "name code phone address"
-          );
-
-      if (!sale) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Sale not found in the selected branch.",
-        });
-      }
-
-      const payments =
-        await Payment.find({
-          businessId:
-            req.user.businessId,
-
-          branchId:
-            branch._id,
-
-          saleId:
-            sale._id,
-        })
-          .populate(
-            "receivedBy",
-            "name email role"
-          )
-          .sort({
-            paymentDate: -1,
-          });
-
-      const completedPayments =
-        payments.filter(
-          (payment) =>
-            payment.status ===
-            "COMPLETED"
-        );
-
-      const totalPaid =
-        completedPayments.reduce(
-          (
-            sum,
-            payment
-          ) =>
-            sum +
-            Number(
-              payment.amount
-            ),
-          0
-        );
-
-      const balance =
-        Math.max(
-          sale.total -
-            totalPaid,
-          0
-        );
-
-      const calculatedPaymentStatus =
-        balance === 0
-          ? "PAID"
-          : "PENDING";
-
-      return res.json({
-        success: true,
-
-        sale,
-
-        payments,
-
-        branch: {
-          id:
-            branch._id,
-
-          name:
-            branch.name,
-
-          code:
-            branch.code,
-        },
-
-        paymentSummary: {
-          saleTotal:
-            sale.total,
-
-          totalPaid,
-
-          balance,
-
-          paymentStatus:
-            calculatedPaymentStatus,
-        },
-      });
-    } catch (error) {
-      console.error(
-        "Get sale error:",
-        error
-      );
-
-      return res.status(500).json({
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
         success: false,
-        message:
-          "Failed to fetch sale.",
+        message: "Invalid sale ID.",
       });
     }
-  };
+
+    const branch = await resolveActiveBranch(
+      req,
+      requestedBranchId
+    );
+
+    if (!branch) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No valid active branch is selected.",
+      });
+    }
+
+    const businessId = getId(
+      req.user?.businessId
+    );
+
+    const sale = await Sale.findOne({
+      _id: id,
+      businessId,
+      branchId: branch._id,
+    })
+      .populate("cashierId", "name email role")
+      .populate(
+        "customerId",
+        "name phone email address"
+      )
+      .populate(
+        "branchId",
+        "name code phone address"
+      );
+
+    if (!sale) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Sale not found in the selected branch.",
+      });
+    }
+
+    const payments = await Payment.find({
+      businessId,
+      branchId: branch._id,
+      saleId: sale._id,
+    })
+      .populate("receivedBy", "name email role")
+      .sort({ paymentDate: -1 });
+
+    const completedPayments = payments.filter(
+      (payment) => payment.status === "COMPLETED"
+    );
+
+    const totalPaid = completedPayments.reduce(
+      (sum, payment) =>
+        sum + Number(payment.amount),
+      0
+    );
+
+    const balance = Math.max(
+      sale.total - totalPaid,
+      0
+    );
+
+    const calculatedPaymentStatus =
+      balance === 0 ? "PAID" : "PENDING";
+
+    return res.json({
+      success: true,
+      sale,
+      payments,
+
+      branch: {
+        id: branch._id,
+        name: branch.name,
+        code: branch.code,
+      },
+
+      paymentSummary: {
+        saleTotal: sale.total,
+        totalPaid,
+        balance,
+        paymentStatus: calculatedPaymentStatus,
+      },
+    });
+  } catch (error) {
+    console.error("Get sale error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch sale.",
+    });
+  }
+};

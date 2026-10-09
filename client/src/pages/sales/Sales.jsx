@@ -1,17 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-
-import api from "../../services/api";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   Download,
   Eye,
-  Package,
+  FileText,
+  Loader2,
   Printer,
   RefreshCw,
   RotateCcw,
@@ -20,62 +18,48 @@ import {
   X,
 } from "lucide-react";
 
-const paymentLabels = {
-  CASH: "Cash",
-  MOBILE_MONEY: "Mobile Money",
-  CARD: "Card",
-  BANK: "Bank",
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+import api from "../../services/api";
+import { useBusiness } from "../../context/BusinessContext";
+
+const getId = (value) => {
+  if (!value) return "";
+
+  if (typeof value === "object") {
+    return value?._id || value?.id || "";
+  }
+
+  return String(value);
 };
 
-const paymentClasses = {
-  CASH: "bg-emerald-50 text-emerald-700",
-  MOBILE_MONEY: "bg-blue-50 text-blue-700",
-  CARD: "bg-violet-50 text-violet-700",
-  BANK: "bg-amber-50 text-amber-700",
+const isValidMongoId = (value) => {
+  if (!value) return false;
+
+  return /^[a-f\d]{24}$/i.test(String(value));
 };
 
-const statusClasses = {
-  COMPLETED: "bg-emerald-50 text-emerald-700",
-  CANCELLED: "bg-red-50 text-red-700",
-  PARTIALLY_REFUNDED: "bg-orange-50 text-orange-700",
-  REFUNDED: "bg-purple-50 text-purple-700",
-};
+const formatCurrency = (value) => {
+  const amount = Number(value || 0);
 
-const refundMethods = [
-  {
-    value: "CASH",
-    label: "Cash",
-  },
-  {
-    value: "MOBILE_MONEY",
-    label: "Mobile Money",
-  },
-  {
-    value: "CARD",
-    label: "Card",
-  },
-  {
-    value: "BANK",
-    label: "Bank",
-  },
-  {
-    value: "STORE_CREDIT",
-    label: "Store Credit",
-  },
-];
-
-const formatCurrency = (amount = 0) => {
   return new Intl.NumberFormat("en-UG", {
     style: "currency",
     currency: "UGX",
     maximumFractionDigits: 0,
-  }).format(Number(amount) || 0);
+  }).format(amount);
 };
 
-const formatDate = (date) => {
-  if (!date) return "-";
+const formatDate = (value) => {
+  if (!value) return "—";
 
-  return new Date(date).toLocaleString("en-UG", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("en-UG", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -84,821 +68,1168 @@ const formatDate = (date) => {
   });
 };
 
-const getErrorMessage = (error, fallback) => {
+const getErrorMessage = (
+  error,
+  fallback = "Something went wrong."
+) => {
   return (
     error?.response?.data?.message ||
+    error?.response?.data?.error ||
     error?.message ||
     fallback
   );
 };
 
-const escapeHtml = (value) =>
-  String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+const getSaleId = (sale) => {
+  return sale?._id || sale?.id || "";
+};
 
-const getReceiptCustomer = (sale) => {
-  const customer = sale?.customer;
+const getSaleNumber = (sale) => {
+  return (
+    sale?.invoiceNumber ||
+    sale?.receiptNumber ||
+    sale?.saleNumber ||
+    sale?.reference ||
+    sale?.invoiceNo ||
+    (getSaleId(sale)
+      ? `SALE-${String(getSaleId(sale)).slice(-8).toUpperCase()}`
+      : "SALE")
+  );
+};
 
-  const name =
-    customer?.name ||
-    customer?.customerName ||
+const getCustomerName = (sale) => {
+  return (
+    sale?.customer?.name ||
+    sale?.customer?.fullName ||
     sale?.customerName ||
-    "";
-
-  const phone =
-    customer?.phone ||
-    customer?.phoneNumber ||
-    sale?.customerPhone ||
-    "";
-
-  return { name, phone };
+    sale?.customer?.phone ||
+    "Walk-in Customer"
+  );
 };
 
-const getReceiptPaymentDetails = (sale) => {
-  const amountPaid =
-    sale?.amountPaid ??
-    sale?.paidAmount ??
-    sale?.paymentAmount;
-
-  const change =
-    sale?.change ??
-    sale?.changeAmount;
-
-  return {
-    hasAmountPaid: amountPaid !== undefined && amountPaid !== null && amountPaid !== "",
-    hasChange: change !== undefined && change !== null && change !== "",
-    amountPaid: Number(amountPaid) || 0,
-    change: Number(change) || 0,
-  };
+const getPaymentMethod = (sale) => {
+  return (
+    sale?.paymentMethod ||
+    sale?.payment?.method ||
+    sale?.payments?.[0]?.method ||
+    "—"
+  );
 };
 
-/*
- * IMPORTANT:
- *
- * Sale.items.productId is the actual MongoDB Product _id.
- *
- * We deliberately DO NOT use item._id because the Sale
- * schema has _id: false on sale items.
- */
-const getProductId = (item) => {
-  if (!item) return "";
-
-  const productId = item.productId;
-
-  if (!productId) {
-    return "";
-  }
-
-  if (typeof productId === "string") {
-    return productId;
-  }
-
-  if (typeof productId === "object") {
-    if (typeof productId._id === "string") {
-      return productId._id;
-    }
-
-    if (productId._id) {
-      return String(productId._id);
-    }
-
-    if (typeof productId.$oid === "string") {
-      return productId.$oid;
-    }
-  }
-
-  return "";
+const getSaleStatus = (sale) => {
+  return String(
+    sale?.status || "COMPLETED"
+  ).toUpperCase();
 };
 
-/*
- * Basic MongoDB ObjectId validation on the frontend.
- *
- * The backend performs the authoritative validation.
- */
-const isValidObjectId = (value) => {
-  return /^[a-fA-F0-9]{24}$/.test(
-    String(value || "")
+const getSaleTotal = (sale) => {
+  return Number(
+    sale?.grandTotal ??
+      sale?.totalAmount ??
+      sale?.total ??
+      sale?.amount ??
+      sale?.netTotal ??
+      0
+  );
+};
+
+const getSaleItems = (sale) => {
+  return Array.isArray(sale?.items)
+    ? sale.items
+    : [];
+};
+
+const getItemName = (item) => {
+  return (
+    item?.product?.name ||
+    item?.productName ||
+    item?.name ||
+    "Unknown Product"
+  );
+};
+
+const getItemQuantity = (item) => {
+  return Number(
+    item?.quantity ??
+      item?.qty ??
+      0
+  );
+};
+
+const getItemPrice = (item) => {
+  return Number(
+    item?.sellingPrice ??
+      item?.unitPrice ??
+      item?.price ??
+      item?.salePrice ??
+      0
+  );
+};
+
+const getItemTotal = (item) => {
+  return (
+    getItemQuantity(item) *
+    getItemPrice(item)
   );
 };
 
 const Sales = () => {
+  const {
+    branch,
+    activeBranchId: contextActiveBranchId,
+    user,
+  } = useBusiness();
+
+  const activeBranchId = useMemo(() => {
+    return String(
+      getId(contextActiveBranchId) ||
+        getId(branch) ||
+        ""
+    );
+  }, [contextActiveBranchId, branch]);
+
+  const userRole = String(
+    user?.role || ""
+  ).toUpperCase();
+
+  const branchRequired =
+    Boolean(user) &&
+    !["OWNER", "ADMIN"].includes(userRole);
+
+  const hasValidBranch =
+    !branchRequired ||
+    isValidMongoId(activeBranchId);
+
+  const activeBranchName =
+    branch?.name ||
+    branch?.branchName ||
+    branch?.code ||
+    "No branch selected";
+
   const [sales, setSales] = useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [error, setError] = useState("");
-
-  const [search, setSearch] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-
-  const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [totalSales, setTotalSales] = useState(0);
-
-  const [selectedSale, setSelectedSale] = useState(null);
-  const [loadingSale, setLoadingSale] = useState(false);
-
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnSale, setReturnSale] = useState(null);
-
-  const [returnableItems, setReturnableItems] = useState([]);
-  const [loadingReturnItems, setLoadingReturnItems] =
+  const [refreshing, setRefreshing] =
     useState(false);
 
-  const [returnQuantities, setReturnQuantities] = useState({});
+  const [error, setError] =
+    useState("");
 
-  const [refundMethod, setRefundMethod] =
-    useState("CASH");
+  const [search, setSearch] =
+    useState("");
 
-  const [returnReason, setReturnReason] = useState("");
+  const [paymentFilter, setPaymentFilter] =
+    useState("ALL");
 
-  const [returnNotes, setReturnNotes] = useState("");
+  const [statusFilter, setStatusFilter] =
+    useState("ALL");
+
+  const [page, setPage] =
+    useState(1);
+
+  const [pageSize] =
+    useState(10);
+
+  const [totalSales, setTotalSales] =
+    useState(0);
+
+  const [totalPages, setTotalPages] =
+    useState(1);
+
+  const [selectedSale, setSelectedSale] =
+    useState(null);
+
+  const [showSaleModal, setShowSaleModal] =
+    useState(false);
+
+  const [showReturnModal, setShowReturnModal] =
+    useState(false);
+
+  const [returnSale, setReturnSale] =
+    useState(null);
+
+  const [returnItems, setReturnItems] =
+    useState([]);
+
+  const [returnReason, setReturnReason] =
+    useState("");
+
+  const [returnType, setReturnType] =
+    useState("REFUND");
 
   const [returnSubmitting, setReturnSubmitting] =
     useState(false);
 
-  const [returnSuccess, setReturnSuccess] =
-    useState(null);
-
-  const [receiptActionMessage, setReceiptActionMessage] =
-    useState("");
-
-  const pageSize = 10;
-
-  const fetchSales = async (showLoader = true) => {
-    try {
-      if (showLoader) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
-      }
-
-      setError("");
-
-      const params = {
-        page,
-        limit: pageSize,
-      };
-
-      if (search.trim()) {
-        params.search = search.trim();
-      }
-
-      if (paymentFilter !== "ALL") {
-        params.paymentMethod = paymentFilter;
-      }
-
-      if (statusFilter !== "ALL") {
-        params.status = statusFilter;
-      }
-
-      const response = await api.get("/sales", {
-        params,
-      });
-
-      const data = response.data;
-
-      setSales(
-        Array.isArray(data.sales)
-          ? data.sales
-          : []
-      );
-
-      setTotalSales(
-        data.pagination?.total ||
-          data.total ||
-          data.count ||
-          0
-      );
-
-      setPages(
-        data.pagination?.pages ||
-          data.pages ||
-          1
-      );
-    } catch (requestError) {
-      console.error(
-        "Failed to load sales:",
-        requestError
-      );
-
-      setError(
-        getErrorMessage(
-          requestError,
-          "Failed to load sales."
-        )
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  const ensureBranchContext = useCallback(() => {
+    if (!branchRequired) {
+      return true;
     }
-  };
+
+    if (!activeBranchId) {
+      setError(
+        "No valid active branch is selected. Please select a branch or ask an administrator to assign a branch to your account."
+      );
+
+      return false;
+    }
+
+    if (!isValidMongoId(activeBranchId)) {
+      setError(
+        "The active branch is invalid. Please sign out and sign in again, or ask an administrator to assign a valid branch."
+      );
+
+      return false;
+    }
+
+    return true;
+  }, [
+    activeBranchId,
+    branchRequired,
+  ]);
+
+  const fetchSales = useCallback(
+    async (showRefresh = false) => {
+      if (
+        branchRequired &&
+        !isValidMongoId(activeBranchId)
+      ) {
+        setLoading(false);
+        setRefreshing(false);
+        setSales([]);
+        setTotalSales(0);
+        setTotalPages(1);
+
+        setError(
+          "No valid active branch is selected. Please select a branch or ask an administrator to assign a branch to your account."
+        );
+
+        return;
+      }
+
+      if (showRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      try {
+        setError("");
+
+        const params = {
+          page,
+          limit: pageSize,
+        };
+
+        if (activeBranchId) {
+          params.branchId = activeBranchId;
+        }
+
+        if (search.trim()) {
+          params.search = search.trim();
+        }
+
+        if (paymentFilter !== "ALL") {
+          params.paymentMethod =
+            paymentFilter;
+        }
+
+        if (statusFilter !== "ALL") {
+          params.status = statusFilter;
+        }
+
+        const response = await api.get(
+          "/sales",
+          {
+            params,
+          }
+        );
+
+        const data =
+          response?.data || {};
+
+        const loadedSales =
+          Array.isArray(data.sales)
+            ? data.sales
+            : Array.isArray(data.data)
+            ? data.data
+            : Array.isArray(data)
+            ? data
+            : [];
+
+        setSales(loadedSales);
+
+        const pagination =
+          data.pagination || {};
+
+        const total =
+          Number(
+            pagination.total ??
+              data.total ??
+              data.totalSales ??
+              loadedSales.length
+          ) || 0;
+
+        const pages =
+          Number(
+            pagination.pages ??
+              pagination.totalPages ??
+              data.pages ??
+              Math.ceil(
+                total / pageSize
+              )
+          ) || 1;
+
+        setTotalSales(total);
+
+        setTotalPages(
+          Math.max(1, pages)
+        );
+      } catch (requestError) {
+        console.error(
+          "Unable to load sales:",
+          requestError
+        );
+
+        setSales([]);
+        setTotalSales(0);
+        setTotalPages(1);
+
+        setError(
+          getErrorMessage(
+            requestError,
+            "Unable to load sales. Please try again."
+          )
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [
+      activeBranchId,
+      branchRequired,
+      page,
+      pageSize,
+      paymentFilter,
+      search,
+      statusFilter,
+    ]
+  );
 
   useEffect(() => {
-    fetchSales();
-  }, [page, paymentFilter, statusFilter]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1);
-      fetchSales();
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  const visibleSales = useMemo(() => {
-    return Array.isArray(sales) ? sales : [];
-  }, [sales]);
-
-  const summary = useMemo(() => {
-    const totalAmount = visibleSales.reduce(
-      (sum, sale) =>
-        sum + Number(sale.total || 0),
-      0
+    const timer = setTimeout(
+      () => {
+        fetchSales();
+      },
+      search.trim() ? 350 : 0
     );
 
-    const completed = visibleSales.filter(
-      (sale) => sale.status === "COMPLETED"
-    ).length;
+    return () =>
+      clearTimeout(timer);
+  }, [fetchSales, search]);
 
-    const refunded = visibleSales.filter(
-      (sale) =>
-        sale.status === "REFUNDED" ||
-        sale.status === "PARTIALLY_REFUNDED"
-    ).length;
+  useEffect(() => {
+    setPage(1);
+  }, [
+    paymentFilter,
+    statusFilter,
+  ]);
 
-    return {
-      totalAmount,
-      completed,
-      refunded,
-    };
-  }, [visibleSales]);
+  const handleViewSale = async (
+    sale
+  ) => {
+    const saleId =
+      getSaleId(sale);
 
-  const handleViewSale = async (saleId) => {
+    if (!saleId) {
+      setError(
+        "This sale does not have a valid ID."
+      );
+
+      return;
+    }
+
+    if (!ensureBranchContext()) {
+      return;
+    }
+
     try {
-      setLoadingSale(true);
       setError("");
 
-      const response = await api.get(
-        `/sales/${saleId}`
-      );
+      const params = {};
+
+      if (activeBranchId) {
+        params.branchId =
+          activeBranchId;
+      }
+
+      const response =
+        await api.get(
+          `/sales/${saleId}`,
+          {
+            params,
+          }
+        );
+
+      const loadedSale =
+        response?.data?.sale ||
+        response?.data?.data ||
+        response?.data ||
+        sale;
 
       setSelectedSale(
-        response.data.sale ||
-          response.data
+        loadedSale
       );
+
+      setShowSaleModal(true);
     } catch (requestError) {
       console.error(
-        "Failed to load sale:",
+        "Unable to load sale:",
         requestError
       );
 
       setError(
         getErrorMessage(
           requestError,
-          "Failed to load sale details."
+          "Unable to load the selected sale."
         )
       );
-    } finally {
-      setLoadingSale(false);
     }
   };
 
-  const buildReceiptHtml = (sale) => {
-    const customer = getReceiptCustomer(sale);
-    const paymentDetails = getReceiptPaymentDetails(sale);
+  const closeSaleModal = () => {
+    setShowSaleModal(false);
+    setSelectedSale(null);
+  };
 
-    const customerHtml =
-      customer.name || customer.phone
-        ? `
-          <div>
-            <strong>Customer:</strong>
-            ${escapeHtml(customer.name || "Walk-in Customer")}
-          </div>
-          ${
-            customer.phone
-              ? `<div><strong>Phone:</strong> ${escapeHtml(customer.phone)}</div>`
-              : ""
-          }
-        `
-        : "";
+  const handlePrintReceipt = (
+    sale
+  ) => {
+    const saleNumber =
+      getSaleNumber(sale);
 
-    const paymentDetailsHtml =
-      paymentDetails.hasAmountPaid || paymentDetails.hasChange
-        ? `
-          <hr />
-          ${
-            paymentDetails.hasAmountPaid
-              ? `<div class="row"><span>Amount Paid</span><span>${formatCurrency(paymentDetails.amountPaid)}</span></div>`
-              : ""
-          }
-          ${
-            paymentDetails.hasChange
-              ? `<div class="row"><span>Change</span><span>${formatCurrency(paymentDetails.change)}</span></div>`
-              : ""
-          }
-        `
-        : "";
+    const customerName =
+      getCustomerName(sale);
 
-    const itemsHtml = (sale.items || [])
+    const items =
+      getSaleItems(sale);
+
+    const printWindow =
+      window.open(
+        "",
+        "_blank",
+        "width=450,height=700"
+      );
+
+    if (!printWindow) {
+      setError(
+        "Unable to open the print window. Please allow pop-ups for MOVA."
+      );
+
+      return;
+    }
+
+    const rows = items
       .map(
         (item) => `
           <tr>
-            <td>${escapeHtml(item.name || "-")}</td>
-            <td style="text-align:center;">${Number(item.quantity) || 0}</td>
-            <td style="text-align:right;">${formatCurrency(item.subtotal)}</td>
+            <td>${getItemName(
+              item
+            )}</td>
+
+            <td style="text-align:center">
+              ${getItemQuantity(
+                item
+              )}
+            </td>
+
+            <td style="text-align:right">
+              ${formatCurrency(
+                getItemPrice(item)
+              )}
+            </td>
+
+            <td style="text-align:right">
+              ${formatCurrency(
+                getItemTotal(item)
+              )}
+            </td>
           </tr>
         `
       )
       .join("");
 
-    return `
+    printWindow.document.write(`
       <!DOCTYPE html>
+
       <html>
         <head>
-          <meta charset="UTF-8" />
-          <title>Receipt ${escapeHtml(sale.receiptNumber || "")}</title>
+          <title>
+            MOVA Receipt - ${saleNumber}
+          </title>
+
           <style>
-            * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; background: #fff; }
-            .receipt { max-width: 420px; margin: 0 auto; }
-            h1 { text-align: center; margin: 0 0 4px; font-size: 28px; }
-            .center { text-align: center; }
-            .muted { color: #6b7280; }
-            .meta { line-height: 1.7; font-size: 13px; }
-            hr { border: 0; border-top: 1px dashed #9ca3af; margin: 16px 0; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 8px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-            th { text-align: left; color: #4b5563; }
-            .row { display: flex; justify-content: space-between; gap: 20px; margin: 8px 0; font-size: 14px; }
-            .total { font-size: 18px; font-weight: bold; }
-            .footer { margin-top: 20px; text-align: center; color: #6b7280; font-size: 12px; }
-            @media print { body { padding: 8px; } .receipt { max-width: 100%; } }
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 20px;
+              color: #111827;
+              background: #ffffff;
+            }
+
+            .receipt {
+              width: 100%;
+              max-width: 420px;
+              margin: 0 auto;
+            }
+
+            h1 {
+              margin: 0;
+              text-align: center;
+              font-size: 25px;
+            }
+
+            .subtitle {
+              margin-top: 4px;
+              text-align: center;
+              color: #6b7280;
+              font-size: 13px;
+            }
+
+            .divider {
+              margin: 15px 0;
+              border-top: 1px dashed #9ca3af;
+            }
+
+            .meta {
+              font-size: 13px;
+              line-height: 1.8;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 12px;
+            }
+
+            th {
+              padding-bottom: 8px;
+              border-bottom: 1px solid #d1d5db;
+              text-align: left;
+            }
+
+            td {
+              padding: 7px 0;
+              vertical-align: top;
+            }
+
+            .total {
+              display: flex;
+              justify-content: space-between;
+              font-size: 18px;
+              font-weight: bold;
+              margin-top: 12px;
+            }
+
+            .footer {
+              margin-top: 25px;
+              text-align: center;
+              font-size: 12px;
+              color: #6b7280;
+              line-height: 1.6;
+            }
+
+            @media print {
+              body {
+                padding: 0;
+              }
+            }
           </style>
         </head>
+
         <body>
           <div class="receipt">
+
             <h1>MOVA</h1>
-            <div class="center muted">Business Management Platform</div>
-            <hr />
-            <div class="meta">
-              <div><strong>Receipt:</strong> ${escapeHtml(sale.receiptNumber || "-")}</div>
-              <div><strong>Date:</strong> ${escapeHtml(formatDate(sale.createdAt))}</div>
-              <div><strong>Payment:</strong> ${escapeHtml(paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-")}</div>
-              ${customerHtml}
+
+            <div class="subtitle">
+              Business Management Platform
             </div>
-            <hr />
+
+            <div class="divider"></div>
+
+            <div class="meta">
+              <div>
+                <strong>Receipt:</strong>
+                ${saleNumber}
+              </div>
+
+              <div>
+                <strong>Date:</strong>
+                ${formatDate(
+                  sale?.createdAt ||
+                    sale?.date
+                )}
+              </div>
+
+              <div>
+                <strong>Customer:</strong>
+                ${customerName}
+              </div>
+
+              <div>
+                <strong>Payment:</strong>
+                ${getPaymentMethod(
+                  sale
+                )}
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
             <table>
               <thead>
                 <tr>
                   <th>Item</th>
-                  <th style="text-align:center;">Qty</th>
-                  <th style="text-align:right;">Amount</th>
+                  <th style="text-align:center">
+                    Qty
+                  </th>
+                  <th style="text-align:right">
+                    Price
+                  </th>
+                  <th style="text-align:right">
+                    Total
+                  </th>
                 </tr>
               </thead>
-              <tbody>${itemsHtml}</tbody>
+
+              <tbody>
+                ${rows}
+              </tbody>
             </table>
-            <hr />
-            <div class="row"><span>Subtotal</span><span>${formatCurrency(sale.subtotal)}</span></div>
-            <div class="row"><span>Discount</span><span>${formatCurrency(sale.discount)}</span></div>
-            <div class="row total"><span>Total</span><span>${formatCurrency(sale.total)}</span></div>
-            ${paymentDetailsHtml}
-            <div class="footer">Thank you for your business.</div>
+
+            <div class="divider"></div>
+
+            <div class="total">
+              <span>Total</span>
+
+              <span>
+                ${formatCurrency(
+                  getSaleTotal(sale)
+                )}
+              </span>
+            </div>
+
+            <div class="footer">
+              Thank you for your business.
+
+              <br />
+
+              Powered by MOVA.
+            </div>
+
           </div>
+
+          <script>
+            window.onload = function () {
+              window.print();
+
+              setTimeout(function () {
+                window.close();
+              }, 500);
+            };
+          </script>
+
         </body>
       </html>
-    `;
+    `);
+
+    printWindow.document.close();
   };
 
-  const createReceiptPdf = (sale) => {
-    const doc = new jsPDF({
-      unit: "mm",
-      format: "a4",
-    });
-
-    const customer = getReceiptCustomer(sale);
-    const paymentDetails = getReceiptPaymentDetails(sale);
-    const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 18;
-
-    doc.setFontSize(22);
-    doc.setFont(undefined, "bold");
-    doc.text("MOVA", pageWidth / 2, y, { align: "center" });
-
-    y += 7;
-    doc.setFontSize(10);
-    doc.setFont(undefined, "normal");
-    doc.text("Business Management Platform", pageWidth / 2, y, { align: "center" });
-
-    y += 10;
-    doc.setFontSize(9);
-    doc.text(`Receipt: ${sale.receiptNumber || "-"}`, 14, y);
-    y += 5;
-    doc.text(`Date: ${formatDate(sale.createdAt)}`, 14, y);
-    y += 5;
-    doc.text(`Payment: ${paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-"}`, 14, y);
-
-    if (customer.name || customer.phone) {
-      y += 5;
-      doc.text(`Customer: ${customer.name || "Walk-in Customer"}`, 14, y);
-      if (customer.phone) {
-        y += 5;
-        doc.text(`Phone: ${customer.phone}`, 14, y);
-      }
-    }
-
-    const rows = (sale.items || []).map((item) => [
-      item.name || "-",
-      Number(item.quantity) || 0,
-      formatCurrency(item.unitPrice),
-      formatCurrency(item.subtotal),
-    ]);
-
-    autoTable(doc, {
-      startY: y + 7,
-      head: [["Item", "Qty", "Unit Price", "Amount"]],
-      body: rows,
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        cellPadding: 2.5,
-      },
-      headStyles: {
-        fontStyle: "bold",
-      },
-      columnStyles: {
-        1: { halign: "center", cellWidth: 16 },
-        2: { halign: "right", cellWidth: 32 },
-        3: { halign: "right", cellWidth: 32 },
-      },
-      margin: { left: 14, right: 14 },
-    });
-
-    y = (doc.lastAutoTable?.finalY || y + 20) + 10;
-
-    const totals = [
-      ["Subtotal", formatCurrency(sale.subtotal)],
-      ["Discount", formatCurrency(sale.discount)],
-      ["Total", formatCurrency(sale.total)],
-    ];
-
-    if (paymentDetails.hasAmountPaid) {
-      totals.push(["Amount Paid", formatCurrency(paymentDetails.amountPaid)]);
-    }
-
-    if (paymentDetails.hasChange) {
-      totals.push(["Change", formatCurrency(paymentDetails.change)]);
-    }
-
-    totals.forEach(([label, value], index) => {
-      const isTotal = label === "Total";
-      doc.setFont(undefined, isTotal ? "bold" : "normal");
-      doc.setFontSize(isTotal ? 11 : 9);
-      doc.text(label, pageWidth - 80, y);
-      doc.text(value, pageWidth - 14, y, { align: "right" });
-      y += isTotal ? 7 : 5;
-    });
-
-    y += 7;
-    doc.setFont(undefined, "normal");
-    doc.setFontSize(9);
-    doc.text("Thank you for your business.", pageWidth / 2, y, { align: "center" });
-
-    return doc;
-  };
-
-  const handlePrintReceipt = (sale) => {
-    if (!sale) return;
-
-    const receiptWindow = window.open(
-      "",
-      "_blank",
-      "width=500,height=700"
-    );
-
-    if (!receiptWindow) {
-      setReceiptActionMessage("Please allow pop-ups to print the receipt.");
-      return;
-    }
-
-    receiptWindow.document.write(buildReceiptHtml(sale));
-    receiptWindow.document.close();
-    receiptWindow.focus();
-
-    setTimeout(() => {
-      receiptWindow.print();
-    }, 300);
-  };
-
-  const handleDownloadReceipt = (sale) => {
-    if (!sale) return;
-
+  const handleDownloadPdf = (
+    sale
+  ) => {
     try {
-      const doc = createReceiptPdf(sale);
-      const receiptName = sale.receiptNumber || sale._id || "receipt";
-      doc.save(`MOVA_Receipt_${receiptName}.pdf`);
-      setReceiptActionMessage("Receipt PDF downloaded successfully.");
-    } catch (requestError) {
-      console.error("Failed to create receipt PDF:", requestError);
-      setReceiptActionMessage("Unable to create the receipt PDF.");
-    }
-  };
+      const doc =
+        new jsPDF();
 
-  const handleShareReceipt = async (sale) => {
-    if (!sale) return;
+      const saleNumber =
+        getSaleNumber(sale);
 
-    try {
-      const doc = createReceiptPdf(sale);
-      const pdfBlob = doc.output("blob");
-      const receiptName = `MOVA_Receipt_${sale.receiptNumber || sale._id || "receipt"}.pdf`;
-      const file = new File([pdfBlob], receiptName, {
-        type: "application/pdf",
-      });
-
-      const shareText = [
-        `MOVA Receipt: ${sale.receiptNumber || "-"}`,
-        `Date: ${formatDate(sale.createdAt)}`,
-        `Total: ${formatCurrency(sale.total)}`,
-        `Payment: ${paymentLabels[sale.paymentMethod] || sale.paymentMethod || "-"}`,
-      ].join("\n");
-
-      if (navigator.share) {
-        if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({
-            title: `MOVA Receipt ${sale.receiptNumber || ""}`.trim(),
-            text: shareText,
-            files: [file],
-          });
-        } else {
-          await navigator.share({
-            title: `MOVA Receipt ${sale.receiptNumber || ""}`.trim(),
-            text: shareText,
-          });
-        }
-
-        setReceiptActionMessage("Receipt sharing opened successfully.");
-        return;
-      }
-
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText);
-        setReceiptActionMessage("Receipt summary copied to the clipboard.");
-        return;
-      }
-
-      doc.save(receiptName);
-      setReceiptActionMessage("Sharing is unavailable, so the receipt PDF was downloaded instead.");
-    } catch (requestError) {
-      if (requestError?.name === "AbortError") {
-        return;
-      }
-
-      console.error("Failed to share receipt:", requestError);
-      setReceiptActionMessage("Unable to share the receipt.");
-    }
-  };
-
-  const openReturnModal = async (sale) => {
-    if (!sale?._id) {
-      setError(
-        "This sale does not have a valid sale ID."
-      );
-      return;
-    }
-
-    try {
-      setReturnSale(sale);
-      setReturnSuccess(null);
-      setReturnReason("");
-      setReturnNotes("");
-      setRefundMethod("CASH");
-      setReturnQuantities({});
-      setReturnableItems([]);
-      setError("");
-      setShowReturnModal(true);
-      setLoadingReturnItems(true);
-
-      const response = await api.get(
-        `/returns/sale/${sale._id}`
-      );
+      const customerName =
+        getCustomerName(sale);
 
       const items =
-        response.data.items ||
-        response.data.returnableItems ||
-        [];
+        getSaleItems(sale);
 
-      /*
-       * Normalize the response.
-       *
-       * We do not create an ID when the backend
-       * doesn't provide one.
-       */
-      const normalizedItems = Array.isArray(items)
-        ? items.map((item) => {
-            const productId =
-              getProductId(item);
+      doc.setFontSize(20);
+      doc.text(
+        "MOVA",
+        14,
+        18
+      );
 
-            return {
-              ...item,
-              productId,
-              invalidProductId:
-                !isValidObjectId(productId),
-            };
-          })
-        : [];
+      doc.setFontSize(10);
 
-      setReturnableItems(normalizedItems);
+      doc.text(
+        "Business Management Platform",
+        14,
+        25
+      );
+
+      doc.setFontSize(12);
+
+      doc.text(
+        `Receipt: ${saleNumber}`,
+        14,
+        36
+      );
+
+      doc.text(
+        `Date: ${formatDate(
+          sale?.createdAt ||
+            sale?.date
+        )}`,
+        14,
+        43
+      );
+
+      doc.text(
+        `Customer: ${customerName}`,
+        14,
+        50
+      );
+
+      doc.text(
+        `Payment: ${getPaymentMethod(
+          sale
+        )}`,
+        14,
+        57
+      );
+
+      const rows =
+        items.map(
+          (item) => [
+            getItemName(item),
+            String(
+              getItemQuantity(item)
+            ),
+            formatCurrency(
+              getItemPrice(item)
+            ),
+            formatCurrency(
+              getItemTotal(item)
+            ),
+          ]
+        );
+
+      autoTable(doc, {
+        startY: 65,
+
+        head: [
+          [
+            "Product",
+            "Qty",
+            "Unit Price",
+            "Amount",
+          ],
+        ],
+
+        body: rows,
+
+        styles: {
+          fontSize: 9,
+        },
+      });
+
+      const finalY =
+        doc.lastAutoTable?.finalY ||
+        80;
+
+      doc.setFontSize(13);
+
+      doc.text(
+        `Total: ${formatCurrency(
+          getSaleTotal(sale)
+        )}`,
+        14,
+        finalY + 15
+      );
+
+      doc.setFontSize(9);
+
+      doc.text(
+        "Powered by MOVA",
+        14,
+        finalY + 25
+      );
+
+      doc.save(
+        `MOVA-${saleNumber}.pdf`
+      );
     } catch (requestError) {
       console.error(
-        "Failed to load returnable items:",
+        "Unable to generate PDF:",
         requestError
       );
 
-      setReturnableItems([]);
+      setError(
+        "Unable to generate the receipt PDF."
+      );
+    }
+  };
+
+  const handleShareReceipt = async (
+    sale
+  ) => {
+    const saleNumber =
+      getSaleNumber(sale);
+
+    const shareText = [
+      "MOVA",
+      "Business Management Platform",
+      "",
+      `Receipt: ${saleNumber}`,
+      `Customer: ${getCustomerName(
+        sale
+      )}`,
+      `Payment: ${getPaymentMethod(
+        sale
+      )}`,
+      `Total: ${formatCurrency(
+        getSaleTotal(sale)
+      )}`,
+      `Date: ${formatDate(
+        sale?.createdAt ||
+          sale?.date
+      )}`,
+    ].join("\n");
+
+    try {
+      if (
+        navigator.share
+      ) {
+        await navigator.share({
+          title: `MOVA Receipt ${saleNumber}`,
+          text: shareText,
+        });
+
+        return;
+      }
+
+      if (
+        navigator.clipboard
+      ) {
+        await navigator.clipboard.writeText(
+          shareText
+        );
+
+        setError(
+          "Receipt details copied to clipboard."
+        );
+
+        setTimeout(() => {
+          setError("");
+        }, 2500);
+
+        return;
+      }
+
+      setError(
+        "Sharing is not supported on this device."
+      );
+    } catch (shareError) {
+      if (
+        shareError?.name !==
+        "AbortError"
+      ) {
+        console.error(
+          "Unable to share receipt:",
+          shareError
+        );
+
+        setError(
+          "Unable to share this receipt."
+        );
+      }
+    }
+  };
+
+  const openReturnModal = async (
+    sale
+  ) => {
+    const saleId =
+      getSaleId(sale);
+
+    if (!saleId) {
+      setError(
+        "This sale does not have a valid ID."
+      );
+
+      return;
+    }
+
+    if (!ensureBranchContext()) {
+      return;
+    }
+
+    try {
+      setError("");
+
+      const params = {};
+
+      if (activeBranchId) {
+        params.branchId =
+          activeBranchId;
+      }
+
+      const response =
+        await api.get(
+          `/returns/sale/${saleId}`,
+          {
+            params,
+          }
+        );
+
+      const loadedSale =
+        response?.data?.sale ||
+        response?.data?.data ||
+        response?.data ||
+        sale;
+
+      const items =
+        getSaleItems(
+          loadedSale
+        );
+
+      setReturnSale(
+        loadedSale
+      );
+
+      setReturnItems(
+        items.map(
+          (item) => ({
+            productId:
+              item?.productId ||
+              item?.product?._id ||
+              item?.product?.id ||
+              "",
+
+            productName:
+              getItemName(item),
+
+            quantity:
+              getItemQuantity(
+                item
+              ),
+
+            returnQuantity: 0,
+
+            unitPrice:
+              getItemPrice(item),
+
+            maxReturnQuantity:
+              getItemQuantity(
+                item
+              ),
+          })
+        )
+      );
+
+      setReturnReason("");
+      setReturnType("REFUND");
+
+      setShowReturnModal(true);
+    } catch (requestError) {
+      console.error(
+        "Unable to load return information:",
+        requestError
+      );
+
+      const items =
+        getSaleItems(sale);
+
+      if (items.length > 0) {
+        setReturnSale(sale);
+
+        setReturnItems(
+          items.map(
+            (item) => ({
+              productId:
+                item?.productId ||
+                item?.product?._id ||
+                item?.product?.id ||
+                "",
+
+              productName:
+                getItemName(item),
+
+              quantity:
+                getItemQuantity(
+                  item
+                ),
+
+              returnQuantity: 0,
+
+              unitPrice:
+                getItemPrice(item),
+
+              maxReturnQuantity:
+                getItemQuantity(
+                  item
+                ),
+            })
+          )
+        );
+
+        setReturnReason("");
+        setReturnType("REFUND");
+
+        setShowReturnModal(true);
+
+        return;
+      }
 
       setError(
         getErrorMessage(
           requestError,
-          "Unable to load returnable items."
+          "Unable to prepare this sale for return."
         )
       );
-    } finally {
-      setLoadingReturnItems(false);
     }
   };
 
   const closeReturnModal = () => {
-    if (returnSubmitting) return;
+    if (returnSubmitting) {
+      return;
+    }
 
     setShowReturnModal(false);
     setReturnSale(null);
-    setReturnableItems([]);
-    setReturnQuantities({});
-    setReturnSuccess(null);
+    setReturnItems([]);
     setReturnReason("");
-    setReturnNotes("");
-    setRefundMethod("CASH");
+    setReturnType("REFUND");
   };
 
   const updateReturnQuantity = (
-    productId,
-    value,
-    max
+    index,
+    value
   ) => {
-    if (!isValidObjectId(productId)) {
+    const numericValue =
+      Math.max(
+        0,
+        Number(value || 0)
+      );
+
+    setReturnItems(
+      (currentItems) =>
+        currentItems.map(
+          (item, itemIndex) => {
+            if (
+              itemIndex !==
+              index
+            ) {
+              return item;
+            }
+
+            return {
+              ...item,
+
+              returnQuantity:
+                Math.min(
+                  numericValue,
+                  Number(
+                    item.maxReturnQuantity ||
+                      0
+                  )
+                ),
+            };
+          }
+        )
+    );
+  };
+
+  const submitReturn = async () => {
+    if (!returnSale) {
+      setError(
+        "No sale has been selected for return."
+      );
+
       return;
     }
 
-    let quantity = Number(value);
-
-    if (Number.isNaN(quantity)) {
-      quantity = 0;
+    if (!ensureBranchContext()) {
+      return;
     }
 
-    quantity = Math.max(
-      0,
-      Math.min(quantity, max)
-    );
+    const saleId =
+      getSaleId(returnSale);
 
-    setReturnQuantities((current) => ({
-      ...current,
-      [productId]: quantity,
-    }));
-  };
-
-  const getReturnQuantity = (item) => {
-    const productId =
-      getProductId(item);
-
-    if (!isValidObjectId(productId)) {
-      return 0;
-    }
-
-    return Number(
-      returnQuantities[productId] || 0
-    );
-  };
-
-  const selectedReturnItems = useMemo(() => {
-    return returnableItems
-      .map((item) => {
-        /*
-         * ONLY productId is accepted.
-         *
-         * We intentionally do NOT fall back to:
-         * item._id
-         */
-        const productId =
-          getProductId(item);
-
-        const quantity =
-          Number(
-            returnQuantities[productId] || 0
-          );
-
-        const maxQuantity =
-          Number(
-            item.returnableQuantity ??
-              item.quantity ??
-              0
-          );
-
-        return {
-          ...item,
-          productId,
-          quantity: Math.min(
-            Math.max(quantity, 0),
-            maxQuantity
-          ),
-        };
-      })
-      .filter(
-        (item) =>
-          isValidObjectId(item.productId) &&
-          item.quantity > 0
-      );
-  }, [
-    returnableItems,
-    returnQuantities,
-  ]);
-
-  const invalidReturnItems = useMemo(() => {
-    return returnableItems.filter(
-      (item) =>
-        !isValidObjectId(
-          getProductId(item)
-        )
-    );
-  }, [returnableItems]);
-
-  const returnTotal = useMemo(() => {
-    return selectedReturnItems.reduce(
-      (sum, item) => {
-        const price =
-          Number(
-            item.unitPrice ||
-              item.sellingPrice ||
-              0
-          );
-
-        return (
-          sum +
-          price * item.quantity
-        );
-      },
-      0
-    );
-  }, [selectedReturnItems]);
-
-  const submitReturn = async (event) => {
-    event.preventDefault();
-
-    if (!returnSale?._id) {
+    if (!saleId) {
       setError(
         "The selected sale does not have a valid ID."
       );
+
       return;
     }
+
+    const selectedItems =
+      returnItems
+        .filter(
+          (item) =>
+            Number(
+              item.returnQuantity ||
+                0
+            ) > 0
+        )
+        .map(
+          (item) => ({
+            productId:
+              item.productId,
+
+            quantity:
+              Number(
+                item.returnQuantity
+              ),
+
+            unitPrice:
+              Number(
+                item.unitPrice ||
+                  0
+              ),
+          })
+        );
 
     if (
-      selectedReturnItems.length === 0
+      selectedItems.length ===
+      0
     ) {
       setError(
-        "Select at least one valid item to return."
+        "Please select at least one item to return."
       );
+
       return;
     }
 
-    if (!returnReason.trim()) {
-      setError(
-        "Please provide a reason for the return."
-      );
-      return;
-    }
-
-    /*
-     * Final frontend validation before sending
-     * anything to the backend.
-     */
-    const invalidSelectedItem =
-      selectedReturnItems.find(
+    const invalidItem =
+      selectedItems.find(
         (item) =>
-          !isValidObjectId(
-            item.productId
-          )
+          !item.productId
       );
 
-    if (invalidSelectedItem) {
+    if (invalidItem) {
       setError(
-        "One or more returned items have an invalid product ID. Please close and reopen the return window."
+        "One or more selected products do not have a valid product ID."
       );
+
       return;
     }
 
@@ -907,58 +1238,86 @@ const Sales = () => {
       setError("");
 
       const payload = {
-        saleId: returnSale._id,
+        saleId,
 
-        items: selectedReturnItems.map(
-          (item) => ({
-            productId: String(
-              item.productId
-            ),
-            quantity: Number(
-              item.quantity
-            ),
-          })
-        ),
+        items:
+          selectedItems,
 
-        refundMethod,
+        reason:
+          returnReason.trim() ||
+          "Customer return",
 
-        reason: returnReason.trim(),
+        type: returnType,
 
-        notes: returnNotes.trim(),
+        ...(activeBranchId
+          ? {
+              branchId:
+                activeBranchId,
+            }
+          : {}),
       };
 
-      console.log(
-        "RETURN PAYLOAD:",
-        payload
-      );
+      const requestConfig =
+        activeBranchId
+          ? {
+              params: {
+                branchId:
+                  activeBranchId,
+              },
+            }
+          : undefined;
 
-      const response = await api.post(
+      await api.post(
         "/returns",
-        payload
+        payload,
+        requestConfig
       );
 
-      setReturnSuccess(
-        response.data.return ||
-          response.data
-      );
+      setShowReturnModal(false);
+      setReturnSale(null);
+      setReturnItems([]);
+      setReturnReason("");
+      setReturnType("REFUND");
 
-      await fetchSales(false);
+      await fetchSales(true);
     } catch (requestError) {
       console.error(
-        "Failed to create return:",
+        "Unable to submit return:",
         requestError
       );
 
       setError(
         getErrorMessage(
           requestError,
-          "Failed to process the return."
+          "Unable to process the return."
         )
       );
     } finally {
       setReturnSubmitting(false);
     }
   };
+
+  const goToPreviousPage =
+    () => {
+      setPage(
+        (currentPage) =>
+          Math.max(
+            1,
+            currentPage - 1
+          )
+      );
+    };
+
+  const goToNextPage =
+    () => {
+      setPage(
+        (currentPage) =>
+          Math.min(
+            totalPages,
+            currentPage + 1
+          )
+      );
+    };
 
   const clearFilters = () => {
     setSearch("");
@@ -967,40 +1326,57 @@ const Sales = () => {
     setPage(1);
   };
 
+  const hasFilters =
+    Boolean(search.trim()) ||
+    paymentFilter !== "ALL" ||
+    statusFilter !== "ALL";
+
   return (
     <div className="space-y-6">
-
-      {/* PAGE HEADER */}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
 
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
-              <Package size={22} />
-            </div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              Sales
+            </h1>
 
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">
-                Sales
-              </h1>
+            {branchRequired && (
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+                  hasValidBranch
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                }`}
+              >
+                <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current" />
 
-              <p className="text-sm text-slate-500">
-                View, search and manage business transactions.
-              </p>
-            </div>
+                {activeBranchName}
+              </span>
+            )}
+
           </div>
+
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            View, search and manage sales.
+          </p>
         </div>
 
         <button
           type="button"
-          onClick={() => fetchSales(false)}
-          disabled={refreshing}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() =>
+            fetchSales(true)
+          }
+          disabled={
+            refreshing ||
+            loading
+          }
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           <RefreshCw
-            size={17}
+            size={16}
             className={
               refreshing
                 ? "animate-spin"
@@ -1013,108 +1389,95 @@ const Sales = () => {
 
       </div>
 
-      {/* ERROR */}
-
       {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-
-          <AlertCircle
-            size={20}
-            className="mt-0.5 shrink-0"
-          />
+        <div
+          className={`flex items-start gap-3 rounded-xl border p-4 ${
+            error.includes(
+              "copied to clipboard"
+            )
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-300"
+              : "border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300"
+          }`}
+        >
+          {error.includes(
+            "copied to clipboard"
+          ) ? (
+            <CheckCircle2
+              size={20}
+              className="mt-0.5 shrink-0"
+            />
+          ) : (
+            <AlertCircle
+              size={20}
+              className="mt-0.5 shrink-0"
+            />
+          )}
 
           <div className="flex-1">
-
-            <p className="font-bold">
-              Something went wrong
+            <p className="font-medium">
+              {error.includes(
+                "copied to clipboard"
+              )
+                ? "Success"
+                : "Something went wrong"}
             </p>
 
             <p className="mt-1 text-sm">
               {error}
             </p>
-
           </div>
 
           <button
             type="button"
-            onClick={() => setError("")}
-            className="rounded-lg p-1 hover:bg-red-100"
+            onClick={() =>
+              setError("")
+            }
+            className="rounded-md p-1 transition hover:bg-black/5 dark:hover:bg-white/5"
           >
-            <X size={18} />
-          </button>
-
-        </div>
-      )}
-
-      {receiptActionMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <span className="font-semibold">{receiptActionMessage}</span>
-          <button
-            type="button"
-            onClick={() => setReceiptActionMessage("")}
-            className="rounded-lg p-1 hover:bg-emerald-100"
-            aria-label="Dismiss receipt message"
-          >
-            <X size={16} />
+            <X size={17} />
           </button>
         </div>
       )}
 
-      {/* SUMMARY */}
+      {branchRequired &&
+        !hasValidBranch && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/50 dark:bg-amber-900/20">
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex items-start gap-3">
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">
-            Transactions
-          </p>
+              <AlertCircle
+                size={22}
+                className="mt-0.5 shrink-0 text-amber-600"
+              />
 
-          <p className="mt-2 text-2xl font-black text-slate-900">
-            {totalSales}
-          </p>
-        </div>
+              <div>
+                <h2 className="font-semibold text-amber-900 dark:text-amber-200">
+                  Branch selection required
+                </h2>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">
-            Current Page Sales
-          </p>
+                <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+                  Your account does not currently
+                  have a valid active branch.
+                </p>
 
-          <p className="mt-2 text-2xl font-black text-slate-900">
-            {summary.completed}
-          </p>
-        </div>
+                <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+                  Sales are restricted by branch
+                  for your account. Please select
+                  a branch or ask an administrator
+                  to assign one to your account.
+                </p>
+              </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">
-            Current Page Revenue
-          </p>
+            </div>
 
-          <p className="mt-2 text-2xl font-black text-blue-600">
-            {formatCurrency(
-              summary.totalAmount
-            )}
-          </p>
-        </div>
+          </div>
+        )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">
-            Returned Transactions
-          </p>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
 
-          <p className="mt-2 text-2xl font-black text-orange-600">
-            {summary.refunded}
-          </p>
-        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
 
-      </div>
-
-      {/* FILTERS */}
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-
-          <div className="relative lg:col-span-2">
+          <div className="relative">
 
             <Search
               size={18}
@@ -1129,83 +1492,106 @@ const Sales = () => {
                   event.target.value
                 )
               }
-              placeholder="Search receipt number..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              placeholder="Search sales..."
+              className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
             />
 
           </div>
 
-          <select
-            value={paymentFilter}
-            onChange={(event) => {
-              setPaymentFilter(
-                event.target.value
-              );
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="ALL">
-              All Payment Methods
-            </option>
+          <div className="relative">
 
-            <option value="CASH">
-              Cash
-            </option>
+            <select
+              value={
+                paymentFilter
+              }
+              onChange={(event) =>
+                setPaymentFilter(
+                  event.target.value
+                )
+              }
+              className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            >
+              <option value="ALL">
+                All payment methods
+              </option>
 
-            <option value="MOBILE_MONEY">
-              Mobile Money
-            </option>
+              <option value="CASH">
+                Cash
+              </option>
 
-            <option value="CARD">
-              Card
-            </option>
+              <option value="MOBILE_MONEY">
+                Mobile Money
+              </option>
 
-            <option value="BANK">
-              Bank
-            </option>
-          </select>
+              <option value="CARD">
+                Card
+              </option>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(
-                event.target.value
-              );
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="ALL">
-              All Statuses
-            </option>
+              <option value="BANK">
+                Bank
+              </option>
+            </select>
 
-            <option value="COMPLETED">
-              Completed
-            </option>
+            <ChevronDown
+              size={16}
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
 
-            <option value="CANCELLED">
-              Cancelled
-            </option>
+          </div>
 
-            <option value="PARTIALLY_REFUNDED">
-              Partially Refunded
-            </option>
+          <div className="relative">
 
-            <option value="REFUNDED">
-              Refunded
-            </option>
-          </select>
+            <select
+              value={
+                statusFilter
+              }
+              onChange={(event) =>
+                setStatusFilter(
+                  event.target.value
+                )
+              }
+              className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            >
+              <option value="ALL">
+                All statuses
+              </option>
 
-        </div>
+              <option value="COMPLETED">
+                Completed
+              </option>
 
-        <div className="mt-3 flex justify-end">
+              <option value="CANCELLED">
+                Cancelled
+              </option>
+
+              <option value="PARTIALLY_REFUNDED">
+                Partially Refunded
+              </option>
+
+              <option value="REFUNDED">
+                Refunded
+              </option>
+            </select>
+
+            <ChevronDown
+              size={16}
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+
+          </div>
 
           <button
             type="button"
-            onClick={clearFilters}
-            className="text-sm font-bold text-blue-600 hover:text-blue-700"
+            onClick={
+              clearFilters
+            }
+            disabled={
+              !hasFilters
+            }
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
+            <X size={16} />
+
             Clear filters
           </button>
 
@@ -1213,236 +1599,336 @@ const Sales = () => {
 
       </div>
 
-      {/* SALES TABLE */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Sales found
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+            {totalSales}
+          </p>
+
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Current page
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+            {page}
+          </p>
+
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Total pages
+          </p>
+
+          <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+            {totalPages}
+          </p>
+
+        </div>
+
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
 
         {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center">
+          <div className="flex min-h-[320px] items-center justify-center">
 
-            <div className="flex items-center gap-3 text-slate-500">
+            <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
 
-              <RefreshCw
+              <Loader2
                 size={22}
                 className="animate-spin"
               />
 
-              <span className="font-semibold">
+              <span>
                 Loading sales...
               </span>
 
             </div>
 
           </div>
-        ) : visibleSales.length === 0 ? (
-          <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
+        ) : sales.length === 0 ? (
+          <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
 
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-              <Package size={30} />
+            <div className="mb-4 rounded-full bg-slate-100 p-4 dark:bg-slate-800">
+
+              <FileText
+                size={28}
+                className="text-slate-400"
+              />
+
             </div>
 
-            <h3 className="mt-4 text-lg font-black text-slate-900">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
               No sales found
             </h3>
 
-            <p className="mt-1 max-w-md text-sm text-slate-500">
-              No transactions match your current search and filters.
+            <p className="mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
+              There are no sales matching your current filters.
             </p>
 
           </div>
         ) : (
           <>
+
             <div className="overflow-x-auto">
 
-              <table className="min-w-[900px] w-full">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
 
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
+                <thead className="bg-slate-50 dark:bg-slate-800/60">
 
-                    <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wider text-slate-500">
-                      Receipt
+                  <tr>
+
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Sale
                     </th>
 
-                    <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wider text-slate-500">
-                      Date
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Customer
                     </th>
 
-                    <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wider text-slate-500">
-                      Items
-                    </th>
-
-                    <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wider text-slate-500">
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Payment
                     </th>
 
-                    <th className="px-5 py-4 text-right text-xs font-black uppercase tracking-wider text-slate-500">
-                      Total
-                    </th>
-
-                    <th className="px-5 py-4 text-left text-xs font-black uppercase tracking-wider text-slate-500">
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Status
                     </th>
 
-                    <th className="px-5 py-4 text-right text-xs font-black uppercase tracking-wider text-slate-500">
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Total
+                    </th>
+
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Date
+                    </th>
+
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Actions
                     </th>
 
                   </tr>
+
                 </thead>
 
-                <tbody>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
 
-                  {visibleSales.map(
-                    (sale) => (
-                      <tr
-                        key={sale._id}
-                        className="border-b border-slate-100 transition hover:bg-slate-50"
-                      >
+                  {sales.map(
+                    (sale) => {
+                      const saleId =
+                        getSaleId(
+                          sale
+                        );
 
-                        <td className="px-5 py-4">
-                          <p className="font-bold text-slate-900">
-                            {sale.receiptNumber ||
-                              "-"}
-                          </p>
-                        </td>
+                      const status =
+                        getSaleStatus(
+                          sale
+                        );
 
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {formatDate(
-                            sale.createdAt
-                          )}
-                        </td>
+                      let statusClasses =
+                        "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
 
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {sale.items?.length ||
-                            0}{" "}
-                          item
-                          {sale.items?.length ===
-                          1
-                            ? ""
-                            : "s"}
-                        </td>
+                      if (
+                        status ===
+                        "COMPLETED"
+                      ) {
+                        statusClasses =
+                          "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300";
+                      }
 
-                        <td className="px-5 py-4">
+                      if (
+                        status ===
+                        "CANCELLED"
+                      ) {
+                        statusClasses =
+                          "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+                      }
 
-                          <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
-                              paymentClasses[
-                                sale.paymentMethod
-                              ] ||
-                              "bg-slate-100 text-slate-700"
-                            }`}
-                          >
-                            {paymentLabels[
-                              sale.paymentMethod
-                            ] ||
-                              sale.paymentMethod ||
-                              "-"}
-                          </span>
+                      if (
+                        status ===
+                        "REFUNDED"
+                      ) {
+                        statusClasses =
+                          "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300";
+                      }
 
-                        </td>
+                      return (
+                        <tr
+                          key={
+                            saleId
+                          }
+                          className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                        >
 
-                        <td className="px-5 py-4 text-right font-black text-slate-900">
-                          {formatCurrency(
-                            sale.total
-                          )}
-                        </td>
+                          <td className="whitespace-nowrap px-4 py-4">
 
-                        <td className="px-5 py-4">
+                            <div className="font-medium text-slate-900 dark:text-white">
+                              {getSaleNumber(
+                                sale
+                              )}
+                            </div>
 
-                          <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
-                              statusClasses[
-                                sale.status
-                              ] ||
-                              "bg-slate-100 text-slate-700"
-                            }`}
-                          >
-                            {String(
-                              sale.status ||
-                                "-"
-                            )
-                              .replaceAll(
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              {
+                                getSaleItems(
+                                  sale
+                                ).length
+                              }{" "}
+                              item
+                              {getSaleItems(
+                                sale
+                              ).length ===
+                              1
+                                ? ""
+                                : "s"}
+                            </div>
+
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700 dark:text-slate-300">
+                            {getCustomerName(
+                              sale
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700 dark:text-slate-300">
+                            {getPaymentMethod(
+                              sale
+                            )}
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-4">
+
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses}`}
+                            >
+                              {status.replaceAll(
                                 "_",
                                 " "
-                              )
-                              .toLowerCase()
-                              .replace(
-                                /^\w/,
-                                (letter) =>
-                                  letter.toUpperCase()
                               )}
-                          </span>
+                            </span>
 
-                        </td>
+                          </td>
 
-                        <td className="px-5 py-4">
+                          <td className="whitespace-nowrap px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-white">
+                            {formatCurrency(
+                              getSaleTotal(
+                                sale
+                              )
+                            )}
+                          </td>
 
-                          <div className="flex justify-end gap-2">
+                          <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-500 dark:text-slate-400">
+                            {formatDate(
+                              sale?.createdAt ||
+                                sale?.date
+                            )}
+                          </td>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleViewSale(
-                                  sale._id
-                                )
-                              }
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                              title="View sale"
-                            >
-                              <Eye size={17} />
-                            </button>
+                          <td className="whitespace-nowrap px-4 py-4">
 
-                            <button
-                              type="button"
-                              onClick={() => handlePrintReceipt(sale)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                              title="Print receipt"
-                            >
-                              <Printer size={17} />
-                            </button>
+                            <div className="flex justify-end gap-1">
 
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadReceipt(sale)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                              title="Download receipt PDF"
-                            >
-                              <Download size={17} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleShareReceipt(sale)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600"
-                              title="Share receipt"
-                            >
-                              <Share2 size={17} />
-                            </button>
-
-                            {sale.status ===
-                              "COMPLETED" && (
                               <button
                                 type="button"
+                                title="View sale"
                                 onClick={() =>
-                                  openReturnModal(
+                                  handleViewSale(
                                     sale
                                   )
                                 }
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
-                                title="Return items"
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400"
                               >
-                                <RotateCcw
+                                <Eye
                                   size={17}
                                 />
                               </button>
-                            )}
 
-                          </div>
+                              <button
+                                type="button"
+                                title="Print receipt"
+                                onClick={() =>
+                                  handlePrintReceipt(
+                                    sale
+                                  )
+                                }
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400"
+                              >
+                                <Printer
+                                  size={17}
+                                />
+                              </button>
 
-                        </td>
+                              <button
+                                type="button"
+                                title="Download PDF"
+                                onClick={() =>
+                                  handleDownloadPdf(
+                                    sale
+                                  )
+                                }
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400"
+                              >
+                                <Download
+                                  size={17}
+                                />
+                              </button>
 
-                      </tr>
-                    )
+                              <button
+                                type="button"
+                                title="Share receipt"
+                                onClick={() =>
+                                  handleShareReceipt(
+                                    sale
+                                  )
+                                }
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400"
+                              >
+                                <Share2
+                                  size={17}
+                                />
+                              </button>
+
+                              {status !==
+                                "REFUNDED" &&
+                                status !==
+                                  "CANCELLED" && (
+                                  <button
+                                    type="button"
+                                    title="Return sale"
+                                    onClick={() =>
+                                      openReturnModal(
+                                        sale
+                                      )
+                                    }
+                                    className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-orange-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-orange-400"
+                                  >
+                                    <RotateCcw
+                                      size={
+                                        17
+                                      }
+                                    />
+                                  </button>
+                                )}
+
+                            </div>
+
+                          </td>
+
+                        </tr>
+                      );
+                    }
                   )}
 
                 </tbody>
@@ -1451,232 +1937,229 @@ const Sales = () => {
 
             </div>
 
-            {/* PAGINATION */}
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
 
-            <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Page{" "}
-                <span className="font-bold text-slate-700">
-                  {page}
-                </span>{" "}
+                {page}{" "}
                 of{" "}
-                <span className="font-bold text-slate-700">
-                  {pages}
-                </span>
+                {totalPages}
               </p>
 
               <div className="flex items-center gap-2">
 
                 <button
                   type="button"
-                  disabled={page <= 1}
-                  onClick={() =>
-                    setPage(
-                      (current) =>
-                        Math.max(
-                          1,
-                          current - 1
-                        )
-                    )
+                  onClick={
+                    goToPreviousPage
                   }
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={
+                    page <= 1
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <ChevronLeft
-                    size={18}
+                  <ArrowLeft
+                    size={16}
                   />
-                </button>
 
-                <span className="min-w-20 text-center text-sm font-bold text-slate-700">
-                  {page} / {pages}
-                </span>
+                  Previous
+                </button>
 
                 <button
                   type="button"
+                  onClick={
+                    goToNextPage
+                  }
                   disabled={
-                    page >= pages
+                    page >=
+                    totalPages
                   }
-                  onClick={() =>
-                    setPage(
-                      (current) =>
-                        Math.min(
-                          pages,
-                          current + 1
-                        )
-                    )
-                  }
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <ChevronRight
-                    size={18}
+                  Next
+
+                  <ArrowRight
+                    size={16}
                   />
                 </button>
 
               </div>
 
             </div>
+
           </>
         )}
 
       </div>
 
-      {/* SALE DETAILS MODAL */}
+      {showSaleModal &&
+        selectedSale && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
 
-      {selectedSale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
 
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
 
-            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Sale Details
+                  </h2>
 
-              <div>
-                <h2 className="text-lg font-black text-slate-900">
-                  Sale Details
-                </h2>
-
-                <p className="text-sm text-slate-500">
-                  {selectedSale.receiptNumber ||
-                    "-"}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedSale(null)
-                }
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-              >
-                <X size={20} />
-              </button>
-
-            </div>
-
-            <div className="space-y-6 p-5">
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Receipt
-                  </p>
-
-                  <p className="mt-1 font-black text-slate-900">
-                    {selectedSale.receiptNumber ||
-                      "-"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Date
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-900">
-                    {formatDate(
-                      selectedSale.createdAt
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {getSaleNumber(
+                      selectedSale
                     )}
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Payment
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-900">
-                    {paymentLabels[
-                      selectedSale.paymentMethod
-                    ] ||
-                      selectedSale.paymentMethod ||
-                      "-"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Status
-                  </p>
-
-                  <p className="mt-1 font-bold text-slate-900">
-                    {selectedSale.status ||
-                      "-"}
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={
+                    closeSaleModal
+                  }
+                  className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <X size={20} />
+                </button>
 
               </div>
 
-              <div>
+              <div className="max-h-[calc(90vh-145px)] overflow-y-auto p-5">
 
-                <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-500">
-                  Items
-                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
 
-                  <table className="w-full">
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Customer
+                    </p>
 
-                    <thead>
-                      <tr className="bg-slate-50">
+                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                      {getCustomerName(
+                        selectedSale
+                      )}
+                    </p>
 
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-500">
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Payment
+                    </p>
+
+                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                      {getPaymentMethod(
+                        selectedSale
+                      )}
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Status
+                    </p>
+
+                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                      {getSaleStatus(
+                        selectedSale
+                      ).replaceAll(
+                        "_",
+                        " "
+                      )}
+                    </p>
+
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Date
+                    </p>
+
+                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                      {formatDate(
+                        selectedSale?.createdAt ||
+                          selectedSale?.date
+                      )}
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+
+                    <thead className="bg-slate-50 dark:bg-slate-800/60">
+
+                      <tr>
+
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           Product
                         </th>
 
-                        <th className="px-4 py-3 text-center text-xs font-bold uppercase text-slate-500">
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           Qty
                         </th>
 
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-500">
-                          Price
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Unit Price
                         </th>
 
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-500">
-                          Subtotal
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Amount
                         </th>
 
                       </tr>
+
                     </thead>
 
-                    <tbody>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
 
-                      {(selectedSale.items ||
-                        []).map(
-                        (item, index) => (
+                      {getSaleItems(
+                        selectedSale
+                      ).map(
+                        (
+                          item,
+                          index
+                        ) => (
                           <tr
-                            key={`${getProductId(
-                              item
-                            )}-${index}`}
-                            className="border-t border-slate-100"
+                            key={
+                              item?._id ||
+                              item?.productId ||
+                              index
+                            }
                           >
 
-                            <td className="px-4 py-3">
-
-                              <p className="font-bold text-slate-900">
-                                {item.name ||
-                                  "-"}
-                              </p>
-
-                              <p className="text-xs text-slate-500">
-                                {item.sku ||
-                                  ""}
-                              </p>
-
-                            </td>
-
-                            <td className="px-4 py-3 text-center text-sm text-slate-700">
-                              {item.quantity}
-                            </td>
-
-                            <td className="px-4 py-3 text-right text-sm text-slate-700">
-                              {formatCurrency(
-                                item.unitPrice
+                            <td className="px-4 py-3 text-sm text-slate-900 dark:text-white">
+                              {getItemName(
+                                item
                               )}
                             </td>
 
-                            <td className="px-4 py-3 text-right font-bold text-slate-900">
+                            <td className="px-4 py-3 text-center text-sm text-slate-700 dark:text-slate-300">
+                              {getItemQuantity(
+                                item
+                              )}
+                            </td>
+
+                            <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
                               {formatCurrency(
-                                item.subtotal
+                                getItemPrice(
+                                  item
+                                )
+                              )}
+                            </td>
+
+                            <td className="px-4 py-3 text-right text-sm font-medium text-slate-900 dark:text-white">
+                              {formatCurrency(
+                                getItemTotal(
+                                  item
+                                )
                               )}
                             </td>
 
@@ -1690,43 +2173,17 @@ const Sales = () => {
 
                 </div>
 
-              </div>
+                <div className="mt-6 flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
 
-              <div className="ml-auto max-w-sm space-y-2">
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">
-                    Subtotal
-                  </span>
-
-                  <span className="font-bold text-slate-900">
-                    {formatCurrency(
-                      selectedSale.subtotal
-                    )}
-                  </span>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">
-                    Discount
-                  </span>
-
-                  <span className="font-bold text-slate-900">
-                    {formatCurrency(
-                      selectedSale.discount
-                    )}
-                  </span>
-                </div>
-
-                <div className="flex justify-between border-t border-slate-200 pt-3">
-
-                  <span className="font-black text-slate-900">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
                     Total
                   </span>
 
-                  <span className="text-xl font-black text-blue-600">
+                  <span className="text-xl font-bold text-slate-900 dark:text-white">
                     {formatCurrency(
-                      selectedSale.total
+                      getSaleTotal(
+                        selectedSale
+                      )
                     )}
                   </span>
 
@@ -1734,54 +2191,64 @@ const Sales = () => {
 
               </div>
 
-              <div className="flex flex-wrap justify-end gap-3">
-
-                {selectedSale.status ===
-                  "COMPLETED" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const sale =
-                        selectedSale;
-
-                      setSelectedSale(null);
-
-                      openReturnModal(
-                        sale
-                      );
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-bold text-orange-700 hover:bg-orange-100"
-                  >
-                    <RotateCcw size={17} />
-                    Return Items
-                  </button>
-                )}
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-800">
 
                 <button
                   type="button"
-                  onClick={() => handlePrintReceipt(selectedSale)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+                  onClick={() =>
+                    handlePrintReceipt(
+                      selectedSale
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <Printer size={17} />
-                  Print Receipt
+                  <Printer
+                    size={16}
+                  />
+
+                  Print
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleDownloadReceipt(selectedSale)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100"
+                  onClick={() =>
+                    handleDownloadPdf(
+                      selectedSale
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <Download size={17} />
-                  Download PDF
+                  <Download
+                    size={16}
+                  />
+
+                  PDF
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleShareReceipt(selectedSale)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100"
+                  onClick={() =>
+                    handleShareReceipt(
+                      selectedSale
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <Share2 size={17} />
-                  Share Receipt
+                  <Share2
+                    size={16}
+                  />
+
+                  Share
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    closeSaleModal
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                >
+                  Close
                 </button>
 
               </div>
@@ -1789,484 +2256,328 @@ const Sales = () => {
             </div>
 
           </div>
+        )}
 
-        </div>
-      )}
+      {showReturnModal &&
+        returnSale && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
 
-      {/* RETURN MODAL */}
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
 
-      {showReturnModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
-
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
-
-              <div className="flex items-center gap-3">
-
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
-                  <RotateCcw
-                    size={20}
-                  />
-                </div>
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
 
                 <div>
 
-                  <h2 className="text-lg font-black text-slate-900">
-                    Return Items
-                  </h2>
+                  <div className="flex items-center gap-2">
 
-                  <p className="text-sm text-slate-500">
-                    Receipt:{" "}
-                    {returnSale?.receiptNumber ||
-                      "-"}
+                    <RotateCcw
+                      size={20}
+                      className="text-orange-500"
+                    />
+
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                      Process Return
+                    </h2>
+
+                  </div>
+
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    {getSaleNumber(
+                      returnSale
+                    )}
                   </p>
 
                 </div>
 
-              </div>
-
-              <button
-                type="button"
-                onClick={closeReturnModal}
-                disabled={
-                  returnSubmitting
-                }
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-              >
-                <X size={20} />
-              </button>
-
-            </div>
-
-            {returnSuccess ? (
-              <div className="p-8 text-center">
-
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                  <CheckCircle2
-                    size={34}
-                  />
-                </div>
-
-                <h3 className="mt-4 text-2xl font-black text-slate-900">
-                  Return Processed
-                </h3>
-
-                <p className="mt-2 text-sm text-slate-500">
-                  The returned items have been recorded successfully.
-                </p>
-
-                {returnSuccess.returnNumber && (
-                  <div className="mx-auto mt-5 max-w-sm rounded-xl bg-slate-50 p-4">
-
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                      Return Number
-                    </p>
-
-                    <p className="mt-1 text-lg font-black text-slate-900">
-                      {
-                        returnSuccess.returnNumber
-                      }
-                    </p>
-
-                  </div>
-                )}
-
                 <button
                   type="button"
-                  onClick={closeReturnModal}
-                  className="mt-6 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700"
+                  onClick={
+                    closeReturnModal
+                  }
+                  disabled={
+                    returnSubmitting
+                  }
+                  className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
                 >
-                  Done
+                  <X size={20} />
                 </button>
 
               </div>
-            ) : (
-              <form
-                onSubmit={submitReturn}
-                className="space-y-6 p-5"
-              >
 
-                {loadingReturnItems ? (
-                  <div className="flex min-h-[200px] items-center justify-center">
+              <div className="max-h-[calc(90vh-145px)] overflow-y-auto p-5">
 
-                    <div className="flex items-center gap-3 text-slate-500">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
 
-                      <RefreshCw
-                        size={22}
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+
+                    <thead className="bg-slate-50 dark:bg-slate-800/60">
+
+                      <tr>
+
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Product
+                        </th>
+
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Sold
+                        </th>
+
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Unit Price
+                        </th>
+
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Return Qty
+                        </th>
+
+                      </tr>
+
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+
+                      {returnItems.map(
+                        (
+                          item,
+                          index
+                        ) => (
+                          <tr
+                            key={
+                              item.productId ||
+                              index
+                            }
+                          >
+
+                            <td className="px-4 py-4">
+
+                              <div className="font-medium text-slate-900 dark:text-white">
+                                {
+                                  item.productName
+                                }
+                              </div>
+
+                            </td>
+
+                            <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
+                              {
+                                item.maxReturnQuantity
+                              }
+                            </td>
+
+                            <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                              {formatCurrency(
+                                item.unitPrice
+                              )}
+                            </td>
+
+                            <td className="px-4 py-4">
+
+                              <input
+                                type="number"
+                                min="0"
+                                max={
+                                  item.maxReturnQuantity
+                                }
+                                step="1"
+                                value={
+                                  item.returnQuantity
+                                }
+                                onChange={(
+                                  event
+                                ) =>
+                                  updateReturnQuantity(
+                                    index,
+                                    event
+                                      .target
+                                      .value
+                                  )
+                                }
+                                className="mx-auto block w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                              />
+
+                            </td>
+
+                          </tr>
+                        )
+                      )}
+
+                    </tbody>
+
+                  </table>
+
+                </div>
+
+                <div className="mt-5">
+
+                  <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Return type
+                  </label>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReturnType(
+                          "REFUND"
+                        )
+                      }
+                      className={`rounded-xl border p-4 text-left transition ${
+                        returnType ===
+                        "REFUND"
+                          ? "border-orange-500 bg-orange-50 dark:border-orange-400 dark:bg-orange-900/20"
+                          : "border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
+                      }`}
+                    >
+
+                      <p className="font-semibold text-slate-900 dark:text-white">
+                        Refund
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Refund the customer using the configured return process.
+                      </p>
+
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReturnType(
+                          "STORE_CREDIT"
+                        )
+                      }
+                      className={`rounded-xl border p-4 text-left transition ${
+                        returnType ===
+                        "STORE_CREDIT"
+                          ? "border-orange-500 bg-orange-50 dark:border-orange-400 dark:bg-orange-900/20"
+                          : "border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
+                      }`}
+                    >
+
+                      <p className="font-semibold text-slate-900 dark:text-white">
+                        Store Credit
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Give the customer store credit instead of an immediate refund.
+                      </p>
+
+                    </button>
+
+                  </div>
+
+                </div>
+
+                <div className="mt-5">
+
+                  <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Return reason
+                  </label>
+
+                  <textarea
+                    value={
+                      returnReason
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setReturnReason(
+                        event.target
+                          .value
+                      )
+                    }
+                    rows={3}
+                    placeholder="Enter the reason for this return..."
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  />
+
+                </div>
+
+                <div className="mt-5 flex items-center justify-between rounded-xl bg-orange-50 p-4 dark:bg-orange-900/20">
+
+                  <span className="font-medium text-orange-800 dark:text-orange-300">
+                    Return amount
+                  </span>
+
+                  <span className="text-xl font-bold text-orange-900 dark:text-orange-200">
+                    {formatCurrency(
+                      returnItems.reduce(
+                        (
+                          total,
+                          item
+                        ) =>
+                          total +
+                          Number(
+                            item.returnQuantity ||
+                              0
+                          ) *
+                            Number(
+                              item.unitPrice ||
+                                0
+                            ),
+                        0
+                      )
+                    )}
+                  </span>
+
+                </div>
+
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+
+                <button
+                  type="button"
+                  onClick={
+                    closeReturnModal
+                  }
+                  disabled={
+                    returnSubmitting
+                  }
+                  className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    submitReturn
+                  }
+                  disabled={
+                    returnSubmitting
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+
+                  {returnSubmitting ? (
+                    <>
+                      <Loader2
+                        size={17}
                         className="animate-spin"
                       />
 
-                      <span className="font-semibold">
-                        Loading returnable items...
-                      </span>
-
-                    </div>
-
-                  </div>
-                ) : returnableItems.length ===
-                  0 ? (
-                  <div className="rounded-xl border border-orange-200 bg-orange-50 p-5 text-center">
-
-                    <AlertCircle
-                      size={28}
-                      className="mx-auto text-orange-600"
-                    />
-
-                    <p className="mt-2 font-bold text-orange-800">
-                      No returnable items found.
-                    </p>
-
-                    <p className="mt-1 text-sm text-orange-700">
-                      This sale may already have been fully returned.
-                    </p>
-
-                  </div>
-                ) : (
-                  <>
-                    {invalidReturnItems.length >
-                      0 && (
-                      <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-
-                        <div className="flex items-start gap-3">
-
-                          <AlertCircle
-                            size={20}
-                            className="mt-0.5 shrink-0 text-red-600"
-                          />
-
-                          <div>
-
-                            <p className="font-bold text-red-800">
-                              Some items cannot be returned
-                            </p>
-
-                            <p className="mt-1 text-sm text-red-700">
-                              One or more sale items do not contain a valid product ID. Those items have been disabled to prevent an invalid return.
-                            </p>
-
-                          </div>
-
-                        </div>
-
-                      </div>
-                    )}
-
-                    <div>
-
-                      <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-500">
-                        Select Items
-                      </h3>
-
-                      <div className="space-y-3">
-
-                        {returnableItems.map(
-                          (item, index) => {
-                            const productId =
-                              getProductId(
-                                item
-                              );
-
-                            const validProductId =
-                              isValidObjectId(
-                                productId
-                              );
-
-                            const maxQuantity =
-                              Number(
-                                item.returnableQuantity ??
-                                  item.quantity ??
-                                  0
-                              );
-
-                            const quantity =
-                              getReturnQuantity(
-                                item
-                              );
-
-                            return (
-                              <div
-                                key={`${productId || "invalid"}-${index}`}
-                                className={`rounded-xl border p-4 ${
-                                  validProductId
-                                    ? "border-slate-200"
-                                    : "border-red-200 bg-red-50"
-                                }`}
-                              >
-
-                                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-                                  <div className="min-w-0">
-
-                                    <p className="font-bold text-slate-900">
-                                      {item.name ||
-                                        item.productName ||
-                                        "Product"}
-                                    </p>
-
-                                    {item.sku && (
-                                      <p className="mt-1 text-xs text-slate-500">
-                                        SKU:{" "}
-                                        {
-                                          item.sku
-                                        }
-                                      </p>
-                                    )}
-
-                                    {validProductId ? (
-                                      <p className="mt-1 text-xs text-slate-500">
-                                        Available to return:{" "}
-                                        {
-                                          maxQuantity
-                                        }
-                                      </p>
-                                    ) : (
-                                      <p className="mt-1 text-xs font-bold text-red-600">
-                                        Invalid product ID
-                                      </p>
-                                    )}
-
-                                    <p className="mt-1 text-sm font-semibold text-slate-700">
-                                      {formatCurrency(
-                                        item.unitPrice ||
-                                          item.sellingPrice ||
-                                          0
-                                      )}{" "}
-                                      each
-                                    </p>
-
-                                  </div>
-
-                                  <div className="flex items-center gap-3">
-
-                                    <label className="text-xs font-bold text-slate-500">
-                                      Quantity
-                                    </label>
-
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max={
-                                        maxQuantity
-                                      }
-                                      value={
-                                        validProductId
-                                          ? quantity
-                                          : 0
-                                      }
-                                      disabled={
-                                        !validProductId ||
-                                        maxQuantity <=
-                                          0
-                                      }
-                                      onChange={(
-                                        event
-                                      ) =>
-                                        updateReturnQuantity(
-                                          productId,
-                                          event
-                                            .target
-                                            .value,
-                                          maxQuantity
-                                        )
-                                      }
-                                      className="w-24 rounded-lg border border-slate-200 px-3 py-2 text-center text-sm font-bold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                                    />
-
-                                  </div>
-
-                                </div>
-
-                              </div>
-                            );
-                          }
-                        )}
-
-                      </div>
-
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-
-                      <div>
-
-                        <label className="mb-2 block text-sm font-bold text-slate-700">
-                          Refund Method
-                        </label>
-
-                        <select
-                          value={
-                            refundMethod
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setRefundMethod(
-                              event.target
-                                .value
-                            )
-                          }
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                        >
-                          {refundMethods.map(
-                            (method) => (
-                              <option
-                                key={
-                                  method.value
-                                }
-                                value={
-                                  method.value
-                                }
-                              >
-                                {
-                                  method.label
-                                }
-                              </option>
-                            )
-                          )}
-                        </select>
-
-                      </div>
-
-                      <div className="rounded-xl bg-orange-50 p-4">
-
-                        <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
-                          Estimated Refund
-                        </p>
-
-                        <p className="mt-1 text-2xl font-black text-orange-700">
-                          {formatCurrency(
-                            returnTotal
-                          )}
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                    <div>
-
-                      <label className="mb-2 block text-sm font-bold text-slate-700">
-                        Reason
-                      </label>
-
-                      <input
-                        type="text"
-                        value={
-                          returnReason
-                        }
-                        onChange={(event) =>
-                          setReturnReason(
-                            event.target
-                              .value
-                          )
-                        }
-                        placeholder="e.g. Damaged product"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2
+                        size={17}
                       />
 
-                    </div>
+                      Complete Return
+                    </>
+                  )}
 
-                    <div>
+                </button>
 
-                      <label className="mb-2 block text-sm font-bold text-slate-700">
-                        Notes
-                      </label>
+              </div>
 
-                      <textarea
-                        value={
-                          returnNotes
-                        }
-                        onChange={(event) =>
-                          setReturnNotes(
-                            event.target
-                              .value
-                          )
-                        }
-                        rows="3"
-                        placeholder="Additional information..."
-                        className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                      />
-
-                    </div>
-
-                    <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
-
-                      <button
-                        type="button"
-                        onClick={
-                          closeReturnModal
-                        }
-                        disabled={
-                          returnSubmitting
-                        }
-                        className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={
-                          returnSubmitting ||
-                          selectedReturnItems.length ===
-                            0
-                        }
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {returnSubmitting ? (
-                          <>
-                            <RefreshCw
-                              size={17}
-                              className="animate-spin"
-                            />
-
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <RotateCcw
-                              size={17}
-                            />
-
-                            Process Return
-                          </>
-                        )}
-                      </button>
-
-                    </div>
-
-                  </>
-                )}
-
-              </form>
-            )}
+            </div>
 
           </div>
-
-        </div>
-      )}
-
-      {/* LOADING SALE */}
-
-      {loadingSale && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/30">
-
-          <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl">
-
-            <RefreshCw
-              size={20}
-              className="animate-spin text-blue-600"
-            />
-
-            <span className="font-bold text-slate-700">
-              Loading sale...
-            </span>
-
-          </div>
-
-        </div>
-      )}
+        )}
 
     </div>
   );

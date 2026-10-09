@@ -29,7 +29,27 @@ api.interceptors.request.use(
 );
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = String(
+      response?.config?.method || ""
+    ).toLowerCase();
+
+    if (
+      typeof window !== "undefined" &&
+      ["post", "put", "patch", "delete"].includes(method)
+    ) {
+      window.dispatchEvent(
+        new CustomEvent("mova:data-updated", {
+          detail: {
+            method,
+            url: response?.config?.url || "",
+          },
+        })
+      );
+    }
+
+    return response;
+  },
 
   (error) => {
     const status =

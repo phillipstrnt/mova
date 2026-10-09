@@ -1,189 +1,179 @@
 
 /*
 |--------------------------------------------------------------------------
-| MOVA ROLE & PERMISSION SYSTEM
+| MOVA PERMISSIONS
 |--------------------------------------------------------------------------
-*/
-
-export const ROLES = {
-  OWNER: "OWNER",
-  ADMIN: "ADMIN",
-  MANAGER: "MANAGER",
-  CASHIER: "CASHIER",
-  INVENTORY_MANAGER: "INVENTORY_MANAGER",
-  ACCOUNTANT: "ACCOUNTANT",
-};
-
-/*
-|--------------------------------------------------------------------------
-| ALL MOVA PERMISSIONS
+|
+| Central permission configuration for the MOVA business management
+| platform.
+|
+| Roles:
+|   OWNER
+|   ADMIN
+|   MANAGER
+|   CASHIER
+|   INVENTORY_MANAGER
+|   ACCOUNTANT
+|
 |--------------------------------------------------------------------------
 */
 
 export const PERMISSIONS = {
+  // Dashboard
   DASHBOARD_VIEW: "dashboard.view",
 
-  POS_ACCESS: "pos.access",
+  // POS
+  POS_VIEW: "pos.view",
+  POS_CREATE_SALE: "pos.create_sale",
 
+  // Sales
   SALES_VIEW: "sales.view",
   SALES_CREATE: "sales.create",
+  SALES_UPDATE: "sales.update",
   SALES_CANCEL: "sales.cancel",
 
+  // Receipts
   RECEIPTS_VIEW: "receipts.view",
+  RECEIPTS_PRINT: "receipts.print",
+  RECEIPTS_DOWNLOAD: "receipts.download",
 
+  // Returns
   RETURNS_VIEW: "returns.view",
   RETURNS_CREATE: "returns.create",
-  RETURNS_APPROVE: "returns.approve",
+  RETURNS_UPDATE: "returns.update",
 
+  // Products
   PRODUCTS_VIEW: "products.view",
   PRODUCTS_CREATE: "products.create",
   PRODUCTS_UPDATE: "products.update",
   PRODUCTS_DELETE: "products.delete",
 
+  // Categories
+  CATEGORIES_VIEW: "categories.view",
+  CATEGORIES_CREATE: "categories.create",
+  CATEGORIES_UPDATE: "categories.update",
+  CATEGORIES_DELETE: "categories.delete",
+
+  // Inventory
   INVENTORY_VIEW: "inventory.view",
+  INVENTORY_CREATE: "inventory.create",
+  INVENTORY_UPDATE: "inventory.update",
   INVENTORY_ADJUST: "inventory.adjust",
 
-  PURCHASES_VIEW: "purchases.view",
-  PURCHASES_CREATE: "purchases.create",
-
+  // Customers
   CUSTOMERS_VIEW: "customers.view",
   CUSTOMERS_CREATE: "customers.create",
   CUSTOMERS_UPDATE: "customers.update",
+  CUSTOMERS_DELETE: "customers.delete",
 
+  // Suppliers
   SUPPLIERS_VIEW: "suppliers.view",
   SUPPLIERS_CREATE: "suppliers.create",
+  SUPPLIERS_UPDATE: "suppliers.update",
+  SUPPLIERS_DELETE: "suppliers.delete",
 
+  // Purchases
+  PURCHASES_VIEW: "purchases.view",
+  PURCHASES_CREATE: "purchases.create",
+  PURCHASES_UPDATE: "purchases.update",
+  PURCHASES_DELETE: "purchases.delete",
+
+  // Expenses
   EXPENSES_VIEW: "expenses.view",
   EXPENSES_CREATE: "expenses.create",
-  EXPENSES_APPROVE: "expenses.approve",
+  EXPENSES_UPDATE: "expenses.update",
+  EXPENSES_DELETE: "expenses.delete",
 
-  REPORTS_VIEW: "reports.view",
-  REPORTS_FINANCIAL: "reports.financial",
-
+  // Payments
   PAYMENTS_VIEW: "payments.view",
   PAYMENTS_CREATE: "payments.create",
+  PAYMENTS_UPDATE: "payments.update",
+  PAYMENTS_REFUND: "payments.refund",
 
+  // Reports
+  REPORTS_VIEW: "reports.view",
+  REPORTS_EXPORT: "reports.export",
+
+  // Users
   USERS_VIEW: "users.view",
   USERS_CREATE: "users.create",
   USERS_UPDATE: "users.update",
   USERS_DISABLE: "users.disable",
 
+  // Branches
   BRANCHES_VIEW: "branches.view",
   BRANCHES_CREATE: "branches.create",
   BRANCHES_UPDATE: "branches.update",
+  BRANCHES_DELETE: "branches.delete",
 
+  // Audit
+  AUDIT_VIEW: "audit.view",
+
+  // Settings
   SETTINGS_VIEW: "settings.view",
   SETTINGS_UPDATE: "settings.update",
-
-  AUDIT_VIEW: "audit.view",
 };
 
 /*
 |--------------------------------------------------------------------------
 | OWNER
 |--------------------------------------------------------------------------
+|
+| Owner has unrestricted access.
+|
+|--------------------------------------------------------------------------
 */
 
-const OWNER_PERMISSIONS = [
-  ...Object.values(PERMISSIONS),
-];
+const OWNER_PERMISSIONS = Object.values(PERMISSIONS);
 
 /*
 |--------------------------------------------------------------------------
 | ADMIN
 |--------------------------------------------------------------------------
+|
+| Admin has full operational access.
+|
+|--------------------------------------------------------------------------
 */
 
-const ADMIN_PERMISSIONS = [
-  PERMISSIONS.DASHBOARD_VIEW,
-
-  PERMISSIONS.POS_ACCESS,
-
-  PERMISSIONS.SALES_VIEW,
-  PERMISSIONS.SALES_CREATE,
-  PERMISSIONS.SALES_CANCEL,
-
-  PERMISSIONS.RECEIPTS_VIEW,
-
-  PERMISSIONS.RETURNS_VIEW,
-  PERMISSIONS.RETURNS_CREATE,
-  PERMISSIONS.RETURNS_APPROVE,
-
-  PERMISSIONS.PRODUCTS_VIEW,
-  PERMISSIONS.PRODUCTS_CREATE,
-  PERMISSIONS.PRODUCTS_UPDATE,
-  PERMISSIONS.PRODUCTS_DELETE,
-
-  PERMISSIONS.INVENTORY_VIEW,
-  PERMISSIONS.INVENTORY_ADJUST,
-
-  PERMISSIONS.PURCHASES_VIEW,
-  PERMISSIONS.PURCHASES_CREATE,
-
-  PERMISSIONS.CUSTOMERS_VIEW,
-  PERMISSIONS.CUSTOMERS_CREATE,
-  PERMISSIONS.CUSTOMERS_UPDATE,
-
-  PERMISSIONS.SUPPLIERS_VIEW,
-  PERMISSIONS.SUPPLIERS_CREATE,
-
-  PERMISSIONS.EXPENSES_VIEW,
-  PERMISSIONS.EXPENSES_CREATE,
-  PERMISSIONS.EXPENSES_APPROVE,
-
-  PERMISSIONS.REPORTS_VIEW,
-  PERMISSIONS.REPORTS_FINANCIAL,
-
-  PERMISSIONS.PAYMENTS_VIEW,
-  PERMISSIONS.PAYMENTS_CREATE,
-
-  PERMISSIONS.USERS_VIEW,
-  PERMISSIONS.USERS_CREATE,
-  PERMISSIONS.USERS_UPDATE,
-  PERMISSIONS.USERS_DISABLE,
-
-  PERMISSIONS.BRANCHES_VIEW,
-  PERMISSIONS.BRANCHES_CREATE,
-  PERMISSIONS.BRANCHES_UPDATE,
-
-  PERMISSIONS.SETTINGS_VIEW,
-  PERMISSIONS.SETTINGS_UPDATE,
-
-  PERMISSIONS.AUDIT_VIEW,
-];
+const ADMIN_PERMISSIONS = Object.values(PERMISSIONS);
 
 /*
 |--------------------------------------------------------------------------
 | MANAGER
-|--------------------------------------------------------------------------
-| Manager can manage operational areas, branches and view users.
 |--------------------------------------------------------------------------
 */
 
 const MANAGER_PERMISSIONS = [
   PERMISSIONS.DASHBOARD_VIEW,
 
-  PERMISSIONS.POS_ACCESS,
+  PERMISSIONS.POS_VIEW,
+  PERMISSIONS.POS_CREATE_SALE,
 
   PERMISSIONS.SALES_VIEW,
   PERMISSIONS.SALES_CREATE,
-  PERMISSIONS.SALES_CANCEL,
+  PERMISSIONS.SALES_UPDATE,
 
   PERMISSIONS.RECEIPTS_VIEW,
+  PERMISSIONS.RECEIPTS_PRINT,
+  PERMISSIONS.RECEIPTS_DOWNLOAD,
 
   PERMISSIONS.RETURNS_VIEW,
   PERMISSIONS.RETURNS_CREATE,
-  PERMISSIONS.RETURNS_APPROVE,
+  PERMISSIONS.RETURNS_UPDATE,
 
   PERMISSIONS.PRODUCTS_VIEW,
   PERMISSIONS.PRODUCTS_CREATE,
   PERMISSIONS.PRODUCTS_UPDATE,
 
-  PERMISSIONS.INVENTORY_VIEW,
-  PERMISSIONS.INVENTORY_ADJUST,
+  PERMISSIONS.CATEGORIES_VIEW,
+  PERMISSIONS.CATEGORIES_CREATE,
+  PERMISSIONS.CATEGORIES_UPDATE,
 
-  PERMISSIONS.PURCHASES_VIEW,
-  PERMISSIONS.PURCHASES_CREATE,
+  PERMISSIONS.INVENTORY_VIEW,
+  PERMISSIONS.INVENTORY_CREATE,
+  PERMISSIONS.INVENTORY_UPDATE,
+  PERMISSIONS.INVENTORY_ADJUST,
 
   PERMISSIONS.CUSTOMERS_VIEW,
   PERMISSIONS.CUSTOMERS_CREATE,
@@ -191,28 +181,25 @@ const MANAGER_PERMISSIONS = [
 
   PERMISSIONS.SUPPLIERS_VIEW,
   PERMISSIONS.SUPPLIERS_CREATE,
+  PERMISSIONS.SUPPLIERS_UPDATE,
+
+  PERMISSIONS.PURCHASES_VIEW,
+  PERMISSIONS.PURCHASES_CREATE,
+  PERMISSIONS.PURCHASES_UPDATE,
 
   PERMISSIONS.EXPENSES_VIEW,
   PERMISSIONS.EXPENSES_CREATE,
-
-  PERMISSIONS.REPORTS_VIEW,
+  PERMISSIONS.EXPENSES_UPDATE,
 
   PERMISSIONS.PAYMENTS_VIEW,
   PERMISSIONS.PAYMENTS_CREATE,
+  PERMISSIONS.PAYMENTS_UPDATE,
 
-  /*
-   * User management
-   *
-   * Manager can SEE users but does not create,
-   * disable or change user accounts.
-   */
+  PERMISSIONS.REPORTS_VIEW,
+  PERMISSIONS.REPORTS_EXPORT,
+
   PERMISSIONS.USERS_VIEW,
 
-  /*
-   * Branch management
-   *
-   * Manager can view, create and update branches.
-   */
   PERMISSIONS.BRANCHES_VIEW,
   PERMISSIONS.BRANCHES_CREATE,
   PERMISSIONS.BRANCHES_UPDATE,
@@ -224,21 +211,29 @@ const MANAGER_PERMISSIONS = [
 |--------------------------------------------------------------------------
 | CASHIER
 |--------------------------------------------------------------------------
+|
+| Cashiers only receive permissions required for daily sales operations.
+|
+|--------------------------------------------------------------------------
 */
 
 const CASHIER_PERMISSIONS = [
   PERMISSIONS.DASHBOARD_VIEW,
 
-  PERMISSIONS.POS_ACCESS,
+  PERMISSIONS.POS_VIEW,
+  PERMISSIONS.POS_CREATE_SALE,
 
   PERMISSIONS.SALES_VIEW,
   PERMISSIONS.SALES_CREATE,
 
   PERMISSIONS.RECEIPTS_VIEW,
+  PERMISSIONS.RECEIPTS_PRINT,
+  PERMISSIONS.RECEIPTS_DOWNLOAD,
 
   PERMISSIONS.RETURNS_VIEW,
   PERMISSIONS.RETURNS_CREATE,
 
+  // Cashiers can manage customers from POS/customer screen.
   PERMISSIONS.CUSTOMERS_VIEW,
   PERMISSIONS.CUSTOMERS_CREATE,
   PERMISSIONS.CUSTOMERS_UPDATE,
@@ -259,18 +254,27 @@ const INVENTORY_MANAGER_PERMISSIONS = [
   PERMISSIONS.PRODUCTS_VIEW,
   PERMISSIONS.PRODUCTS_CREATE,
   PERMISSIONS.PRODUCTS_UPDATE,
-  PERMISSIONS.PRODUCTS_DELETE,
+
+  PERMISSIONS.CATEGORIES_VIEW,
+  PERMISSIONS.CATEGORIES_CREATE,
+  PERMISSIONS.CATEGORIES_UPDATE,
 
   PERMISSIONS.INVENTORY_VIEW,
+  PERMISSIONS.INVENTORY_CREATE,
+  PERMISSIONS.INVENTORY_UPDATE,
   PERMISSIONS.INVENTORY_ADJUST,
 
   PERMISSIONS.PURCHASES_VIEW,
   PERMISSIONS.PURCHASES_CREATE,
+  PERMISSIONS.PURCHASES_UPDATE,
 
   PERMISSIONS.SUPPLIERS_VIEW,
   PERMISSIONS.SUPPLIERS_CREATE,
+  PERMISSIONS.SUPPLIERS_UPDATE,
 
   PERMISSIONS.CUSTOMERS_VIEW,
+  PERMISSIONS.CUSTOMERS_CREATE,
+  PERMISSIONS.CUSTOMERS_UPDATE,
 
   PERMISSIONS.SALES_VIEW,
 
@@ -289,112 +293,120 @@ const ACCOUNTANT_PERMISSIONS = [
   PERMISSIONS.SALES_VIEW,
 
   PERMISSIONS.RECEIPTS_VIEW,
-
-  PERMISSIONS.EXPENSES_VIEW,
-  PERMISSIONS.EXPENSES_CREATE,
-  PERMISSIONS.EXPENSES_APPROVE,
-
-  PERMISSIONS.PAYMENTS_VIEW,
-
-  PERMISSIONS.REPORTS_VIEW,
-  PERMISSIONS.REPORTS_FINANCIAL,
+  PERMISSIONS.RECEIPTS_DOWNLOAD,
 
   PERMISSIONS.CUSTOMERS_VIEW,
 
   PERMISSIONS.SUPPLIERS_VIEW,
+
+  PERMISSIONS.EXPENSES_VIEW,
+  PERMISSIONS.EXPENSES_CREATE,
+  PERMISSIONS.EXPENSES_UPDATE,
+
+  PERMISSIONS.PAYMENTS_VIEW,
+  PERMISSIONS.PAYMENTS_CREATE,
+  PERMISSIONS.PAYMENTS_UPDATE,
+
+  PERMISSIONS.REPORTS_VIEW,
+  PERMISSIONS.REPORTS_EXPORT,
 ];
 
 /*
 |--------------------------------------------------------------------------
-| ROLE → PERMISSIONS
+| ROLE PERMISSIONS
 |--------------------------------------------------------------------------
 */
 
 export const ROLE_PERMISSIONS = {
-  [ROLES.OWNER]: OWNER_PERMISSIONS,
-  [ROLES.ADMIN]: ADMIN_PERMISSIONS,
-  [ROLES.MANAGER]: MANAGER_PERMISSIONS,
-  [ROLES.CASHIER]: CASHIER_PERMISSIONS,
-  [ROLES.INVENTORY_MANAGER]: INVENTORY_MANAGER_PERMISSIONS,
-  [ROLES.ACCOUNTANT]: ACCOUNTANT_PERMISSIONS,
-};
-
-/*
-|--------------------------------------------------------------------------
-| NORMALIZE ROLE
-|--------------------------------------------------------------------------
-*/
-
-const normalizeRole = (role) => {
-  return String(role || "")
-    .trim()
-    .toUpperCase();
-};
-
-/*
-|--------------------------------------------------------------------------
-| HAS PERMISSION
-|--------------------------------------------------------------------------
-*/
-
-export const hasPermission = (role, permission) => {
-  const normalizedRole = normalizeRole(role);
-
-  if (!normalizedRole || !permission) {
-    return false;
-  }
-
-  const rolePermissions =
-    ROLE_PERMISSIONS[normalizedRole] || [];
-
-  return rolePermissions.includes(permission);
+  OWNER: OWNER_PERMISSIONS,
+  ADMIN: ADMIN_PERMISSIONS,
+  MANAGER: MANAGER_PERMISSIONS,
+  CASHIER: CASHIER_PERMISSIONS,
+  INVENTORY_MANAGER: INVENTORY_MANAGER_PERMISSIONS,
+  ACCOUNTANT: ACCOUNTANT_PERMISSIONS,
 };
 
 /*
 |--------------------------------------------------------------------------
 | GET ROLE PERMISSIONS
 |--------------------------------------------------------------------------
+|
+| This function is intentionally exported because permissionMiddleware.js
+| uses it.
+|
+|--------------------------------------------------------------------------
 */
 
 export const getRolePermissions = (role) => {
-  const normalizedRole = normalizeRole(role);
+  if (!role) {
+    return [];
+  }
 
-  return [
-    ...(ROLE_PERMISSIONS[normalizedRole] || []),
-  ];
+  const normalizedRole = String(role).toUpperCase();
+
+  return ROLE_PERMISSIONS[normalizedRole] || [];
 };
 
 /*
 |--------------------------------------------------------------------------
-| GET ROLE PERMISSION OBJECT
+| CHECK ONE PERMISSION
 |--------------------------------------------------------------------------
 */
 
-export const getPermissionMapForRole = (role) => {
-  const permissions = getRolePermissions(role);
+export const hasPermission = (role, permission) => {
+  if (!role || !permission) {
+    return false;
+  }
 
-  return Object.values(PERMISSIONS).reduce(
-    (result, permission) => {
-      result[permission] =
-        permissions.includes(permission);
+  const normalizedRole = String(role).toUpperCase();
 
-      return result;
-    },
-    {}
+  // Owner has unrestricted access.
+  if (normalizedRole === "OWNER") {
+    return true;
+  }
+
+  const permissions = getRolePermissions(normalizedRole);
+
+  return permissions.includes(permission);
+};
+
+/*
+|--------------------------------------------------------------------------
+| CHECK ANY PERMISSION
+|--------------------------------------------------------------------------
+*/
+
+export const hasAnyPermission = (role, permissions = []) => {
+  if (!role || !Array.isArray(permissions)) {
+    return false;
+  }
+
+  if (String(role).toUpperCase() === "OWNER") {
+    return true;
+  }
+
+  return permissions.some((permission) =>
+    hasPermission(role, permission)
   );
 };
 
 /*
 |--------------------------------------------------------------------------
-| IS VALID ROLE
+| CHECK ALL PERMISSIONS
 |--------------------------------------------------------------------------
 */
 
-export const isValidRole = (role) => {
-  const normalizedRole = normalizeRole(role);
+export const hasAllPermissions = (role, permissions = []) => {
+  if (!role || !Array.isArray(permissions)) {
+    return false;
+  }
 
-  return Boolean(
-    ROLE_PERMISSIONS[normalizedRole]
+  if (String(role).toUpperCase() === "OWNER") {
+    return true;
+  }
+
+  return permissions.every((permission) =>
+    hasPermission(role, permission)
   );
 };
 
@@ -402,14 +414,17 @@ export const isValidRole = (role) => {
 |--------------------------------------------------------------------------
 | DEFAULT EXPORT
 |--------------------------------------------------------------------------
+|
+| Useful for files that import the permission configuration as an object.
+|
+|--------------------------------------------------------------------------
 */
 
 export default {
-  ROLES,
   PERMISSIONS,
   ROLE_PERMISSIONS,
-  hasPermission,
   getRolePermissions,
-  getPermissionMapForRole,
-  isValidRole,
+  hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
 };
