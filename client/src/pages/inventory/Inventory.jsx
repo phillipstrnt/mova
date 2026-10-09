@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import api from "../../services/api";
+import ProductImage from "../../components/products/ProductImage";
 
 const Inventory = () => {
   const [products, setProducts] = useState([]);
@@ -827,23 +828,7 @@ const Inventory = () => {
                       >
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
-                              {product.image ? (
-                                <img
-                                  src={
-                                    product.image
-                                  }
-                                  alt={
-                                    product.name
-                                  }
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <Package
-                                  size={18}
-                                />
-                              )}
-                            </div>
+                            <ProductImage product={product} className="h-11 w-11 shrink-0 rounded-xl object-cover" />
 
                             <div>
                               <p className="font-bold text-slate-900">

@@ -1,6 +1,6 @@
 
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Building2,
@@ -14,16 +14,19 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
+import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 
 const Register = () => {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const location = useLocation();
+  const { register, googleSignIn } = useAuth();
+  const pendingGoogle = location.state?.googleRegistration || null;
 
   const [form, setForm] = useState({
     businessName: "",
     businessType: "",
-    ownerName: "",
-    email: "",
+    ownerName: pendingGoogle?.profile?.name || "",
+    email: pendingGoogle?.profile?.email || "",
     phone: "",
     password: "",
     confirmPassword: "",
@@ -34,6 +37,10 @@ const Register = () => {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [googleCredential, setGoogleCredential] = useState(
+    pendingGoogle?.credential || sessionStorage.getItem("mova_google_registration") || ""
+  );
+  const [googleReady, setGoogleReady] = useState(Boolean(pendingGoogle?.credential));
 
   const businessTypes = [
     "Retail",
@@ -44,6 +51,17 @@ const Register = () => {
     "Services",
     "Other",
   ];
+
+  const handleGoogleCredential = useCallback((credential, profile = {}) => {
+    setGoogleCredential(credential);
+    setGoogleReady(true);
+    setForm((previous) => ({
+      ...previous,
+      email: profile.email || previous.email,
+      ownerName: profile.name || previous.ownerName,
+    }));
+    setError("");
+  }, []);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -98,15 +116,10 @@ const Register = () => {
     // Required fields
     // ---------------------------------------------------------
 
-    if (
-      !businessName ||
-      !businessType ||
-      !ownerName ||
-      !email ||
-      !password ||
-      !confirmPassword
-    ) {
-      setError("Please complete all required fields.");
+    if (!businessName || !businessType || (!googleCredential && (!ownerName || !email || !password || !confirmPassword))) {
+      setError(googleCredential
+        ? "Please add your business name and type to finish Google sign-up."
+        : "Please complete all required fields.");
       return;
     }
 
@@ -116,7 +129,7 @@ const Register = () => {
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!emailPattern.test(email)) {
+    if (!googleCredential && !emailPattern.test(email)) {
       setError("Please enter a valid email address.");
       return;
     }
@@ -125,12 +138,12 @@ const Register = () => {
     // Password validation
     // ---------------------------------------------------------
 
-    if (password.length < 6) {
+    if (!googleCredential && password.length < 6) {
       setError("Password must contain at least 6 characters.");
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (!googleCredential && password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
@@ -142,21 +155,26 @@ const Register = () => {
     try {
       setLoading(true);
 
-      const registrationData = {
+      if (googleCredential) {
+        await googleSignIn(googleCredential, {
+          businessName,
+          businessType,
+          ownerName,
+          phone,
+        });
+        sessionStorage.removeItem("mova_google_registration");
+        navigate("/app", { replace: true });
+        return;
+      }
+
+      await register({
         businessName,
         businessType,
         ownerName,
         email,
         phone,
         password,
-      };
-
-      console.log("MOVA registration request:", {
-        ...registrationData,
-        password: "[hidden]",
       });
-
-      await register(registrationData);
 
       /*
        * Registration creates:
@@ -172,8 +190,6 @@ const Register = () => {
         replace: true,
       });
     } catch (err) {
-      console.error("MOVA registration error:", err);
-
       setError(getRegistrationError(err));
     } finally {
       setLoading(false);
@@ -298,6 +314,23 @@ const Register = () => {
                 Create your MOVA account. You will configure your business,
                 branch and receipt settings next.
               </p>
+            </div>
+
+            <div className="mb-6">
+              <GoogleSignInButton
+                onCredential={handleGoogleCredential}
+                disabled={loading}
+              />
+              {googleReady && (
+                <p className="mt-2 text-center text-xs font-medium text-emerald-700">
+                  Google verified. Add your business details below to finish.
+                </p>
+              )}
+              <div className="mt-5 flex items-center gap-3 text-xs text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                or create an account with email
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
             </div>
 
             {/* Error */}
@@ -431,6 +464,7 @@ const Register = () => {
                       placeholder="you@example.com"
                       autoComplete="email"
                       disabled={loading}
+                      readOnly={Boolean(googleCredential)}
                       className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                     />
                   </div>
@@ -464,6 +498,8 @@ const Register = () => {
                 </div>
               </div>
 
+              {!googleCredential && (
+              <>
               {/* Password */}
 
               <div>
@@ -563,6 +599,8 @@ const Register = () => {
                   </button>
                 </div>
               </div>
+              </>
+              )}
 
               {/* Submit */}
 
@@ -578,7 +616,7 @@ const Register = () => {
                   </>
                 ) : (
                   <>
-                    Create account
+                    {googleCredential ? "Create account with Google" : "Create account"}
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}

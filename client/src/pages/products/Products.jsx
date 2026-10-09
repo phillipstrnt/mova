@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import {
@@ -18,6 +18,7 @@ import {
 
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
+import ProductImage from "../../components/products/ProductImage";
 
 const emptyForm = {
   name: "",
@@ -32,6 +33,7 @@ const emptyForm = {
   minimumStock: "",
   unit: "piece",
   trackStock: true,
+  stockRotation: "FIFO",
 };
 
 const emptyCategoryForm = {
@@ -54,6 +56,45 @@ const formatNumber = (value) => {
     Number(value) || 0
   );
 };
+
+const resizeProductImage = (file) => new Promise((resolve, reject) => {
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    const maxDimension = 900;
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Unable to prepare this product image."));
+      return;
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    let dataUrl = canvas.toDataURL("image/webp", 0.78);
+    if (!dataUrl.startsWith("data:image/webp")) dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+    if (dataUrl.length > 680000) {
+      const smallerCanvas = document.createElement("canvas");
+      smallerCanvas.width = Math.max(1, Math.round(canvas.width * 0.72));
+      smallerCanvas.height = Math.max(1, Math.round(canvas.height * 0.72));
+      smallerCanvas.getContext("2d")?.drawImage(canvas, 0, 0, smallerCanvas.width, smallerCanvas.height);
+      dataUrl = smallerCanvas.toDataURL("image/jpeg", 0.65);
+    }
+    URL.revokeObjectURL(objectUrl);
+    if (dataUrl.length > 700000) {
+      reject(new Error("This image is still too large. Choose a smaller or more compressed photo."));
+      return;
+    }
+    resolve(dataUrl);
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(objectUrl);
+    reject(new Error("Unable to read this image. Choose a JPG, PNG, or WebP photo."));
+  };
+  image.src = objectUrl;
+});
 
 const Products = () => {
   const { user } = useAuth();
@@ -92,6 +133,8 @@ const Products = () => {
     useState(null);
 
   const [form, setForm] = useState(emptyForm);
+  const imageInputRef = useRef(null);
+  const [processingImage, setProcessingImage] = useState(false);
 
   const [categoryForm, setCategoryForm] =
     useState(emptyCategoryForm);
@@ -282,6 +325,7 @@ const Products = () => {
 
       trackStock:
         product?.trackStock ?? true,
+      stockRotation: product?.stockRotation || "FIFO",
     });
 
     setError("");
@@ -496,6 +540,30 @@ const Products = () => {
     }));
   };
 
+  const handleProductImage = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = "";
+    setError("");
+    if (!file.type.startsWith("image/")) {
+      setError("Choose a JPG, PNG, or WebP product image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Choose a product image smaller than 10 MB.");
+      return;
+    }
+    setProcessingImage(true);
+    try {
+      const image = await resizeProductImage(file);
+      setForm((previous) => ({ ...previous, image }));
+    } catch (imageError) {
+      setError(imageError.message || "Unable to prepare this product image.");
+    } finally {
+      setProcessingImage(false);
+    }
+  };
+
   // ==========================================================
   // SAVE PRODUCT
   // ==========================================================
@@ -653,6 +721,8 @@ const Products = () => {
         Boolean(
           form.trackStock
         ),
+
+      stockRotation: form.stockRotation || "FIFO",
     };
 
     try {
@@ -1491,20 +1561,7 @@ const Products = () => {
                       >
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
-                              <Package size={19} />
-                              {product.image && (
-                                <img
-                                  src={product.image}
-                                  alt=""
-                                  loading="lazy"
-                                  className="absolute inset-0 h-full w-full object-cover"
-                                  onError={(event) =>
-                                    event.currentTarget.remove()
-                                  }
-                                />
-                              )}
-                            </div>
+                            <ProductImage product={product} className="h-12 w-12 shrink-0 rounded-xl object-cover" />
 
                             <div className="min-w-0">
                               <p className="truncate font-bold text-slate-900">
@@ -1859,6 +1916,14 @@ const Products = () => {
                 </div>
 
                 <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">Stock rotation</label>
+                  <select name="stockRotation" value={form.stockRotation || "FIFO"} onChange={handleChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    <option value="FIFO">FIFO · oldest batch first</option>
+                    <option value="LIFO">LIFO · newest batch first</option>
+                  </select>
+                </div>
+
+                <div>
                   <label className="mb-2 block text-sm font-bold text-slate-700">
                     Buying price *
                   </label>
@@ -1964,38 +2029,20 @@ const Products = () => {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-bold text-slate-700">
-                    Product image URL
-                  </label>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
-                      <ImagePlus size={24} />
-                      {form.image.trim() && (
-                        <img
-                          key={form.image}
-                          src={form.image.trim()}
-                          alt={`${form.name || "Product"} preview`}
-                          className="absolute inset-0 h-full w-full object-cover"
-                          onError={(event) =>
-                            event.currentTarget.remove()
-                          }
-                        />
-                      )}
-                    </div>
-
-                    <div className="flex-1">
-                      <input
-                        name="image"
-                        type="text"
-                        value={form.image}
-                        onChange={handleChange}
-                        placeholder="https://example.com/product.jpg"
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-                      />
-                      <p className="mt-2 text-xs text-slate-500">
-                        Add an image link to make products easier to recognize in the catalogue and POS.
-                      </p>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">Product photo</label>
+                  <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4 sm:flex-row sm:items-center">
+                    <ProductImage product={{ name: form.name || "Product preview", image: form.image }} className="h-28 w-28 shrink-0 rounded-2xl object-cover shadow-sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-800">Add a clear product photo</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">Choose a photo from this device. MOVA resizes it so it loads quickly in the catalogue and cashier screen.</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleProductImage} className="sr-only" />
+                        <button type="button" disabled={processingImage || saving} onClick={() => imageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"><ImagePlus size={15} />{processingImage ? "Preparing photo…" : form.image ? "Replace photo" : "Upload photo"}</button>
+                        {form.image && <button type="button" disabled={saving} onClick={() => setForm((previous) => ({ ...previous, image: "" }))} className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Remove photo</button>}
+                      </div>
+                      <label className="mt-3 block text-[11px] font-semibold text-slate-500">Or paste an image link
+                        <input name="image" type="text" value={form.image.startsWith("data:image/") ? "" : form.image} onChange={handleChange} placeholder="https://…" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal outline-none focus:border-blue-500" />
+                      </label>
                     </div>
                   </div>
                 </div>

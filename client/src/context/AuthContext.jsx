@@ -454,6 +454,89 @@ export const AuthProvider = ({
       []
     );
 
+  const establishSession = useCallback(
+    (payload) => {
+      const token = payload?.token;
+      const authenticatedUser = payload?.user;
+      if (!token || !authenticatedUser) {
+        throw new Error("Authentication response was incomplete. Please try again.");
+      }
+
+      localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+      const normalizedUser = normalizeUser(authenticatedUser);
+      const resolved = resolveBranchData({
+        authenticatedUser: normalizedUser,
+        authenticatedBranch: payload.branch || null,
+        authenticatedBranches: Array.isArray(payload.branches) ? payload.branches : [],
+      });
+
+      setUser(normalizedUser);
+      setBusiness(payload.business || null);
+      setBranch(resolved.branch);
+      setBranches(resolved.branches);
+      setStoredJson(STORAGE_KEYS.USER, normalizedUser);
+      setStoredJson(STORAGE_KEYS.BUSINESS, payload.business || null);
+      setStoredJson(STORAGE_KEYS.BRANCH, resolved.branch);
+      setStoredJson(STORAGE_KEYS.BRANCHES, resolved.branches);
+
+      return {
+        token,
+        user: normalizedUser,
+        business: payload.business || null,
+        branch: resolved.branch,
+        branches: resolved.branches,
+      };
+    },
+    [normalizeUser, resolveBranchData]
+  );
+
+  const register = useCallback(
+    async (registrationData) => {
+      setLoading(true);
+      try {
+        const response = await api.post("/auth/register", registrationData);
+        return establishSession(response.data?.data || response.data || {});
+      } catch (error) {
+        const message = getApiErrorMessage(error, "Unable to create your account.");
+        throw Object.assign(new Error(message), {
+          status: error?.response?.status,
+          response: error?.response,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [establishSession]
+  );
+
+  const googleSignIn = useCallback(
+    async (credential, businessDetails = {}) => {
+      setLoading(true);
+      try {
+        const response = await api.post("/auth/google", {
+          credential,
+          ...businessDetails,
+        });
+        const payload = response.data?.data || response.data || {};
+        return establishSession(payload);
+      } catch (error) {
+        const apiData = error?.response?.data || {};
+        throw Object.assign(
+          new Error(getApiErrorMessage(error, "Google sign-in could not be completed.")),
+          {
+            status: error?.response?.status,
+            code: apiData.code,
+            profile: apiData.profile,
+            response: error?.response,
+          }
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [establishSession]
+  );
+
   /*
   |--------------------------------------------------------------------------
   | Load authenticated user
@@ -1169,8 +1252,11 @@ export const AuthProvider = ({
       setBranches,
 
       loading,
+      isAuthenticated: Boolean(user),
 
       login,
+      register,
+      googleSignIn,
       logout,
       clearAuth,
 
@@ -1198,6 +1284,8 @@ export const AuthProvider = ({
       branches,
       loading,
       login,
+      register,
+      googleSignIn,
       logout,
       clearAuth,
       switchBranch,

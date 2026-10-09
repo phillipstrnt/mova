@@ -343,6 +343,7 @@ export const createProduct =
         image = "",
         unit = "piece",
         trackStock = true,
+        stockRotation = "FIFO",
         categoryId = null,
       } = req.body;
 
@@ -444,6 +445,14 @@ export const createProduct =
           message:
             "Minimum stock must be a valid non-negative number.",
         });
+      }
+
+      if (String(image || "").length > 700000) {
+        return res.status(400).json({ success: false, message: "Product images must be under 700 KB after resizing." });
+      }
+
+      if (!["FIFO", "LIFO"].includes(String(stockRotation).toUpperCase())) {
+        return res.status(400).json({ success: false, message: "Stock rotation must be FIFO or LIFO." });
       }
 
       /*
@@ -576,6 +585,8 @@ export const createProduct =
 
           trackStock:
             Boolean(trackStock),
+
+          stockRotation: String(stockRotation).toUpperCase(),
 
           isActive: true,
         });
@@ -1181,6 +1192,7 @@ export const updateProduct =
         image,
         unit,
         trackStock,
+        stockRotation,
         categoryId,
       } = req.body;
 
@@ -1383,6 +1395,10 @@ export const updateProduct =
           value;
       }
 
+      if (image !== undefined && String(image || "").length > 700000) {
+        return res.status(400).json({ success: false, message: "Product images must be under 700 KB after resizing." });
+      }
+
       if (
         image !== undefined
       ) {
@@ -1405,6 +1421,14 @@ export const updateProduct =
       ) {
         product.trackStock =
           Boolean(trackStock);
+      }
+
+      if (stockRotation !== undefined) {
+        const normalizedRotation = String(stockRotation).toUpperCase();
+        if (!["FIFO", "LIFO"].includes(normalizedRotation)) {
+          return res.status(400).json({ success: false, message: "Stock rotation must be FIFO or LIFO." });
+        }
+        product.stockRotation = normalizedRotation;
       }
 
       /*

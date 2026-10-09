@@ -54,6 +54,16 @@ const purchaseItemSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+
+    batchCode: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    expiryDate: {
+      type: Date,
+      default: null,
+    },
   },
   {
     _id: false,

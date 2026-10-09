@@ -132,6 +132,15 @@ const saleSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Client-generated key makes a queued PWA sale safe to retry after a
+    // timeout or interrupted connection without charging stock twice.
+    offlineClientSaleId: {
+      type: String,
+      trim: true,
+      default: undefined,
+      maxlength: 100,
+    },
+
     /*
     |--------------------------------------------------------------------------
     | ITEMS
@@ -183,6 +192,17 @@ const saleSchema = new mongoose.Schema(
       default: 0,
     },
 
+    loyaltyPointsRedeemed: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    loyaltyPointsRestored: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
     total: {
       type: Number,
       required: true,
@@ -203,6 +223,7 @@ const saleSchema = new mongoose.Schema(
         "MOBILE_MONEY",
         "CARD",
         "BANK",
+        "CREDIT",
       ],
 
       required: true,
@@ -312,6 +333,11 @@ saleSchema.index({
   businessId: 1,
   receiptNumber: 1,
 });
+
+saleSchema.index(
+  { businessId: 1, cashierId: 1, offlineClientSaleId: 1 },
+  { unique: true, partialFilterExpression: { offlineClientSaleId: { $type: "string" } } }
+);
 
 /*
 |--------------------------------------------------------------------------

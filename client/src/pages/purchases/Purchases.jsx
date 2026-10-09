@@ -5,6 +5,8 @@ const emptyItem = {
   productId: "",
   quantity: 1,
   buyingPrice: "",
+  batchCode: "",
+  expiryDate: "",
 };
 
 const Purchases = () => {
@@ -363,6 +365,8 @@ const Purchases = () => {
                   Number(
                     item.buyingPrice
                   ),
+                batchCode: item.batchCode || "",
+                expiryDate: item.expiryDate || null,
               })
             ),
 
@@ -929,6 +933,17 @@ const Purchases = () => {
                               className="w-full rounded-lg border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-400"
                               required
                             />
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-3 md:col-span-12 md:grid-cols-2">
+                            <label className="text-xs font-bold text-slate-500">
+                              Batch / lot code
+                              <input type="text" value={item.batchCode || ""} onChange={(event) => updateItem(index, "batchCode", event.target.value)} placeholder="Optional supplier batch code" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800" />
+                            </label>
+                            <label className="text-xs font-bold text-slate-500">
+                              Expiry date
+                              <input type="date" value={item.expiryDate || ""} onChange={(event) => updateItem(index, "expiryDate", event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-800" />
+                            </label>
                           </div>
 
                           <div className="md:col-span-2">

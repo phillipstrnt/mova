@@ -1540,6 +1540,7 @@ const Sales = () => {
               <option value="BANK">
                 Bank
               </option>
+              <option value="CREDIT">Store credit</option>
             </select>
 
             <ChevronDown

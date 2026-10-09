@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Banknote,
@@ -10,6 +10,7 @@ import {
   Plus,
   ReceiptText,
   Search,
+  ScanLine,
   Smartphone,
   Trash2,
   User,
@@ -20,6 +21,34 @@ import {
 
 import api from "../../services/api";
 import Receipt from "../receipts/Receipts";
+import {
+  countPendingOfflineSales,
+  enqueueOfflineAuditEvent,
+  enqueueOfflineSale,
+  readPosCatalog,
+  savePosCatalog,
+} from "../../offline/database";
+import { syncOfflineSales, watchOfflineSaleSync } from "../../offline/syncManager";
+import BarcodeScanner from "../../components/POS/BarcodeScanner";
+import CashierShiftClock from "../../components/POS/CashierShiftClock";
+import ProductImage from "../../components/products/ProductImage";
+
+const readOfflineIdentity = () => {
+  try {
+    const user = JSON.parse(localStorage.getItem("mova_user") || "null");
+    const business = JSON.parse(localStorage.getItem("mova_business") || "null");
+    const branch = JSON.parse(localStorage.getItem("mova_branch") || "null");
+    return {
+      userId: String(user?._id || user?.id || ""),
+      businessId: String(user?.businessId?._id || user?.businessId || business?._id || business?.id || ""),
+      branchId: String(branch?._id || branch?.id || user?.activeBranchId || user?.branchId || ""),
+    };
+  } catch {
+    return { userId: "", businessId: "", branchId: "" };
+  }
+};
+
+const createClientSaleId = () => globalThis.crypto?.randomUUID?.() || `mova-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const PAYMENT_METHODS = [
   {
@@ -42,7 +71,10 @@ const PAYMENT_METHODS = [
     label: "Bank",
     icon: Banknote,
   },
+  { value: "CREDIT", label: "Store credit", icon: Banknote },
 ];
+
+const LOYALTY_POINT_VALUE = 10;
 
 const emptyCustomerForm = {
   name: "",
@@ -76,10 +108,40 @@ export default function POS() {
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [productSearch, setProductSearch] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
+  const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
+  const [offlineSyncMessage, setOfflineSyncMessage] = useState("");
 
   const [cart, setCart] = useState([]);
+  const lastLoggedDiscountRef = useRef("");
+
+  const offlineIdentity = readOfflineIdentity();
+
+  const refreshOfflineCount = useCallback(async () => {
+    if (!offlineIdentity.userId) return;
+    try {
+      setPendingOfflineCount(await countPendingOfflineSales(offlineIdentity.userId));
+    } catch (error) {
+      console.warn("MOVA offline queue is unavailable:", error);
+    }
+  }, [offlineIdentity.userId]);
+
+  const recordAuditEvent = useCallback(async (event) => {
+    const eventRecord = { ...event, branchId: offlineIdentity.branchId };
+    if (navigator.onLine) {
+      try {
+        await api.post("/audit-logs/events", eventRecord);
+        return;
+      } catch (error) {
+        console.warn("POS activity will be recorded with the next sale sync:", error);
+      }
+    }
+    await enqueueOfflineAuditEvent(eventRecord, offlineIdentity).catch((error) => console.error("Unable to save POS audit activity offline:", error));
+  }, [offlineIdentity.branchId, offlineIdentity.businessId, offlineIdentity.userId]);
 
   const [discount, setDiscount] = useState("");
+  const [loyaltyPointsRedeemed, setLoyaltyPointsRedeemed] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [cashReceived, setCashReceived] = useState("");
@@ -146,6 +208,13 @@ export default function POS() {
     try {
       setLoadingProducts(true);
 
+      if (!navigator.onLine) {
+        const cached = await readPosCatalog(offlineIdentity);
+        if (Array.isArray(cached?.products)) setProducts(cached.products);
+        else setSaleError("This device has no saved product list for this branch yet. Connect once before using offline sales.");
+        return;
+      }
+
       const response = await api.get(
         "/products?limit=100&status=active"
       );
@@ -159,7 +228,21 @@ export default function POS() {
         [];
 
       setProducts(Array.isArray(loadedProducts) ? loadedProducts : []);
+      if (offlineIdentity.businessId && offlineIdentity.branchId) {
+        const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+        await savePosCatalog({
+          ...offlineIdentity,
+          products: Array.isArray(loadedProducts) ? loadedProducts : [],
+          customers: cached?.customers || [],
+        }).catch((cacheError) => console.warn("Unable to save the offline product list:", cacheError));
+      }
     } catch (error) {
+      const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+      if (Array.isArray(cached?.products) && cached.products.length) {
+        setProducts(cached.products);
+        setOfflineSyncMessage("Showing the last saved product list. Sales will sync when the connection returns.");
+        return;
+      }
       setSaleError(
         getErrorMessage(error, "Unable to load products.")
       );
@@ -171,6 +254,31 @@ export default function POS() {
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    const updateNetwork = () => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) {
+        syncOfflineSales(api, offlineIdentity.userId).then(({ synced }) => {
+          if (synced) setOfflineSyncMessage(`${synced} queued sale${synced === 1 ? "" : "s"} synced successfully.`);
+          refreshOfflineCount();
+        }).catch((error) => console.warn("MOVA sale sync failed:", error));
+      }
+    };
+    const stopWatching = watchOfflineSaleSync(api, offlineIdentity.userId, (event) => {
+      if (event.status === "SYNCED") setOfflineSyncMessage("An offline sale has synced successfully.");
+      if (event.status === "BLOCKED") setOfflineSyncMessage(`A queued sale needs attention: ${event.message}`);
+      refreshOfflineCount();
+    });
+    window.addEventListener("online", updateNetwork);
+    window.addEventListener("offline", updateNetwork);
+    refreshOfflineCount();
+    return () => {
+      stopWatching();
+      window.removeEventListener("online", updateNetwork);
+      window.removeEventListener("offline", updateNetwork);
+    };
+  }, [offlineIdentity.userId, refreshOfflineCount]);
 
   /*
    * ---------------------------------------------------------
@@ -193,6 +301,16 @@ export default function POS() {
       try {
         setSearchingCustomers(true);
 
+        if (!navigator.onLine) {
+          const cached = await readPosCatalog(offlineIdentity);
+          const term = value.toLowerCase();
+          const matches = (cached?.customers || []).filter((customer) =>
+            [customer.name, customer.phone, customer.email].some((field) => String(field || "").toLowerCase().includes(term))
+          ).slice(0, 10);
+          if (!cancelled) setCustomers(matches);
+          return;
+        }
+
         const response = await api.get(
           `/customers?search=${encodeURIComponent(
             value
@@ -210,6 +328,15 @@ export default function POS() {
           [];
 
         setCustomers(Array.isArray(result) ? result : []);
+        if (offlineIdentity.businessId && offlineIdentity.branchId && Array.isArray(result)) {
+          const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+          await savePosCatalog({
+            ...offlineIdentity,
+            products: cached?.products || products,
+            customers: [...(cached?.customers || []), ...result]
+              .filter((customer, index, all) => all.findIndex((item) => getId(item) === getId(customer)) === index),
+          }).catch((cacheError) => console.warn("Unable to save offline customer lookup:", cacheError));
+        }
       } catch (error) {
         if (!cancelled) {
           setCustomers([]);
@@ -343,9 +470,18 @@ export default function POS() {
     Number(discount || 0)
   );
 
+  const parsedRedeemedPoints = selectedCustomer
+    ? Math.min(
+        Math.max(0, Math.floor(Number(loyaltyPointsRedeemed || 0))),
+        Number(selectedCustomer.loyaltyPoints || 0),
+        Math.floor(Math.max(0, subtotal - parsedDiscount) / LOYALTY_POINT_VALUE)
+      )
+    : 0;
+  const loyaltyRedemptionDiscount = parsedRedeemedPoints * LOYALTY_POINT_VALUE;
+
   const total = Math.max(
     0,
-    subtotal - parsedDiscount
+    subtotal - parsedDiscount - loyaltyRedemptionDiscount
   );
 
   const loyaltyPointsToEarn = selectedCustomer
@@ -449,6 +585,12 @@ export default function POS() {
     if (!Number.isFinite(nextQuantity)) return;
 
     if (nextQuantity <= 0) {
+      const removed = cart.find((item) => getId(item) === productId);
+      if (removed) recordAuditEvent({
+        action: "CART_ITEM_REMOVED",
+        description: `Voided ${removed.name} from the current cart.`,
+        metadata: { productId: getId(removed), productName: removed.name, quantity: removed.quantity },
+      });
       setCart((currentCart) =>
         currentCart.filter(
           (item) => getId(item) !== productId
@@ -493,6 +635,12 @@ export default function POS() {
   };
 
   const removeFromCart = (productId) => {
+    const removed = cart.find((item) => getId(item) === productId);
+    if (removed) recordAuditEvent({
+      action: "CART_ITEM_REMOVED",
+      description: `Removed ${removed.name} (${removed.quantity}) from the current cart.`,
+      metadata: { productId: getId(removed), productName: removed.name, quantity: removed.quantity },
+    });
     setCart((currentCart) =>
       currentCart.filter(
         (item) => getId(item) !== productId
@@ -500,7 +648,12 @@ export default function POS() {
     );
   };
 
-  const clearCart = () => {
+  const clearCart = ({ logActivity = true } = {}) => {
+    if (logActivity && cart.length) recordAuditEvent({
+      action: "CART_CLEARED",
+      description: `Cleared a cart containing ${cart.length} item line(s).`,
+      metadata: { itemCount: cart.length },
+    });
     setCart([]);
     setDiscount("");
     setCashReceived("");
@@ -663,6 +816,7 @@ export default function POS() {
 
   const selectCustomer = (customer) => {
     setSelectedCustomer(customer);
+    setLoyaltyPointsRedeemed("");
     setCustomerSearch(
       customer.name ||
         customer.phone ||
@@ -675,6 +829,7 @@ export default function POS() {
 
   const removeCustomer = () => {
     setSelectedCustomer(null);
+    setLoyaltyPointsRedeemed("");
     setCustomerSearch("");
     setCustomers([]);
   };
@@ -905,6 +1060,9 @@ export default function POS() {
       setProcessingSale(true);
 
       const payload = {
+        clientSaleId: createClientSaleId(),
+        expectedTotal: total,
+        loyaltyPointsRedeemed: parsedRedeemedPoints,
         items: cart.map((item) => ({
           productId: getId(item),
           quantity: Number(item.quantity),
@@ -925,13 +1083,74 @@ export default function POS() {
               paymentTransaction?._id ||
               null
             : null,
-
+        offlineQueued: !navigator.onLine,
       };
 
-      const response = await api.post(
-        "/sales",
-        payload
-      );
+      const saveLocally = async () => {
+        if (!["CASH", "MOBILE_MONEY"].includes(paymentMethod)) {
+          throw new Error("While offline, only cash and Mobile Money sales can be queued. Card and bank payments need a live connection.");
+        }
+        if (!offlineIdentity.userId || !offlineIdentity.businessId || !offlineIdentity.branchId) {
+          throw new Error("Offline checkout needs a saved cashier, business, and active branch. Reconnect and sign in once before using offline sales.");
+        }
+        const receiptNumber = `OFFLINE-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+        await enqueueOfflineSale({
+          clientSaleId: payload.clientSaleId,
+          userId: offlineIdentity.userId,
+          businessId: offlineIdentity.businessId,
+          branchId: offlineIdentity.branchId,
+          receiptNumber,
+          payload,
+        });
+        const localSale = {
+          id: payload.clientSaleId,
+          receiptNumber,
+          items: cart.map((item) => ({
+            productId: getId(item),
+            name: item.name,
+            sku: item.sku || "",
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.sellingPrice ?? item.price ?? 0),
+            subtotal: Number(item.sellingPrice ?? item.price ?? 0) * Number(item.quantity),
+          })),
+          subtotal,
+          discount: parsedDiscount,
+          total,
+          paymentMethod,
+          paymentStatus: "PAID",
+          status: "COMPLETED",
+          offlineStatus: "QUEUED",
+          customer: selectedCustomer,
+          createdAt: new Date().toISOString(),
+        };
+        setCompletedSale(localSale);
+        setSuccessMessage("Sale saved on this device. It will sync automatically when the connection returns.");
+        clearCart({ logActivity: false });
+        setSelectedCustomer(null);
+        setLoyaltyPointsRedeemed("");
+        setCustomerSearch("");
+        setCustomerPanelOpen(false);
+        await refreshOfflineCount();
+        if (navigator.onLine) {
+          syncOfflineSales(api, offlineIdentity.userId).catch((syncError) => console.warn("Queued sale will retry:", syncError));
+        }
+      };
+
+      if (!navigator.onLine) {
+        await saveLocally();
+        return;
+      }
+
+      let response;
+      try {
+        response = await api.post("/sales", payload);
+      } catch (requestError) {
+        if (!requestError?.response && ["CASH", "MOBILE_MONEY"].includes(paymentMethod)) {
+          await saveLocally();
+          return;
+        }
+        throw requestError;
+      }
 
       const data = response?.data;
 
@@ -955,9 +1174,10 @@ export default function POS() {
         "Sale completed successfully."
       );
 
-      clearCart();
+      clearCart({ logActivity: false });
 
       setSelectedCustomer(null);
+      setLoyaltyPointsRedeemed("");
       setCustomerSearch("");
       setCustomerPanelOpen(false);
 
@@ -973,6 +1193,19 @@ export default function POS() {
       setProcessingSale(false);
     }
   };
+
+  const handleBarcodeDetected = useCallback((value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    const product = products.find((item) => [item.barcode, item.sku].some((code) => String(code || "").trim().toLowerCase() === normalized));
+    if (product) {
+      addToCart(product);
+      setProductSearch("");
+      setSuccessMessage(`${product.name} added to the sale.`);
+      return;
+    }
+    setProductSearch(String(value || ""));
+    setSaleError(`No product matches barcode ${value}. Check the code or add the product in Products.`);
+  }, [products, addToCart]);
 
   /*
    * ---------------------------------------------------------
@@ -1003,7 +1236,7 @@ export default function POS() {
       heldSale,
     ]);
 
-    clearCart();
+    clearCart({ logActivity: false });
     setSelectedCustomer(null);
     setCustomerSearch("");
 
@@ -1106,6 +1339,17 @@ export default function POS() {
           </div>
         </div>
 
+        <div className={`mb-4 flex flex-col gap-2 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isOnline ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div>
+            <span className="font-semibold">{isOnline ? "Online" : "Offline cashier mode"}</span>
+            <span className="ml-2">{isOnline ? "Sales save to the business immediately." : "Cash and Mobile Money sales are saved on this device and sync when you reconnect."}</span>
+            {pendingOfflineCount > 0 && <span className="ml-2 font-semibold">{pendingOfflineCount} sale{pendingOfflineCount === 1 ? "" : "s"} waiting to sync</span>}
+          </div>
+          {isOnline && pendingOfflineCount > 0 && <button type="button" onClick={() => syncOfflineSales(api, offlineIdentity.userId).then(refreshOfflineCount)} className="rounded-lg border border-current/20 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-100">Sync now</button>}
+        </div>
+        {offlineSyncMessage && <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">{offlineSyncMessage}</div>}
+        <CashierShiftClock isOnline={isOnline} />
+
         {/* Alerts */}
         {saleError && (
           <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -1166,24 +1410,22 @@ export default function POS() {
                     </p>
                   </div>
 
-                  <div className="relative w-full md:max-w-md">
-                    <Search
-                      size={18}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
+                  <div className="flex w-full gap-2 md:max-w-xl">
+                    <div className="relative min-w-0 flex-1">
+                      <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
 
-                    <input
-                      ref={productSearchRef}
-                      type="text"
-                      value={productSearch}
-                      onChange={(event) =>
-                        setProductSearch(
-                          event.target.value
-                        )
-                      }
-                      placeholder="Search product, SKU or barcode..."
-                      className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-                    />
+                      <input
+                        ref={productSearchRef}
+                        type="text"
+                        value={productSearch}
+                        onChange={(event) => setProductSearch(event.target.value)}
+                        placeholder="Search product, SKU or barcode..."
+                        className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                      />
+                    </div>
+                    <button type="button" onClick={() => setScannerOpen(true)} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" title="Scan product barcode">
+                      <ScanLine size={18} /><span className="hidden sm:inline">Scan</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1224,25 +1466,7 @@ export default function POS() {
                             }
                             className="group rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-slate-400 hover:shadow-sm"
                           >
-                            <div className="mb-3 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
-                              {product.image ||
-                              product.imageUrl ? (
-                                <img
-                                  src={
-                                    product.image ||
-                                    product.imageUrl
-                                  }
-                                  alt={
-                                    product.name
-                                  }
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="text-xs text-slate-400">
-                                  No image
-                                </div>
-                              )}
-                            </div>
+                            <ProductImage product={product} className="mb-3 h-24 w-full rounded-lg object-cover transition group-hover:brightness-[1.02]" />
 
                             <div className="truncate text-sm font-semibold text-slate-900">
                               {product.name}
@@ -1466,6 +1690,11 @@ export default function POS() {
                         {loyaltyPointsToEarn > 0 && <span>· Earn {loyaltyPointsToEarn} on this sale</span>}
                       </div>
                       <p className="mt-1 text-[11px] text-slate-400">Earn 1 point per UGX 1,000 on completed purchases.</p>
+                      {Number(selectedCustomer.loyaltyPoints || 0) > 0 && <label className="mt-3 block max-w-xs text-xs font-semibold text-slate-600">Redeem points (UGX 10 each)
+                        <input type="number" min="0" max={Number(selectedCustomer.loyaltyPoints || 0)} step="1" value={loyaltyPointsRedeemed} onChange={(event) => setLoyaltyPointsRedeemed(event.target.value)} placeholder="0" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+                        {parsedRedeemedPoints > 0 && <span className="mt-1 block text-emerald-700">{parsedRedeemedPoints} points apply {formatUGX(loyaltyRedemptionDiscount)} to this sale.</span>}
+                      </label>}
+                      <div className="mt-2 text-xs text-slate-600">Store credit: {formatUGX(selectedCustomer.outstandingBalance || 0)} owing · limit {formatUGX(selectedCustomer.creditLimit || 0)}</div>
                     </div>
 
                     <div className="flex gap-2">
@@ -1637,6 +1866,17 @@ export default function POS() {
                         event.target.value
                       )
                     }
+                    onBlur={() => {
+                      const amount = Number(discount || 0);
+                      if (amount > 0 && String(amount) !== lastLoggedDiscountRef.current) {
+                        lastLoggedDiscountRef.current = String(amount);
+                        recordAuditEvent({
+                          action: "DISCOUNT_APPLIED",
+                          description: `Applied a ${formatUGX(amount)} discount to the sale.`,
+                          metadata: { discountAmount: amount, itemCount: cart.length },
+                        });
+                      }
+                    }}
                     placeholder="0"
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                   />
@@ -1651,6 +1891,7 @@ export default function POS() {
                     {formatUGX(total)}
                   </span>
                 </div>
+                {loyaltyRedemptionDiscount > 0 && <p className="mt-2 text-right text-xs text-emerald-700">Loyalty reward applied: −{formatUGX(loyaltyRedemptionDiscount)}</p>}
               </div>
             </section>
 
@@ -1697,6 +1938,8 @@ export default function POS() {
                     }
                   )}
                 </div>
+
+                {paymentMethod === "CREDIT" && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{selectedCustomer ? `This sale will add ${formatUGX(total)} to ${selectedCustomer.name}'s store credit. Available credit: ${formatUGX(Math.max(0, Number(selectedCustomer.creditLimit || 0) - Number(selectedCustomer.outstandingBalance || 0)))}` : "Choose a customer with an approved credit limit to use store credit."}</div>}
 
                 {/* CASH */}
                 {paymentMethod === "CASH" && (
@@ -1823,7 +2066,8 @@ export default function POS() {
                   disabled={
                     cart.length === 0 ||
                     processingSale ||
-                    !paymentReady
+                    !paymentReady ||
+                    (paymentMethod === "CREDIT" && !selectedCustomer)
                   }
                   className="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-4 text-base font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
@@ -2198,6 +2442,7 @@ export default function POS() {
           onClose={closeReceipt}
         />
       )}
+      {scannerOpen && <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setScannerOpen(false)} />}
     </div>
   );
 }

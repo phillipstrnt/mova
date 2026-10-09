@@ -4,6 +4,7 @@ import express from "express";
 import {
   getAuditLogs,
   getAuditLog,
+  createPosAuditEvent,
 } from "../controllers/auditController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -15,6 +16,8 @@ import {
 const router = express.Router();
 
 router.use(protect);
+
+router.post("/events", requirePermission("audit.create"), createPosAuditEvent);
 
 /*
 |--------------------------------------------------------------------------

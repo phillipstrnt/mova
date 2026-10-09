@@ -1,8 +1,10 @@
+import mongoose from "mongoose";
 import Sale from "../models/Sale.js";
 import Product from "../models/Product.js";
 import Customer from "../models/Customer.js";
 import Expense from "../models/Expense.js";
 import ProductBranchStock from "../models/ProductBranchStock.js";
+import InventoryBatch from "../models/InventoryBatch.js";
 import Business from "../models/Business.js";
 
 /*
@@ -866,6 +868,52 @@ export const getDashboard =
             10
           );
 
+      const velocityWindowStart = new Date(now);
+      velocityWindowStart.setDate(velocityWindowStart.getDate() - 30);
+      const velocityRows = await Sale.aggregate([
+        { $match: { businessId: new mongoose.Types.ObjectId(businessId), branchId: new mongoose.Types.ObjectId(branchId), status: { $nin: ["CANCELLED", "REFUNDED"] }, createdAt: { $gte: velocityWindowStart, $lte: now } } },
+        { $unwind: "$items" },
+        { $group: { _id: "$items.productId", unitsSold: { $sum: "$items.quantity" } } },
+      ]);
+      const unitsSoldByProduct = new Map(velocityRows.map((row) => [String(row._id), Number(row.unitsSold || 0)]));
+      const inventoryForecasts = productsWithCurrentStock
+        .filter((product) => product.trackStock !== false)
+        .map((product) => {
+          const unitsSold = unitsSoldByProduct.get(String(product._id)) || 0;
+          const averageDailySales = unitsSold / 30;
+          const stock = toNumber(product.stockQuantity);
+          return {
+            _id: product._id,
+            name: product.name,
+            sku: product.sku,
+            stockQuantity: stock,
+            unitsSoldLast30Days: unitsSold,
+            averageDailySales,
+            estimatedDaysRemaining: averageDailySales > 0 ? Math.round((stock / averageDailySales) * 10) / 10 : null,
+          };
+        })
+        .filter((product) => product.estimatedDaysRemaining !== null)
+        .sort((a, b) => a.estimatedDaysRemaining - b.estimatedDaysRemaining)
+        .slice(0, 10);
+      const expiryCutoff = new Date(now);
+      expiryCutoff.setDate(expiryCutoff.getDate() + 60);
+      const expiryAlerts = await InventoryBatch.find({
+        businessId,
+        branchId,
+        status: "ACTIVE",
+        remainingQuantity: { $gt: 0 },
+        expiryDate: { $ne: null, $lte: expiryCutoff },
+      })
+        .populate("productId", "name sku")
+        .sort({ expiryDate: 1 })
+        .limit(20)
+        .lean();
+      const expiryAlertsWithDays = expiryAlerts.map((batch) => ({
+        ...batch,
+        daysUntilExpiry: Math.ceil((new Date(batch.expiryDate) - now) / 86400000),
+        suggestedDiscountPercent: Math.ceil((new Date(batch.expiryDate) - now) / 86400000) < 0 ? 0 : Math.ceil((new Date(batch.expiryDate) - now) / 86400000) <= 7 ? 15 : 10,
+      }));
+
       /*
       |--------------------------------------------------------------------------
       | SALES CHART
@@ -1080,6 +1128,10 @@ export const getDashboard =
         recentSales,
 
         lowStockProducts,
+
+        inventoryForecasts,
+
+        expiryAlerts: expiryAlertsWithDays,
 
         salesChart,
 

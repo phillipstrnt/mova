@@ -11,6 +11,9 @@ import {
   Download,
   Eye,
   FileText,
+  Mail,
+  MessageCircle,
+  MessageSquare,
   Printer,
   RefreshCw,
   Search,
@@ -27,6 +30,7 @@ const paymentLabels = {
   MOBILE_MONEY: "Mobile Money",
   CARD: "Card",
   BANK: "Bank",
+  CREDIT: "Store credit",
 };
 
 // ==========================================
@@ -38,6 +42,7 @@ const paymentClasses = {
   MOBILE_MONEY: "bg-blue-50 text-blue-700",
   CARD: "bg-violet-50 text-violet-700",
   BANK: "bg-amber-50 text-amber-700",
+  CREDIT: "bg-orange-50 text-orange-700",
 };
 
 // ==========================================
@@ -1846,6 +1851,38 @@ const Receipts = ({
       }
     };
 
+  const handleDigitalReceipt = (channel, sale) => {
+    const customer = getReceiptCustomer(sale, customerProp);
+    const text = [
+      `${business.name || "Business"} receipt`,
+      `Receipt: ${sale?.receiptNumber || "-"}`,
+      `Date: ${formatDate(sale?.createdAt)}`,
+      `Total: ${formatCurrency(sale?.total)}`,
+      `Payment: ${paymentLabels[sale?.paymentMethod] || sale?.paymentMethod || "-"}`,
+      "Thank you for shopping with us.",
+    ].join("\n");
+    const encoded = encodeURIComponent(text);
+    if (channel === "whatsapp") {
+      let phone = String(customer.phone || "").replace(/[^\d+]/g, "");
+      if (phone.startsWith("0")) phone = `256${phone.slice(1)}`;
+      phone = phone.replace(/\+/g, "");
+      const query = new URLSearchParams({ text });
+      if (phone) query.set("phone", phone);
+      window.open(`https://wa.me/${phone}?${query.toString()}`, "_blank", "noopener,noreferrer");
+      setActionMessage("WhatsApp opened with the receipt ready to send.");
+      return;
+    }
+    if (channel === "sms") {
+      const phone = String(customer.phone || "").trim();
+      window.location.href = `sms:${encodeURIComponent(phone)}?body=${encoded}`;
+      setActionMessage("Your messaging app opened with the receipt ready to send.");
+      return;
+    }
+    const email = String(customer.email || "").trim();
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`${business.name || "Business"} receipt ${sale?.receiptNumber || ""}`)}&body=${encoded}`;
+    setActionMessage("Your email app opened with the receipt ready to send.");
+  };
+
   // ========================================
   // CLOSE RECEIPT MODAL
   // ========================================
@@ -2297,6 +2334,12 @@ const Receipts = ({
                 Share
               </button>
 
+              {customer.phone && <>
+                <button type="button" onClick={() => handleDigitalReceipt("whatsapp", saleProp)} className="inline-flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 text-sm font-bold text-green-800 hover:bg-green-100"><MessageCircle size={17} /> WhatsApp</button>
+                <button type="button" onClick={() => handleDigitalReceipt("sms", saleProp)} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm font-bold text-sky-800 hover:bg-sky-100"><MessageSquare size={17} /> SMS</button>
+              </>}
+              {customer.email && <button type="button" onClick={() => handleDigitalReceipt("email", saleProp)} className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-100"><Mail size={17} /> Email</button>}
+
               {onNewSale && (
                 <button
                   type="button"
@@ -2582,6 +2625,7 @@ const Receipts = ({
             <option value="BANK">
               Bank
             </option>
+            <option value="CREDIT">Store credit</option>
           </select>
 
           <select

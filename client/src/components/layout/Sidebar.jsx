@@ -14,6 +14,7 @@ import {
   Truck,
   Settings,
   CalendarDays,
+  ArrowLeftRight,
 } from "lucide-react";
 
 import {
@@ -436,9 +437,12 @@ const Sidebar = ({
   const role =
     user?.role || "CASHIER";
 
-  const navigation =
+  const baseNavigation =
     ROLE_NAVIGATION[role] ||
     ROLE_NAVIGATION.CASHIER;
+  const navigation = ["OWNER", "ADMIN", "MANAGER", "INVENTORY_MANAGER"].includes(String(role).toUpperCase())
+    ? [...baseNavigation, { label: "Branch Transfers", icon: ArrowLeftRight, path: "/app/transfers" }]
+    : baseNavigation;
 
   return (
     <>

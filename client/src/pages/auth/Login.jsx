@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
 } from "react";
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
+import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 
 const Login = () => {
   const navigate =
@@ -31,6 +33,7 @@ const Login = () => {
 
   const {
     login,
+    googleSignIn,
     isAuthenticated,
   } = useAuth();
 
@@ -48,6 +51,27 @@ const Login = () => {
 
   const [loading, setLoading] =
     useState(false);
+
+  const handleGoogleCredential = useCallback(async (credential) => {
+    setError("");
+    try {
+      await googleSignIn(credential);
+      navigate("/app", { replace: true });
+    } catch (googleError) {
+      if (googleError.code === "GOOGLE_REGISTRATION_REQUIRED") {
+        sessionStorage.setItem("mova_google_registration", credential);
+        navigate("/register", {
+          state: {
+            googleRegistration: {
+              profile: googleError.profile || {},
+            },
+          },
+        });
+        return;
+      }
+      setError(googleError.message || "Google sign-in could not be completed.");
+    }
+  }, [googleSignIn, navigate]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -381,6 +405,17 @@ const Login = () => {
               </button>
 
             </form>
+
+            <div className="my-6 flex items-center gap-3 text-xs text-slate-400">
+              <span className="h-px flex-1 bg-slate-200" />
+              or
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            <GoogleSignInButton
+              onCredential={handleGoogleCredential}
+              disabled={loading}
+            />
 
             {/* REGISTER */}
 

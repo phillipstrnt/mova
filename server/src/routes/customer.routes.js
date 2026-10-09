@@ -12,6 +12,10 @@ import {
   deleteCustomer,
   getCustomerSales,
 } from "../controllers/customerController.js";
+import {
+  getCustomerCreditHistory,
+  recordCustomerCreditPayment,
+} from "../controllers/customerCreditController.js";
 
 import {
   protect,
@@ -66,6 +70,18 @@ router.post(
 // ============================================================
 // GET CUSTOMER SALES HISTORY
 // ============================================================
+
+router.get(
+  "/:id/credit",
+  requirePermission(PERMISSIONS.CUSTOMERS_VIEW),
+  getCustomerCreditHistory
+);
+
+router.post(
+  "/:id/credit-payments",
+  requirePermission(PERMISSIONS.PAYMENTS_CREATE),
+  recordCustomerCreditPayment
+);
 
 router.get(
   "/:id/sales",

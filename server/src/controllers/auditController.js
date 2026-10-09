@@ -1,6 +1,56 @@
 
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
+import Branch from "../models/Branch.js";
+
+const POS_AUDIT_ACTIONS = new Set([
+  "CART_ITEM_REMOVED",
+  "CART_CLEARED",
+  "DISCOUNT_APPLIED",
+  "DISCOUNT_CHANGED",
+  "OFFLINE_SALE_SYNCED",
+]);
+
+export const createPosAuditEvent = async (req, res) => {
+  try {
+    const { action, description = "", entityId = null, metadata = {} } = req.body || {};
+    if (!POS_AUDIT_ACTIONS.has(String(action || ""))) {
+      return res.status(400).json({ success: false, message: "Unsupported cashier activity." });
+    }
+    const branchId = req.body.branchId || req.user?.activeBranchId || req.user?.branchId || null;
+    if (branchId) {
+      if (!mongoose.Types.ObjectId.isValid(String(branchId))) return res.status(400).json({ success: false, message: "Invalid branch for this cashier activity." });
+      const branchAllowed = isOwnerOrAdmin(req) || [req.user?.branchId, req.user?.activeBranchId, ...(req.user?.branchIds || []), ...(req.user?.authorizedBranchIds || [])].some((id) => String(id?._id || id?.id || id) === String(branchId));
+      if (!branchAllowed) return res.status(403).json({ success: false, message: "You cannot record activities for this branch." });
+      const branchExists = await Branch.exists({ _id: branchId, businessId: req.user.businessId, isActive: true });
+      if (!branchExists) return res.status(404).json({ success: false, message: "Branch not found or inactive." });
+    }
+    const safeMetadata = {};
+    for (const key of ["productId", "productName", "quantity", "discountAmount", "itemCount", "clientSaleId"]) {
+      const value = metadata?.[key];
+      if (value !== undefined) safeMetadata[key] = typeof value === "string" ? value.slice(0, 120) : Number(value);
+    }
+    const log = await AuditLog.create({
+      businessId: req.user.businessId,
+      branchId,
+      actorId: req.user._id,
+      actorName: req.user.name || "",
+      actorRole: String(req.user.role || "").toUpperCase(),
+      action,
+      entity: "POS_ACTIVITY",
+      entityId,
+      description: String(description || action).slice(0, 500),
+      severity: ["CART_CLEARED", "DISCOUNT_APPLIED"].includes(action) ? "WARNING" : "INFO",
+      metadata: safeMetadata,
+      ipAddress: req.ip || "",
+      userAgent: String(req.get("user-agent") || "").slice(0, 500),
+    });
+    return res.status(201).json({ success: true, logId: log._id });
+  } catch (error) {
+    console.error("Create POS audit event error:", error);
+    return res.status(500).json({ success: false, message: "Unable to record cashier activity." });
+  }
+};
 
 const isOwnerOrAdmin = (req) => {
   return (

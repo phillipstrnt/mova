@@ -57,7 +57,14 @@ const userSchema = new mongoose.Schema(
      */
     passwordHash: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
+    },
+
+    googleId: {
+      type: String,
+      default: undefined,
+      select: false,
     },
 
     /*
@@ -148,6 +155,11 @@ userSchema.index({
   businessId: 1,
   activeBranchId: 1,
 });
+
+userSchema.index(
+  { googleId: 1 },
+  { unique: true, sparse: true }
+);
 
 /*
  * Automatically remove expired reset-token records

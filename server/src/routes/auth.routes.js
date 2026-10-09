@@ -3,6 +3,7 @@ import express from "express";
 import {
   registerBusiness,
   login,
+  googleAuth,
   forgotPassword,
   resetPassword,
   getMe,
@@ -32,6 +33,11 @@ router.post(
 router.post(
   "/login",
   login
+);
+
+router.post(
+  "/google",
+  googleAuth
 );
 
 /*

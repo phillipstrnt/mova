@@ -7,6 +7,7 @@ import SetupGuard from "./components/SetupGuard";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 import Login from "./pages/auth/Login";
+import Landing from "./pages/Landing";
 import Branches from "./pages/branches/Branches";
 
 import Dashboard from "./pages/dashboard/Dashboard";
@@ -17,6 +18,7 @@ import Receipts from "./pages/receipts/Receipts";
 
 import Products from "./pages/products/Products";
 import Inventory from "./pages/inventory/Inventory";
+import Transfers from "./pages/inventory/Transfers";
 import Categories from "./pages/products/Categories";
 
 import Customers from "./pages/customers/Customers";
@@ -137,6 +139,12 @@ function App() {
           element={<Products />}
         />
 
+        {/* Matches the Categories destination used by the sidebar. */}
+        <Route
+          path="products/categories"
+          element={<Categories />}
+        />
+
         <Route
           path="categories"
           element={<Categories />}
@@ -151,6 +159,8 @@ function App() {
           path="inventory"
           element={<Inventory />}
         />
+
+        <Route path="transfers" element={<Transfers />} />
 
           <Route
             path="branches"
@@ -269,12 +279,7 @@ function App() {
 
       <Route
         path="/"
-        element={
-          <Navigate
-            to="/app"
-            replace
-          />
-        }
+        element={<Landing />}
       />
 
 

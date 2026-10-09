@@ -9,6 +9,9 @@ import Payment from "../models/Payment.js";
 import PaymentTransaction from "../models/PaymentTransaction.js";
 import Branch from "../models/Branch.js";
 import { hasPermission } from "../config/permissions.js";
+import AuditLog from "../models/AuditLog.js";
+import InventoryBatch from "../models/InventoryBatch.js";
+import CustomerCreditDebt from "../models/CustomerCreditDebt.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -21,7 +24,10 @@ const VALID_PAYMENT_METHODS = [
   "MOBILE_MONEY",
   "CARD",
   "BANK",
+  "CREDIT",
 ];
+
+const LOYALTY_POINT_VALUE = 10;
 
 const VALID_PAYMENT_STATUSES = [
   "PAID",
@@ -41,6 +47,64 @@ const serializeSaleItems = (items, canViewCosts) => (items || []).map((item) => 
   if (!canViewCosts) delete safeItem.buyingPrice;
   return safeItem;
 });
+
+const restoreBatchDeductions = async (deductions = []) => {
+  for (const deduction of deductions) {
+    await InventoryBatch.updateOne(
+      { _id: deduction.batchId },
+      { $inc: { remainingQuantity: deduction.quantity }, $set: { status: "ACTIVE" } }
+    );
+  }
+};
+
+const consumeBatches = async ({ businessId, branchId, item, stockBefore }) => {
+  const batches = await InventoryBatch.find({
+    businessId,
+    branchId,
+    productId: item.product._id,
+    status: { $ne: "CANCELLED" },
+    remainingQuantity: { $gt: 0 },
+  }).lean();
+  if (!batches.length) return [];
+
+  const totalBatchedStock = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
+  const legacyAvailable = Math.max(0, Number(stockBefore || 0) - totalBatchedStock);
+  const now = new Date();
+  const availableBatches = batches
+    .filter((batch) => !batch.expiryDate || new Date(batch.expiryDate) > now)
+    .sort((first, second) => item.product.stockRotation === "LIFO"
+      ? new Date(second.receivedAt) - new Date(first.receivedAt)
+      : new Date(first.receivedAt) - new Date(second.receivedAt));
+  const batchedAvailable = availableBatches.reduce((sum, batch) => sum + Number(batch.remainingQuantity || 0), 0);
+  if (batchedAvailable + legacyAvailable < Number(item.quantity)) {
+    throw new Error(`Only ${batchedAvailable + legacyAvailable} non-expired unit(s) of ${item.product.name} are available.`);
+  }
+
+  let remaining = Math.max(0, Number(item.quantity) - legacyAvailable);
+  const deductions = [];
+  try {
+    for (const batch of availableBatches) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, Number(batch.remainingQuantity || 0));
+      const updated = await InventoryBatch.findOneAndUpdate(
+        { _id: batch._id, remainingQuantity: { $gte: take }, status: { $ne: "CANCELLED" } },
+        { $inc: { remainingQuantity: -take } },
+        { new: true }
+      );
+      if (!updated) throw new Error("A batch quantity changed during checkout. Refresh the cart and try again.");
+      if (updated.remainingQuantity === 0) {
+        updated.status = "DEPLETED";
+        await updated.save();
+      }
+      deductions.push({ batchId: batch._id, quantity: take });
+      remaining -= take;
+    }
+    return deductions;
+  } catch (error) {
+    await restoreBatchDeductions(deductions);
+    throw error;
+  }
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -205,6 +269,10 @@ export const createSale = async (
       paymentReference = "",
       customerId = null,
       notes = "",
+      clientSaleId = "",
+      offlineQueued = false,
+      expectedTotal,
+      loyaltyPointsRedeemed = 0,
       branchId: requestedBranchId = null,
       activeBranchId: requestedActiveBranchId = null,
     } = req.body;
@@ -246,6 +314,28 @@ export const createSale = async (
     }
 
     const branchId = branch._id;
+    const normalizedClientSaleId = String(clientSaleId || "").trim().slice(0, 100);
+
+    if (normalizedClientSaleId) {
+      const existingQueuedSale = await Sale.findOne({
+        businessId,
+        branchId,
+        cashierId,
+        offlineClientSaleId: normalizedClientSaleId,
+      }).lean();
+      if (existingQueuedSale) {
+        const safeExistingSale = {
+          ...existingQueuedSale,
+          id: existingQueuedSale._id,
+          items: serializeSaleItems(existingQueuedSale.items, hasPermission(req.user?.role, "products.view")),
+        };
+        return res.status(200).json({
+          success: true,
+          message: "This sale was already synchronized.",
+          sale: safeExistingSale,
+        });
+      }
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -400,6 +490,10 @@ export const createSale = async (
             "Customer not found or inactive.",
         });
       }
+    }
+
+    if (paymentMethod === "CREDIT" && !customer) {
+      return res.status(400).json({ success: false, message: "Select a customer before adding this sale to their store credit." });
     }
 
     /*
@@ -568,7 +662,35 @@ export const createSale = async (
     |--------------------------------------------------------------------------
     */
 
-    const total = subtotal - numericDiscount;
+    const pointsToRedeem = Number(loyaltyPointsRedeemed);
+    if (!Number.isInteger(pointsToRedeem) || pointsToRedeem < 0) {
+      return res.status(400).json({ success: false, message: "Loyalty points to redeem must be a whole number." });
+    }
+    if (pointsToRedeem > Number(customer?.loyaltyPoints || 0)) {
+      return res.status(400).json({ success: false, message: "The customer does not have enough loyalty points." });
+    }
+    const loyaltyDiscount = pointsToRedeem * LOYALTY_POINT_VALUE;
+    if (loyaltyDiscount > subtotal - numericDiscount) {
+      return res.status(400).json({ success: false, message: "Loyalty rewards cannot be greater than the remaining sale total." });
+    }
+    const total = subtotal - numericDiscount - loyaltyDiscount;
+    if (paymentMethod === "CREDIT" && Number(customer.creditLimit || 0) <= 0) {
+      return res.status(400).json({ success: false, message: "Set a credit limit for this customer before using store credit." });
+    }
+    if (paymentMethod === "CREDIT" && Number(customer.outstandingBalance || 0) + total > Number(customer.creditLimit || 0)) {
+      return res.status(400).json({ success: false, message: "This sale would exceed the customer’s available credit limit." });
+    }
+    if (paymentMethod === "CREDIT" && total <= 0) {
+      return res.status(400).json({ success: false, message: "A zero-balance sale cannot be added to store credit." });
+    }
+    if (offlineQueued && Number.isFinite(Number(expectedTotal)) && Math.abs(total - Number(expectedTotal)) > 0.01) {
+      return res.status(409).json({
+        success: false,
+        message: "A product price changed while this device was offline. Review the sale total before syncing it.",
+        expectedTotal: Number(expectedTotal),
+        currentTotal: total,
+      });
+    }
     const loyaltyPointsEarned = customer
       ? Math.floor(total / 1000)
       : 0;
@@ -627,6 +749,8 @@ export const createSale = async (
     */
 
     const inventoryEntries = [];
+    const stockDeductions = [];
+    const batchDeductions = [];
 
     for (const item of normalizedItems) {
       const product = item.product;
@@ -638,6 +762,19 @@ export const createSale = async (
       const stockBefore = Number(
         item.branchStock.stockQuantity
       );
+
+      let usedBatches = [];
+      try {
+        usedBatches = await consumeBatches({ businessId, branchId, item, stockBefore });
+        item.batchConsumptions = usedBatches;
+        batchDeductions.push(...usedBatches);
+      } catch (batchError) {
+        for (const deduction of stockDeductions) {
+          await ProductBranchStock.updateOne({ _id: deduction.stockId, businessId, branchId }, { $inc: { stockQuantity: deduction.quantity } });
+        }
+        await restoreBatchDeductions(batchDeductions);
+        return res.status(409).json({ success: false, message: batchError.message || "Unable to allocate inventory batches." });
+      }
 
       const updatedBranchStock =
         await ProductBranchStock.findOneAndUpdate(
@@ -665,27 +802,13 @@ export const createSale = async (
         /*
          * Restore any earlier stock deductions from this request.
          */
-        for (const previous of normalizedItems) {
-          if (
-            previous.product.trackStock &&
-            previous.product._id.toString() !==
-              product._id.toString()
-          ) {
-            await ProductBranchStock.updateOne(
-              {
-                _id: previous.branchStock._id,
-                businessId,
-                branchId,
-                productId: previous.product._id,
-              },
-              {
-                $inc: {
-                  stockQuantity: previous.quantity,
-                },
-              }
-            );
-          }
+        for (const deduction of stockDeductions) {
+          await ProductBranchStock.updateOne(
+            { _id: deduction.stockId, businessId, branchId },
+            { $inc: { stockQuantity: deduction.quantity } }
+          );
         }
+        await restoreBatchDeductions(batchDeductions);
 
         return res.status(400).json({
           success: false,
@@ -693,6 +816,8 @@ export const createSale = async (
             `Insufficient stock for ${product.name} at ${branch.name}. The stock may have changed because another sale was completed.`,
         });
       }
+
+      stockDeductions.push({ stockId: item.branchStock._id, quantity: item.quantity });
 
       inventoryEntries.push({
         businessId,
@@ -729,13 +854,15 @@ export const createSale = async (
           : null,
 
         receiptNumber,
+        offlineClientSaleId: normalizedClientSaleId || undefined,
         items: saleItems,
         subtotal,
         discount: numericDiscount,
         total,
         loyaltyPointsEarned,
+        loyaltyPointsRedeemed: pointsToRedeem,
         paymentMethod,
-        paymentStatus: "PAID",
+        paymentStatus: paymentMethod === "CREDIT" ? "PENDING" : "PAID",
         status: "COMPLETED",
 
         notes:
@@ -762,6 +889,27 @@ export const createSale = async (
             },
           }
         );
+      }
+      await restoreBatchDeductions(batchDeductions);
+
+      if (saleError?.code === 11000 && normalizedClientSaleId) {
+        const alreadyCreated = await Sale.findOne({
+          businessId,
+          branchId,
+          cashierId,
+          offlineClientSaleId: normalizedClientSaleId,
+        }).lean();
+        if (alreadyCreated) {
+          return res.status(200).json({
+            success: true,
+            message: "This sale was already synchronized.",
+            sale: {
+              ...alreadyCreated,
+              id: alreadyCreated._id,
+              items: serializeSaleItems(alreadyCreated.items, hasPermission(req.user?.role, "products.view")),
+            },
+          });
+        }
       }
 
       throw saleError;
@@ -811,6 +959,7 @@ export const createSale = async (
           }
         );
       }
+      await restoreBatchDeductions(batchDeductions);
 
       throw inventoryError;
     }
@@ -828,7 +977,7 @@ export const createSale = async (
     let payment;
 
     try {
-      payment = await Payment.create({
+      if (paymentMethod !== "CREDIT" && total > 0) payment = await Payment.create({
         businessId,
         branchId,
         saleId: sale._id,
@@ -887,8 +1036,34 @@ export const createSale = async (
           }
         );
       }
+      await restoreBatchDeductions(batchDeductions);
 
       throw paymentError;
+    }
+
+    if (paymentMethod === "CREDIT") {
+      try {
+        await CustomerCreditDebt.create({
+          businessId,
+          branchId,
+          customerId: customer._id,
+          saleId: sale._id,
+          originalAmount: total,
+          remainingBalance: total,
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          openedBy: cashierId,
+          notes: "Customer store credit from POS sale.",
+        });
+      } catch (creditError) {
+        await Payment.deleteMany({ saleId: sale._id, businessId });
+        await InventoryTransaction.deleteMany({ referenceId: sale._id, businessId, branchId });
+        await Sale.deleteOne({ _id: sale._id, businessId });
+        for (const item of normalizedItems) {
+          if (item.product.trackStock) await ProductBranchStock.updateOne({ _id: item.branchStock._id, businessId, branchId }, { $inc: { stockQuantity: item.quantity } });
+        }
+        await restoreBatchDeductions(batchDeductions);
+        throw creditError;
+      }
     }
 
     /*
@@ -958,6 +1133,7 @@ export const createSale = async (
             }
           );
         }
+        await restoreBatchDeductions(batchDeductions);
 
         return res.status(409).json({
           success: false,
@@ -983,12 +1159,57 @@ export const createSale = async (
           $inc: {
             totalOrders: 1,
             totalSpent: total,
-            loyaltyPoints: loyaltyPointsEarned,
+            loyaltyPoints: loyaltyPointsEarned - pointsToRedeem,
             lifetimeLoyaltyPoints: loyaltyPointsEarned,
+            ...(paymentMethod === "CREDIT" ? { outstandingBalance: total } : {}),
           },
         }
       );
     }
+
+    const allowedPosEvents = new Set(["CART_ITEM_REMOVED", "CART_CLEARED", "DISCOUNT_APPLIED", "DISCOUNT_CHANGED"]);
+    const queuedAuditLogs = (Array.isArray(req.body.auditEvents) ? req.body.auditEvents : [])
+      .filter((event) => allowedPosEvents.has(String(event?.action || "")))
+      .slice(0, 100)
+      .map((event) => {
+        const metadata = {};
+        for (const key of ["productId", "productName", "quantity", "discountAmount", "itemCount"]) {
+          if (event?.metadata?.[key] !== undefined) metadata[key] = typeof event.metadata[key] === "string" ? event.metadata[key].slice(0, 120) : Number(event.metadata[key]);
+        }
+        return {
+          businessId,
+          branchId,
+          actorId: cashierId,
+          actorName: req.user.name || "",
+          actorRole: String(req.user.role || "").toUpperCase(),
+          action: event.action,
+          entity: "POS_ACTIVITY",
+          entityId: sale._id,
+          description: String(event.description || event.action).slice(0, 500),
+          severity: ["CART_CLEARED", "DISCOUNT_APPLIED"].includes(event.action) ? "WARNING" : "INFO",
+          metadata,
+          ipAddress: req.ip || "",
+          userAgent: String(req.get("user-agent") || "").slice(0, 500),
+        };
+      });
+    queuedAuditLogs.push({
+      businessId,
+      branchId,
+      actorId: cashierId,
+      actorName: req.user.name || "",
+      actorRole: String(req.user.role || "").toUpperCase(),
+      action: offlineQueued ? "OFFLINE_SALE_SYNCED" : "SALE_COMPLETED",
+      entity: "SALE",
+      entityId: sale._id,
+      description: `${offlineQueued ? "Offline sale synchronized" : "Sale completed"}: ${sale.receiptNumber}.`,
+      severity: "INFO",
+      metadata: { receiptNumber: sale.receiptNumber, total: sale.total, paymentMethod: sale.paymentMethod },
+      ipAddress: req.ip || "",
+      userAgent: String(req.get("user-agent") || "").slice(0, 500),
+    });
+    await AuditLog.insertMany(queuedAuditLogs, { ordered: false }).catch((auditError) => {
+      console.error("Unable to write sale audit trail:", auditError);
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -1014,13 +1235,14 @@ export const createSale = async (
         discount: sale.discount,
         total: sale.total,
         loyaltyPointsEarned: sale.loyaltyPointsEarned || 0,
+        loyaltyPointsRedeemed: sale.loyaltyPointsRedeemed || 0,
         paymentMethod: sale.paymentMethod,
         paymentStatus: sale.paymentStatus,
         status: sale.status,
         createdAt: sale.createdAt,
       },
 
-      payment: {
+      payment: payment ? {
         id: payment._id,
         saleId: payment.saleId,
         amount: payment.amount,
@@ -1028,7 +1250,7 @@ export const createSale = async (
         status: payment.status,
         reference: payment.reference,
         paymentDate: payment.paymentDate,
-      },
+      } : null,
 
       paymentTransaction: paymentTransaction
         ? {

@@ -6,6 +6,7 @@ import App from "./App.jsx";
 
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { BusinessProvider } from "./context/BusinessContext.jsx";
+import OfflineSyncBridge from "./offline/OfflineSyncBridge.jsx";
 
 import {
   registerMovaServiceWorker,
@@ -50,6 +51,7 @@ ReactDOM.createRoot(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
+        <OfflineSyncBridge />
         <BusinessProvider>
           <App />
         </BusinessProvider>

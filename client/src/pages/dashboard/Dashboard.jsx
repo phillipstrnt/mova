@@ -507,6 +507,11 @@ const Dashboard = () => {
       ? safeData.lowStockProducts
       : [];
 
+  const inventoryForecasts = Array.isArray(safeData.inventoryForecasts)
+    ? safeData.inventoryForecasts
+    : [];
+  const expiryAlerts = Array.isArray(safeData.expiryAlerts) ? safeData.expiryAlerts : [];
+
   /* =========================================================
      PROFIT MARGIN
   ========================================================= */
@@ -756,6 +761,12 @@ const Dashboard = () => {
         </div>
 
       </div>
+
+      <section className="relative isolate flex min-h-36 items-center overflow-hidden rounded-3xl bg-slate-950 px-6 py-6 shadow-sm sm:px-8" aria-label="MOVA store operations">
+        <img src="/images/market-produce.jpg" alt="Fresh produce in a neighborhood market" className="absolute inset-y-0 right-0 h-full w-full object-cover object-center sm:w-3/5" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/10 sm:to-slate-950/20" />
+        <div className="relative max-w-xl text-white"><p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-blue-200">Your store, in focus</p><h2 className="mt-2 text-lg font-black tracking-tight sm:text-xl">Make every shelf and every sale count.</h2><p className="mt-1 max-w-md text-xs leading-5 text-slate-200/85">Your live figures below bring together the activity happening across your business.</p></div>
+      </section>
 
       {/* =====================================================
           INSTALLATION HELP
@@ -1625,6 +1636,61 @@ const Dashboard = () => {
         </div>}
 
       </div>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="font-bold text-slate-900">Inventory outlook</h2>
+            <p className="mt-1 text-xs text-slate-500">Estimated days of stock from the branch’s last 30 days of sales.</p>
+          </div>
+          <Package size={20} className="text-slate-400" />
+        </div>
+        {inventoryForecasts.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-slate-500">More sales history is needed before inventory run-out estimates are available.</p>
+        ) : (
+          <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            {inventoryForecasts.slice(0, 6).map((product) => (
+              <div key={product._id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-800">{product.name}</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatNumber(product.stockQuantity)} in stock · {Number(product.averageDailySales || 0).toFixed(1)} sold/day</p>
+                </div>
+                <div className={`shrink-0 rounded-lg px-2.5 py-1.5 text-right ${Number(product.estimatedDaysRemaining) <= 7 ? "bg-red-100 text-red-700" : Number(product.estimatedDaysRemaining) <= 14 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                  <p className="text-sm font-bold">{Number(product.estimatedDaysRemaining).toFixed(1)}</p>
+                  <p className="text-[10px]">days left</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-amber-100 bg-amber-50 px-5 py-4">
+          <div>
+            <h2 className="font-bold text-slate-900">Expiry watch</h2>
+            <p className="mt-1 text-xs text-slate-600">Track active batches expiring in the next 60 days or already expired.</p>
+          </div>
+          <AlertCircle size={20} className="text-amber-700" />
+        </div>
+        {expiryAlerts.length === 0 ? (
+          <p className="px-5 py-5 text-sm text-slate-500">No batches are nearing expiry.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {expiryAlerts.slice(0, 6).map((batch) => (
+              <div key={batch._id} className="flex items-center justify-between gap-4 px-5 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-800">{batch.productId?.name || "Product"} {batch.batchCode ? `· ${batch.batchCode}` : ""}</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatNumber(batch.remainingQuantity)} units · expires {new Date(batch.expiryDate).toLocaleDateString("en-UG")} {Number(batch.daysUntilExpiry) >= 0 && `· suggested ${batch.suggestedDiscountPercent}% clearance`}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${Number(batch.daysUntilExpiry) < 0 ? "bg-red-100 text-red-700" : Number(batch.daysUntilExpiry) <= 7 ? "bg-orange-100 text-orange-800" : "bg-amber-100 text-amber-800"}`}>
+                  {Number(batch.daysUntilExpiry) < 0 ? `${Math.abs(Number(batch.daysUntilExpiry))} days expired` : `${batch.daysUntilExpiry} days`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* =====================================================
           FOOTER

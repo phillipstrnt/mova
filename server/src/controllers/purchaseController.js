@@ -6,6 +6,7 @@ import Product from "../models/Product.js";
 import ProductBranchStock from "../models/ProductBranchStock.js";
 import Branch from "../models/Branch.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
+import InventoryBatch from "../models/InventoryBatch.js";
 
 // ============================================================
 // HELPER: GENERATE PURCHASE NUMBER
@@ -592,6 +593,7 @@ const createPurchase = async (
 ) => {
   const updatedBranchStocks = [];
   const createdInventoryTransactions = [];
+  const createdInventoryBatches = [];
 
   try {
     const businessId =
@@ -756,6 +758,8 @@ const createPurchase = async (
         productId,
         quantity,
         buyingPrice,
+        batchCode = "",
+        expiryDate = null,
       } = item;
 
       if (
@@ -822,6 +826,11 @@ const createPurchase = async (
         numericQuantity *
         numericBuyingPrice;
 
+      const parsedExpiryDate = expiryDate ? new Date(expiryDate) : null;
+      if (parsedExpiryDate && Number.isNaN(parsedExpiryDate.getTime())) {
+        return res.status(400).json({ success: false, message: "Enter a valid expiry date for each batch." });
+      }
+
       normalizedItems.push({
         productId:
           product._id,
@@ -834,6 +843,8 @@ const createPurchase = async (
         buyingPrice:
           numericBuyingPrice,
         subtotal,
+        batchCode: String(batchCode || "").trim().slice(0, 100),
+        expiryDate: parsedExpiryDate,
       });
     }
 
@@ -1045,6 +1056,19 @@ const createPurchase = async (
         createdInventoryTransactions.push(
           inventoryTransaction._id
         );
+
+        const batch = await InventoryBatch.create({
+          businessId,
+          branchId,
+          productId: product._id,
+          purchaseId: purchase._id,
+          batchCode: item.batchCode,
+          quantityReceived: item.quantity,
+          remainingQuantity: item.quantity,
+          unitCost: item.buyingPrice,
+          expiryDate: item.expiryDate,
+        });
+        createdInventoryBatches.push(batch._id);
       }
     } catch (stockError) {
       console.error(
@@ -1094,6 +1118,10 @@ const createPurchase = async (
             },
           }
         );
+      }
+
+      if (createdInventoryBatches.length) {
+        await InventoryBatch.deleteMany({ _id: { $in: createdInventoryBatches }, businessId, branchId });
       }
 
       // ------------------------------------------------------
@@ -1232,6 +1260,19 @@ const cancelPurchase = async (
         success: false,
         message:
           "The purchase branch was not found or is inactive.",
+      });
+    }
+
+    const purchaseBatches = await InventoryBatch.find({
+      businessId,
+      branchId: purchase.branchId,
+      purchaseId: purchase._id,
+      status: { $ne: "CANCELLED" },
+    });
+    if (purchaseBatches.some((batch) => Number(batch.remainingQuantity) !== Number(batch.quantityReceived))) {
+      return res.status(409).json({
+        success: false,
+        message: "This purchase includes stock already sold or used. It cannot be cancelled safely; record a stock adjustment instead.",
       });
     }
 
@@ -1425,6 +1466,9 @@ const cancelPurchase = async (
       "CANCELLED";
 
     await purchase.save();
+    if (purchaseBatches.length) {
+      await InventoryBatch.updateMany({ _id: { $in: purchaseBatches.map((batch) => batch._id) } }, { $set: { status: "CANCELLED", remainingQuantity: 0 } });
+    }
 
     return res.status(200).json({
       success: true,

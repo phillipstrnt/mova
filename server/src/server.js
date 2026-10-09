@@ -10,6 +10,7 @@ import connectDB from "./config/db.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import cashierShiftRoutes from "./routes/cashierShift.routes.js";
+import inventoryTransferRoutes from "./routes/inventoryTransfer.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
 // ============================================================
 // ROUTES
@@ -339,6 +340,8 @@ app.use(
   "/api/inventory-transactions",
   inventoryTransactionRoutes
 );
+
+app.use("/api/inventory-transfers", inventoryTransferRoutes);
 
 // ============================================================
 // CUSTOMERS

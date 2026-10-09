@@ -1179,6 +1179,10 @@ export const createReturn = async (
       0,
       Math.floor(lifetimeSalePoints * cumulativeRefundRatio) - Number(sale.loyaltyPointsReversed || 0)
     );
+    const pointsToRestore = Math.max(
+      0,
+      Math.floor(Number(sale.loyaltyPointsRedeemed || 0) * cumulativeRefundRatio) - Number(sale.loyaltyPointsRestored || 0)
+    );
 
     /*
      * ---------------------------------------------------------------
@@ -1197,14 +1201,18 @@ export const createReturn = async (
       lifetimeSalePoints,
       Number(sale.loyaltyPointsReversed || 0) + pointsToReverse
     );
+    sale.loyaltyPointsRestored = Math.min(
+      Number(sale.loyaltyPointsRedeemed || 0),
+      Number(sale.loyaltyPointsRestored || 0) + pointsToRestore
+    );
 
     await sale.save();
 
-    if (pointsToReverse > 0 && sale.customerId) {
+    if ((pointsToReverse > 0 || pointsToRestore > 0) && sale.customerId) {
       try {
         await Customer.updateOne(
           { _id: sale.customerId, businessId },
-          { $inc: { loyaltyPoints: -pointsToReverse } }
+          { $inc: { loyaltyPoints: pointsToRestore - pointsToReverse } }
         );
       } catch (loyaltyError) {
         console.error("Unable to reverse loyalty points after return:", loyaltyError);

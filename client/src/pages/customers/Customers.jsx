@@ -130,6 +130,11 @@ const Customers = () => {
 
   const [loadingSales, setLoadingSales] =
     useState(false);
+  const [creditLedger, setCreditLedger] = useState(null);
+  const [creditPaymentAmount, setCreditPaymentAmount] = useState("");
+  const [creditPaymentMethod, setCreditPaymentMethod] = useState("CASH");
+  const [creditPaymentReference, setCreditPaymentReference] = useState("");
+  const [savingCreditPayment, setSavingCreditPayment] = useState(false);
 
 
   // ====================================================
@@ -499,6 +504,9 @@ const Customers = () => {
         response.data.sales ||
           []
       );
+      const creditResponse = await api.get(`/customers/${customer._id}/credit`);
+      setCreditLedger(creditResponse.data || null);
+      setSelectedCustomer((current) => current?._id === customer._id ? { ...current, ...(creditResponse.data?.customer || {}) } : current);
     } catch (error) {
       console.error(
         "Failed to load customer sales:",
@@ -514,6 +522,42 @@ const Customers = () => {
     }
   };
 
+  const recordCreditPayment = async (event) => {
+    event.preventDefault();
+    if (!selectedCustomer) return;
+    setSavingCreditPayment(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await api.post(`/customers/${selectedCustomer._id}/credit-payments`, {
+        amount: Number(creditPaymentAmount),
+        paymentMethod: creditPaymentMethod,
+        reference: creditPaymentReference,
+      });
+      setSuccess(response.data?.message || "Credit payment recorded.");
+      setCreditPaymentAmount("");
+      setCreditPaymentReference("");
+      const refreshed = await api.get(`/customers/${selectedCustomer._id}/credit`);
+      setCreditLedger(refreshed.data || null);
+      setSelectedCustomer((current) => current ? { ...current, outstandingBalance: response.data.outstandingBalance } : current);
+      await fetchCustomers();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || "Unable to record this credit payment.");
+    } finally {
+      setSavingCreditPayment(false);
+    }
+  };
+
+  const sendCreditReminder = () => {
+    const rawPhone = String(selectedCustomer?.phone || "").replace(/[^\d+]/g, "");
+    const phone = rawPhone.startsWith("0") ? `256${rawPhone.slice(1)}` : rawPhone.replace(/\+/g, "");
+    if (!phone) return;
+    const oldestOpen = (creditLedger?.debts || []).find((debt) => Number(debt.remainingBalance) > 0);
+    const due = oldestOpen?.dueDate ? new Date(oldestOpen.dueDate).toLocaleDateString("en-UG") : "on your next visit";
+    const message = `Hello ${selectedCustomer.name}, this is a friendly reminder that your MOVA store credit balance is ${formatCurrency(selectedCustomer.outstandingBalance)}. Please settle it by ${due}. Thank you.`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  };
+
 
   // ====================================================
   // CLOSE DETAILS
@@ -525,6 +569,7 @@ const Customers = () => {
     );
 
     setCustomerSales([]);
+    setCreditLedger(null);
   };
 
 
@@ -1646,6 +1691,26 @@ const Customers = () => {
                 </div>
 
               </div>
+
+
+              {/* STORE CREDIT LEDGER */}
+              <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-100 bg-amber-50 px-5 py-4">
+                  <div><h3 className="font-black text-slate-900">Store credit ledger</h3><p className="mt-1 text-xs text-slate-600">Open balances and repayments for this customer.</p></div>
+                  {Number(selectedCustomer.outstandingBalance || 0) > 0 && selectedCustomer.phone && <button type="button" onClick={sendCreditReminder} className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-50">WhatsApp reminder</button>}
+                  <div className="text-right"><p className="text-[10px] font-bold uppercase text-amber-700">Outstanding</p><p className="text-lg font-black text-amber-900">{formatCurrency(selectedCustomer.outstandingBalance)}</p></div>
+                </div>
+                {Number(selectedCustomer.outstandingBalance || 0) > 0 && <form onSubmit={recordCreditPayment} className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="text-xs font-semibold text-slate-600">Payment amount<input required type="number" min="1" max={Number(selectedCustomer.outstandingBalance || 0)} step="1" value={creditPaymentAmount} onChange={(event) => setCreditPaymentAmount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="UGX" /></label>
+                  <label className="text-xs font-semibold text-slate-600">Method<select value={creditPaymentMethod} onChange={(event) => setCreditPaymentMethod(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile Money</option><option value="BANK">Bank</option><option value="CARD">Card</option></select></label>
+                  <label className="text-xs font-semibold text-slate-600">Reference<input value={creditPaymentReference} onChange={(event) => setCreditPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Optional receipt / transaction ID" /></label>
+                  <button disabled={savingCreditPayment} className="self-end rounded-lg bg-amber-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{savingCreditPayment ? "Recording…" : "Record repayment"}</button>
+                </form>}
+                <div className="divide-y divide-slate-100">
+                  {(creditLedger?.debts || []).length === 0 ? <p className="p-5 text-sm text-slate-500">No store credit sales for this customer.</p> : creditLedger.debts.map((debt) => <div key={debt._id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm"><div><p className="font-semibold text-slate-800">{debt.saleId?.receiptNumber || "Credit sale"} · {new Date(debt.createdAt).toLocaleDateString("en-UG")}</p><p className="mt-1 text-xs text-slate-500">{formatCurrency(debt.paidAmount)} paid of {formatCurrency(debt.originalAmount)}{debt.dueDate ? ` · due ${new Date(debt.dueDate).toLocaleDateString("en-UG")}` : ""}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${debt.status === "PAID" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{debt.status === "PAID" ? "Paid" : `${formatCurrency(debt.remainingBalance)} due`}</span></div>)}
+                  {(creditLedger?.payments || []).map((payment) => <div key={payment._id} className="flex items-center justify-between gap-3 bg-emerald-50/50 px-5 py-3 text-sm"><div><p className="font-semibold text-emerald-900">Repayment · {payment.saleId?.receiptNumber || "Credit sale"}</p><p className="mt-1 text-xs text-slate-500">{payment.paymentMethod} · {new Date(payment.paymentDate).toLocaleString("en-UG")}{payment.reference ? ` · ${payment.reference}` : ""}</p></div><span className="font-bold text-emerald-800">−{formatCurrency(payment.amount)}</span></div>)}
+                </div>
+              </section>
 
 
               {/* Purchase history */}

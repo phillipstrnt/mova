@@ -103,6 +103,7 @@ const productSchema =
       image: {
         type: String,
         default: "",
+        maxlength: 700000,
       },
 
       unit: {
@@ -120,6 +121,12 @@ const productSchema =
       trackStock: {
         type: Boolean,
         default: true,
+      },
+
+      stockRotation: {
+        type: String,
+        enum: ["FIFO", "LIFO"],
+        default: "FIFO",
       },
 
       isActive: {

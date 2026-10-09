@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { OAuth2Client } from "google-auth-library";
 
 import User from "../models/User.js";
 import Business from "../models/Business.js";
@@ -293,6 +294,7 @@ const login = async (req, res) => {
     // ------------------------------------------
 
     const passwordMatches =
+      Boolean(user.passwordHash) &&
       await bcrypt.compare(
         password,
         user.passwordHash
@@ -481,6 +483,183 @@ const login = async (req, res) => {
       success: false,
       message:
         "Unable to login",
+    });
+  }
+};
+
+// ======================================================
+// GOOGLE SIGN-IN / BUSINESS REGISTRATION
+// ======================================================
+
+const googleClient = new OAuth2Client();
+
+const googleAuth = async (req, res) => {
+  try {
+    const {
+      credential,
+      businessName,
+      businessType,
+      ownerName,
+      phone,
+    } = req.body || {};
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return res.status(503).json({
+        success: false,
+        message: "Google sign-in is not configured yet.",
+      });
+    }
+    if (!credential) {
+      return res.status(400).json({
+        success: false,
+        message: "Google sign-in could not be verified. Please try again.",
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: clientId,
+    });
+    const profile = ticket.getPayload();
+    if (!profile?.sub || !profile.email || profile.email_verified !== true) {
+      return res.status(401).json({
+        success: false,
+        message: "Use a Google account with a verified email address.",
+      });
+    }
+
+    const email = profile.email.trim().toLowerCase();
+    let user = await User.findOne({ googleId: profile.sub }).select("+googleId");
+    if (!user) {
+      user = await User.findOne({ email }).select("+googleId");
+    }
+
+    let business = null;
+    let branch = null;
+    let createdBusiness = null;
+
+    if (!user) {
+      if (!businessName?.trim() || !businessType?.trim()) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_REGISTRATION_REQUIRED",
+          message: "Add your business details to finish creating your MOVA account.",
+          profile: {
+            name: profile.name || profile.given_name || "",
+            email,
+            picture: profile.picture || "",
+          },
+        });
+      }
+
+      createdBusiness = await Business.create({
+        name: businessName.trim(),
+        businessType: businessType.trim(),
+        email,
+        phone: phone?.trim() || "",
+      });
+
+      try {
+        branch = await Branch.create({
+          businessId: createdBusiness._id,
+          name: "Main Branch",
+          code: "MAIN",
+          phone: phone?.trim() || "",
+        });
+
+        user = await User.create({
+          businessId: createdBusiness._id,
+          branchId: branch._id,
+          branchIds: [branch._id],
+          activeBranchId: branch._id,
+          name: ownerName?.trim() || profile.name || profile.given_name || email,
+          email,
+          passwordHash: null,
+          googleId: profile.sub,
+          phone: phone?.trim() || "",
+          profileImage: profile.picture || "",
+          role: "OWNER",
+          status: "ACTIVE",
+          lastLoginAt: new Date(),
+        });
+
+        createdBusiness.ownerId = user._id;
+        await createdBusiness.save();
+      } catch (creationError) {
+        if (user?._id) await User.findByIdAndDelete(user._id);
+        if (branch?._id) await Branch.findByIdAndDelete(branch._id);
+        await Business.findByIdAndDelete(createdBusiness._id);
+        throw creationError;
+      }
+    } else {
+      if (user.status !== "ACTIVE") {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is not active. Contact your business administrator.",
+        });
+      }
+      if (user.googleId && user.googleId !== profile.sub) {
+        return res.status(409).json({
+          success: false,
+          message: "This email is linked to a different Google account.",
+        });
+      }
+
+      user.googleId = profile.sub;
+      if (!user.profileImage && profile.picture) {
+        user.profileImage = profile.picture;
+      }
+      user.lastLoginAt = new Date();
+      await user.save();
+    }
+
+    const branchIds = Array.isArray(user.branchIds) && user.branchIds.length
+      ? user.branchIds
+      : user.branchId ? [user.branchId] : [];
+    const activeBranchId = user.activeBranchId || user.branchId || branchIds[0] || null;
+    branch = branch || (activeBranchId
+      ? await Branch.findOne({
+          _id: activeBranchId,
+          businessId: user.businessId,
+          isActive: true,
+        }).select("-__v")
+      : null);
+    business = createdBusiness || await Business.findById(user.businessId).select("-__v");
+    const branches = branchIds.length
+      ? await Branch.find({
+          _id: { $in: branchIds },
+          businessId: user.businessId,
+          isActive: true,
+        }).select("-__v")
+      : [];
+
+    return res.status(createdBusiness ? 201 : 200).json({
+      success: true,
+      message: createdBusiness ? "MOVA account created successfully." : "Google sign-in successful.",
+      token: generateToken(user),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        businessId: user.businessId,
+        branchId: activeBranchId,
+        branchIds,
+        activeBranchId,
+        phone: user.phone,
+        profileImage: user.profileImage || "",
+        status: user.status,
+      },
+      business,
+      branch,
+      branches,
+    });
+  } catch (error) {
+    console.error("Google authentication error:", error);
+    return res.status(401).json({
+      success: false,
+      message: "Google sign-in could not be completed. Please try again.",
     });
   }
 };
@@ -876,6 +1055,7 @@ const getMe = async (
 export {
   registerBusiness,
   login,
+  googleAuth,
   forgotPassword,
   resetPassword,
   getMe,
