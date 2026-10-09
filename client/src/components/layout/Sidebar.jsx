@@ -4,7 +4,6 @@ import {
   BarChart3,
   ClipboardList,
   LayoutDashboard,
-  LogOut,
   ReceiptText,
   ShoppingCart,
   Store,
@@ -14,11 +13,11 @@ import {
   Boxes,
   Truck,
   Settings,
+  CalendarDays,
 } from "lucide-react";
 
 import {
   NavLink,
-  useNavigate,
 } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
@@ -94,6 +93,11 @@ const ROLE_NAVIGATION = {
       label: "Users",
       icon: Users,
       path: "/app/users",
+    },
+    {
+      label: "Cashier Shifts",
+      icon: CalendarDays,
+      path: "/app/shifts",
     },
     {
       label: "Branches",
@@ -184,6 +188,11 @@ const ROLE_NAVIGATION = {
       path: "/app/users",
     },
     {
+      label: "Cashier Shifts",
+      icon: CalendarDays,
+      path: "/app/shifts",
+    },
+    {
       label: "Branches",
       icon: Store,
       path: "/app/branches",
@@ -270,6 +279,11 @@ const ROLE_NAVIGATION = {
       label: "Users",
       icon: Users,
       path: "/app/users",
+    },
+    {
+      label: "Cashier Shifts",
+      icon: CalendarDays,
+      path: "/app/shifts",
     },
     {
       label: "Branches",
@@ -401,6 +415,11 @@ const ROLE_NAVIGATION = {
       path: "/app/customers",
     },
     {
+      label: "My Shifts",
+      icon: CalendarDays,
+      path: "/app/shifts",
+    },
+    {
       label: "Payments",
       icon: Banknote,
       path: "/app/payments",
@@ -412,12 +431,7 @@ const Sidebar = ({
   open,
   onClose,
 }) => {
-  const navigate = useNavigate();
-
-  const {
-    user,
-    logout,
-  } = useAuth();
+  const { user } = useAuth();
 
   const role =
     user?.role || "CASHIER";
@@ -425,62 +439,6 @@ const Sidebar = ({
   const navigation =
     ROLE_NAVIGATION[role] ||
     ROLE_NAVIGATION.CASHIER;
-
-  const handleLogout = async () => {
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to log out of MOVA?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      if (typeof logout === "function") {
-        await logout();
-      }
-    } catch (error) {
-      console.error(
-        "MOVA logout error:",
-        error
-      );
-    }
-
-    /*
-     * Always clear local authentication.
-     */
-    localStorage.removeItem(
-      "mova_token"
-    );
-
-    localStorage.removeItem(
-      "mova_user"
-    );
-
-    localStorage.removeItem(
-      "mova_business"
-    );
-
-    localStorage.removeItem(
-      "mova_branch"
-    );
-
-    localStorage.removeItem(
-      "mova_branches"
-    );
-
-    if (onClose) {
-      onClose();
-    }
-
-    navigate(
-      "/login",
-      {
-        replace: true,
-      }
-    );
-  };
 
   return (
     <>
@@ -615,33 +573,6 @@ const Sidebar = ({
           </div>
         </nav>
 
-        {/* FOOTER */}
-        <div className="border-t border-slate-200 p-3">
-          <button
-            type="button"
-            onClick={
-              handleLogout
-            }
-            className="
-              flex w-full items-center gap-3
-              rounded-xl px-3 py-3
-              text-sm font-semibold
-              text-red-600
-              transition
-              hover:bg-red-50
-              hover:text-red-700
-              focus:outline-none
-              focus:ring-2
-              focus:ring-red-200
-            "
-          >
-            <LogOut size={19} />
-
-            <span>
-              Logout
-            </span>
-          </button>
-        </div>
       </aside>
     </>
   );

@@ -4,6 +4,7 @@ import Product from "../models/Product.js";
 import ProductBranchStock from "../models/ProductBranchStock.js";
 import Category from "../models/Category.js";
 import Branch from "../models/Branch.js";
+import { hasPermission } from "../config/permissions.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -682,6 +683,7 @@ export const getProducts =
 
       const businessId =
         req.user.businessId;
+      const canViewCosts = hasPermission(req.user?.role, "products.view");
 
       /*
        * Resolve active branch.
@@ -695,6 +697,11 @@ export const getProducts =
       const filter = {
         businessId,
       };
+
+      // POS users may see active sellable products, but not cost or inactive items.
+      if (!canViewCosts) {
+        filter.isActive = true;
+      }
 
       /*
        * Search.
@@ -860,10 +867,16 @@ export const getProducts =
               limitNumber
           );
 
+        const responseProducts = canViewCosts ? products : products.map((product) => {
+          const safeProduct = typeof product?.toObject === "function" ? product.toObject() : { ...product };
+          delete safeProduct.buyingPrice;
+          return safeProduct;
+        });
+
         return res.json({
           success: true,
 
-          products,
+          products: responseProducts,
 
           branch: {
             id:
@@ -963,10 +976,16 @@ export const getProducts =
       total =
         rawTotal;
 
+      const responseProducts = canViewCosts ? products : products.map((product) => {
+        const safeProduct = typeof product?.toObject === "function" ? product.toObject() : { ...product };
+        delete safeProduct.buyingPrice;
+        return safeProduct;
+      });
+
       return res.json({
         success: true,
 
-        products,
+        products: responseProducts,
 
         branch: branch
           ? {

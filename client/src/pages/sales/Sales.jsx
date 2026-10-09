@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -174,6 +175,7 @@ const getItemTotal = (item) => {
 };
 
 const Sales = () => {
+  const location = useLocation();
   const {
     branch,
     activeBranchId: contextActiveBranchId,
@@ -417,6 +419,14 @@ const Sales = () => {
       statusFilter,
     ]
   );
+
+  useEffect(() => {
+    const globalSearch = new URLSearchParams(location.search).get("search");
+    if (globalSearch !== null) {
+      setSearch(globalSearch);
+      setPage(1);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     const timer = setTimeout(

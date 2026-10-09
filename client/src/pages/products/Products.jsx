@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -56,6 +57,7 @@ const formatNumber = (value) => {
 
 const Products = () => {
   const { user } = useAuth();
+  const location = useLocation();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -199,6 +201,11 @@ const Products = () => {
       );
     }
   };
+
+  useEffect(() => {
+    const globalSearch = new URLSearchParams(location.search).get("search");
+    if (globalSearch !== null) setSearch(globalSearch);
+  }, [location.search]);
 
   useEffect(() => {
     fetchCategories();

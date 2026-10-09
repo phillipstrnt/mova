@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Banknote,
   CalendarDays,
@@ -72,6 +73,7 @@ const statusClasses = {
 };
 
 const Payments = () => {
+  const location = useLocation();
   const [payments, setPayments] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -150,6 +152,14 @@ const Payments = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const globalSearch = new URLSearchParams(location.search).get("search");
+    if (globalSearch !== null) {
+      setSearch(globalSearch);
+      setPage(1);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     fetchPayments();

@@ -7,10 +7,8 @@ import {
   createReturn,
 } from "../controllers/returnController.js";
 
-import {
-  protect,
-  authorize,
-} from "../middleware/authMiddleware.js";
+import { protect } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
@@ -18,26 +16,25 @@ router.use(protect);
 
 router.get(
   "/",
+  requirePermission("returns.view"),
   getReturns
 );
 
 router.get(
   "/sale/:saleId",
+  requirePermission("returns.view"),
   getSaleReturnableItems
 );
 
 router.get(
   "/:id",
+  requirePermission("returns.view"),
   getReturnById
 );
 
 router.post(
   "/",
-  authorize(
-    "OWNER",
-    "ADMIN",
-    "MANAGER"
-  ),
+  requirePermission("returns.create"),
   createReturn
 );
 

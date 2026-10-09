@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import connectDB from "./config/db.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import userRoutes from "./routes/user.routes.js";
+import cashierShiftRoutes from "./routes/cashierShift.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
 // ============================================================
 // ROUTES
@@ -270,6 +271,11 @@ app.use( "/api/notifications", notificationRoutes );
 app.use(
   "/api/users",
   userRoutes
+);
+
+app.use(
+  "/api/shifts",
+  cashierShiftRoutes
 );
 // ============================================================
 // CATEGORIES

@@ -3,6 +3,8 @@ const isBrowser = typeof window !== "undefined";
 
 let deferredInstallPrompt = null;
 
+const INSTALLED_STORAGE_KEY = "mova_pwa_installed";
+
 const installListeners = new Set();
 const networkListeners = new Set();
 
@@ -27,12 +29,27 @@ export const isPWAInstalled = () => {
   const navigatorStandalone =
     window.navigator?.standalone === true;
 
-  return Boolean(
+  const runningInstalled = Boolean(
     standalone ||
       fullscreen ||
       minimalUi ||
       navigatorStandalone
   );
+
+  if (runningInstalled) {
+    try {
+      window.localStorage.setItem(INSTALLED_STORAGE_KEY, "true");
+    } catch {
+      // Installation mode detection still works when storage is unavailable.
+    }
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem(INSTALLED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 };
 
 export const canInstallPWA = () => {
@@ -125,6 +142,12 @@ export const installPWA = async () => {
         result?.outcome || "unknown";
 
       if (outcome === "accepted") {
+        try {
+          window.localStorage.setItem(INSTALLED_STORAGE_KEY, "true");
+        } catch {
+          // Installation can still succeed when storage is unavailable.
+        }
+
         console.log(
           "MOVA PWA: Installation accepted."
         );
@@ -395,6 +418,16 @@ export const initializePWAInstallPrompt = () => {
     (event) => {
       event.preventDefault();
 
+      /*
+       * Browsers only offer this prompt while the app is not installed.
+       * It also clears the saved state after the app has been uninstalled.
+       */
+      try {
+        window.localStorage.removeItem(INSTALLED_STORAGE_KEY);
+      } catch {
+        // The current browser event still determines install availability.
+      }
+
       deferredInstallPrompt = event;
 
       console.log(
@@ -416,6 +449,12 @@ export const initializePWAInstallPrompt = () => {
       );
 
       deferredInstallPrompt = null;
+
+      try {
+        window.localStorage.setItem(INSTALLED_STORAGE_KEY, "true");
+      } catch {
+        // Keep the app-installed event useful when storage is unavailable.
+      }
 
       notifyInstallListeners();
 
@@ -446,6 +485,15 @@ export const initializePWAInstallPrompt = () => {
   window.addEventListener(
     "pageshow",
     notifyInstallListeners
+  );
+
+  window.addEventListener(
+    "storage",
+    (event) => {
+      if (event.key === INSTALLED_STORAGE_KEY) {
+        notifyInstallListeners();
+      }
+    }
   );
 
   /*

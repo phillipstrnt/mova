@@ -171,6 +171,18 @@ const saleSchema = new mongoose.Schema(
       min: 0,
     },
 
+    loyaltyPointsEarned: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    loyaltyPointsReversed: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
     total: {
       type: Number,
       required: true,

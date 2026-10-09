@@ -18,20 +18,17 @@ import {
 const resolveBranch = async (req) => {
   const businessId = req.user.businessId;
 
-  const activeBranchId =
+  const activeBranchId = normalizeBranchId(
     req.user.activeBranchId ||
-    req.user.branchId;
+    req.user.branchId
+  );
 
   if (!businessId) {
-    throw new Error(
-      "User is not associated with a business."
-    );
+    throw createBranchError("User is not associated with a business.", 403);
   }
 
   if (!activeBranchId) {
-    throw new Error(
-      "No active branch is selected."
-    );
+    throw createBranchError("No active branch is selected.", 400);
   }
 
   if (
@@ -39,9 +36,7 @@ const resolveBranch = async (req) => {
       activeBranchId
     )
   ) {
-    throw new Error(
-      "Invalid active branch."
-    );
+    throw createBranchError("Invalid active branch.", 400);
   }
 
   const branch =
@@ -52,37 +47,50 @@ const resolveBranch = async (req) => {
     });
 
   if (!branch) {
-    throw new Error(
-      "Active branch could not be found."
-    );
+    throw createBranchError("Active branch could not be found.", 404);
   }
 
-  const isOwnerOrAdmin =
-    req.user.role === "OWNER" ||
-    req.user.role === "ADMIN";
+  const role = String(req.user.role || "").trim().toUpperCase();
+  const isOwnerOrAdmin = role === "OWNER" || role === "ADMIN";
 
   if (isOwnerOrAdmin) {
     return branch;
   }
 
-  const assignedBranches =
-    Array.isArray(req.user.branchIds)
-      ? req.user.branchIds.map(
-          (id) => String(id)
-        )
-      : [];
+  const assignedBranches = [
+    ...(Array.isArray(req.user.authorizedBranchIds)
+      ? req.user.authorizedBranchIds
+      : []),
+    ...(Array.isArray(req.user.branchIds)
+      ? req.user.branchIds
+      : []),
+  ]
+    .map(normalizeBranchId)
+    .filter(Boolean);
 
   if (
     !assignedBranches.includes(
-      String(branch._id)
+      normalizeBranchId(branch._id)
     )
   ) {
-    throw new Error(
-      "You do not have access to the selected branch."
+    throw createBranchError(
+      "You do not have access to the selected branch.",
+      403
     );
   }
 
   return branch;
+};
+
+const normalizeBranchId = (value) => {
+  const id = value?._id || value?.id || value;
+  return id ? String(id).trim() : "";
+};
+
+const createBranchError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 };
 
 /*
@@ -116,6 +124,10 @@ export const getPayments = async (
       businessId,
       branchId: branch._id,
     };
+
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      filter.receivedBy = req.user._id;
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -325,21 +337,19 @@ export const getPayments = async (
     |--------------------------------------------------------------------------
     */
 
+    const paymentSummaryFilter = {
+      businessId: new mongoose.Types.ObjectId(businessId),
+      branchId: new mongoose.Types.ObjectId(branch._id),
+    };
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      paymentSummaryFilter.receivedBy = new mongoose.Types.ObjectId(req.user._id);
+    }
+
     const [
       summary,
     ] = await Payment.aggregate([
       {
-        $match: {
-          businessId:
-            new mongoose.Types.ObjectId(
-              businessId
-            ),
-
-          branchId:
-            new mongoose.Types.ObjectId(
-              branch._id
-            ),
-        },
+        $match: paymentSummaryFilter,
       },
 
       {
@@ -530,7 +540,7 @@ export const getPayments = async (
       error
     );
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
       message:
         error.message ||
@@ -568,13 +578,18 @@ export const getPayment = async (
     const branch =
       await resolveBranch(req);
 
-    const payment =
-      await Payment.findOne({
+    const paymentFilter = {
         _id: id,
         businessId:
           req.user.businessId,
         branchId: branch._id,
-      })
+      };
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      paymentFilter.receivedBy = req.user._id;
+    }
+
+    const payment =
+      await Payment.findOne(paymentFilter)
         .populate(
           "saleId",
           "receiptNumber total status"
@@ -610,7 +625,7 @@ export const getPayment = async (
       error
     );
 
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
       message:
         error.message ||
@@ -871,10 +886,10 @@ export const getPaymentTransaction =
         error
       );
 
-      return res.status(500).json({
+      return res.status(error.statusCode || 500).json({
         success: false,
         message:
-          "Failed to fetch payment transaction.",
+          error.message || "Failed to fetch payment transaction.",
       });
     }
   };
@@ -915,7 +930,7 @@ export const getPaymentProviders =
         error
       );
 
-      return res.status(500).json({
+      return res.status(error.statusCode || 500).json({
         success: false,
         message:
           error.message ||
@@ -1151,7 +1166,7 @@ export const updatePaymentStatus =
         error
       );
 
-      return res.status(500).json({
+      return res.status(error.statusCode || 500).json({
         success: false,
         message:
           error.message ||

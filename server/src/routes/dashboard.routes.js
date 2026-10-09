@@ -7,6 +7,7 @@ import {
 import {
   protect,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
@@ -19,6 +20,7 @@ const router = express.Router();
 router.get(
   "/",
   protect,
+  requirePermission("dashboard.view"),
   getDashboard
 );
 
@@ -37,6 +39,7 @@ router.get(
 router.get(
   "/overview",
   protect,
+  requirePermission("dashboard.view"),
   getDashboard
 );
 

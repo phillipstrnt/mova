@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 import Return from "../models/Return.js";
 import Sale from "../models/Sale.js";
+import Customer from "../models/Customer.js";
 import Product from "../models/Product.js";
 import InventoryTransaction from "../models/InventoryTransaction.js";
 
@@ -123,6 +124,10 @@ export const getReturns = async (req, res) => {
     const filter = {
       businessId,
     };
+
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      filter.userId = req.user._id;
+    }
 
     if (saleId) {
       if (
@@ -270,12 +275,17 @@ export const getReturnById = async (
       });
     }
 
-    const returnRecord =
-      await Return.findOne({
+    const returnFilter = {
         _id: id,
         businessId:
           req.user.businessId,
-      })
+      };
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      returnFilter.userId = req.user._id;
+    }
+
+    const returnRecord =
+      await Return.findOne(returnFilter)
         .populate(
           "saleId",
           "receiptNumber items subtotal discount total paymentMethod status createdAt"
@@ -344,11 +354,16 @@ export const getSaleReturnableItems =
         });
       }
 
-      const sale =
-        await Sale.findOne({
+      const saleFilter = {
           _id: saleId,
           businessId,
-        }).populate(
+        };
+      if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+        saleFilter.cashierId = req.user._id;
+      }
+
+      const sale =
+        await Sale.findOne(saleFilter).populate(
           "items.productId",
           "name sku sellingPrice stockQuantity"
         );
@@ -621,11 +636,16 @@ export const createReturn = async (
      * ---------------------------------------------------------------
      */
 
-    const sale =
-      await Sale.findOne({
+    const saleFilter = {
         _id: saleId,
         businessId,
-      });
+      };
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      saleFilter.cashierId = req.user._id;
+    }
+
+    const sale =
+      await Sale.findOne(saleFilter);
 
     if (!sale) {
       return res.status(404).json({
@@ -1140,6 +1160,26 @@ export const createReturn = async (
       ? "REFUNDED"
       : "PARTIALLY_REFUNDED";
 
+    const previouslyReturnedSubtotal = previousReturns.reduce(
+      (sum, previousReturn) => sum + (previousReturn.items || []).reduce(
+        (itemSum, item) => itemSum + Number(item.subtotal || 0),
+        0
+      ),
+      0
+    );
+    const currentReturnedSubtotal = normalizedItems.reduce(
+      (sum, item) => sum + Number(item.subtotal || 0),
+      0
+    );
+    const lifetimeSalePoints = Number(sale.loyaltyPointsEarned || 0);
+    const cumulativeRefundRatio = Number(sale.total) > 0
+      ? Math.min(1, (previouslyReturnedSubtotal + currentReturnedSubtotal) / Number(sale.subtotal || sale.total))
+      : 1;
+    const pointsToReverse = Math.max(
+      0,
+      Math.floor(lifetimeSalePoints * cumulativeRefundRatio) - Number(sale.loyaltyPointsReversed || 0)
+    );
+
     /*
      * ---------------------------------------------------------------
      * UPDATE SALE
@@ -1153,7 +1193,23 @@ export const createReturn = async (
         "REFUNDED";
     }
 
+    sale.loyaltyPointsReversed = Math.min(
+      lifetimeSalePoints,
+      Number(sale.loyaltyPointsReversed || 0) + pointsToReverse
+    );
+
     await sale.save();
+
+    if (pointsToReverse > 0 && sale.customerId) {
+      try {
+        await Customer.updateOne(
+          { _id: sale.customerId, businessId },
+          { $inc: { loyaltyPoints: -pointsToReverse } }
+        );
+      } catch (loyaltyError) {
+        console.error("Unable to reverse loyalty points after return:", loyaltyError);
+      }
+    }
 
     /*
      * ---------------------------------------------------------------

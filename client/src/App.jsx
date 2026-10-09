@@ -28,6 +28,7 @@ import Expenses from "./pages/expenses/Expenses";
 import Reports from "./pages/reports/Reports";
 
 import Users from "./pages/users/Users";
+import Shifts from "./pages/shifts/Shifts";
 import AuditLogs from "./pages/audit/AuditLogs";
 
 import Settings from "./pages/settings/Settings";
@@ -212,6 +213,11 @@ function App() {
         <Route
           path="users"
           element={<Users />}
+        />
+
+        <Route
+          path="shifts"
+          element={<Shifts />}
         />
 
 

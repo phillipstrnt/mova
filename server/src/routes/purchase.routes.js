@@ -11,6 +11,7 @@ import {
   protect,
   authorize,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
@@ -29,6 +30,7 @@ router.use(protect);
 
 router.get(
   "/",
+  requirePermission("purchases.view"),
   getPurchases
 );
 
@@ -40,6 +42,7 @@ router.get(
 
 router.get(
   "/:id",
+  requirePermission("purchases.view"),
   getPurchaseById
 );
 
@@ -57,6 +60,7 @@ router.post(
     "MANAGER",
     "INVENTORY_MANAGER"
   ),
+  requirePermission("purchases.create"),
   createPurchase
 );
 
@@ -73,6 +77,7 @@ router.post(
     "ADMIN",
     "MANAGER"
   ),
+  requirePermission("purchases.update"),
   cancelPurchase
 );
 

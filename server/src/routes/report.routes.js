@@ -12,6 +12,7 @@ import {
 import {
   protect,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router =
   express.Router();
@@ -26,6 +27,7 @@ const router =
 */
 
 router.use(protect);
+router.use(requirePermission("reports.view"));
 
 /*
 |--------------------------------------------------------------------------

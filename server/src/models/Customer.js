@@ -121,6 +121,18 @@ const customerSchema = new mongoose.Schema(
       default: 0,
     },
 
+    loyaltyPoints: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    lifetimeLoyaltyPoints: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
 
     // ========================================================
     // NOTES

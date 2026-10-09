@@ -8,6 +8,7 @@ import InventoryTransaction from "../models/InventoryTransaction.js";
 import Payment from "../models/Payment.js";
 import PaymentTransaction from "../models/PaymentTransaction.js";
 import Branch from "../models/Branch.js";
+import { hasPermission } from "../config/permissions.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -34,6 +35,12 @@ const VALID_SALE_STATUSES = [
   "PARTIALLY_REFUNDED",
   "REFUNDED",
 ];
+
+const serializeSaleItems = (items, canViewCosts) => (items || []).map((item) => {
+  const safeItem = typeof item?.toObject === "function" ? item.toObject() : { ...item };
+  if (!canViewCosts) delete safeItem.buyingPrice;
+  return safeItem;
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -562,6 +569,9 @@ export const createSale = async (
     */
 
     const total = subtotal - numericDiscount;
+    const loyaltyPointsEarned = customer
+      ? Math.floor(total / 1000)
+      : 0;
 
     /*
     |--------------------------------------------------------------------------
@@ -723,6 +733,7 @@ export const createSale = async (
         subtotal,
         discount: numericDiscount,
         total,
+        loyaltyPointsEarned,
         paymentMethod,
         paymentStatus: "PAID",
         status: "COMPLETED",
@@ -972,6 +983,8 @@ export const createSale = async (
           $inc: {
             totalOrders: 1,
             totalSpent: total,
+            loyaltyPoints: loyaltyPointsEarned,
+            lifetimeLoyaltyPoints: loyaltyPointsEarned,
           },
         }
       );
@@ -993,10 +1006,14 @@ export const createSale = async (
         businessId: sale.businessId,
         branchId: sale.branchId,
         customerId: sale.customerId,
-        items: sale.items,
+        items: serializeSaleItems(
+          sale.items,
+          hasPermission(req.user?.role, "products.view")
+        ),
         subtotal: sale.subtotal,
         discount: sale.discount,
         total: sale.total,
+        loyaltyPointsEarned: sale.loyaltyPointsEarned || 0,
         paymentMethod: sale.paymentMethod,
         paymentStatus: sale.paymentStatus,
         status: sale.status,
@@ -1086,6 +1103,10 @@ export const getSales = async (req, res) => {
       businessId,
       branchId,
     };
+
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      filter.cashierId = req.user._id;
+    }
 
     if (
       typeof search === "string" &&
@@ -1229,9 +1250,16 @@ export const getSales = async (req, res) => {
       Sale.countDocuments(filter),
     ]);
 
+    const safeSales = hasPermission(req.user?.role, "products.view")
+      ? sales
+      : sales.map((sale) => ({
+          ...sale.toObject(),
+          items: serializeSaleItems(sale.items, false),
+        }));
+
     return res.json({
       success: true,
-      sales,
+      sales: safeSales,
 
       branch: {
         id: branch._id,
@@ -1291,11 +1319,17 @@ export const getSaleById = async (req, res) => {
       req.user?.businessId
     );
 
-    const sale = await Sale.findOne({
+    const saleFilter = {
       _id: id,
       businessId,
       branchId: branch._id,
-    })
+    };
+
+    if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+      saleFilter.cashierId = req.user._id;
+    }
+
+    const sale = await Sale.findOne(saleFilter)
       .populate("cashierId", "name email role")
       .populate(
         "customerId",
@@ -1340,9 +1374,15 @@ export const getSaleById = async (req, res) => {
     const calculatedPaymentStatus =
       balance === 0 ? "PAID" : "PENDING";
 
+    const saleResponse = sale.toObject();
+    saleResponse.items = serializeSaleItems(
+      saleResponse.items,
+      hasPermission(req.user?.role, "products.view")
+    );
+
     return res.json({
       success: true,
-      sale,
+      sale: saleResponse,
       payments,
 
       branch: {

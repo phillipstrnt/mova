@@ -14,6 +14,9 @@ import {
   authorize,
 } from "../middleware/authMiddleware.js";
 
+import { requirePermission } from "../middleware/permissionMiddleware.js";
+import { PERMISSIONS } from "../config/permissions.js";
+
 const router =
   express.Router();
 
@@ -33,6 +36,7 @@ router.use(protect);
 
 router.get(
   "/providers",
+  requirePermission(PERMISSIONS.PAYMENTS_VIEW),
   getPaymentProviders
 );
 
@@ -62,6 +66,7 @@ router.post(
 
 router.get(
   "/transactions/:id",
+  requirePermission(PERMISSIONS.PAYMENTS_VIEW),
   getPaymentTransaction
 );
 
@@ -91,6 +96,7 @@ router.patch(
 
 router.get(
   "/",
+  requirePermission(PERMISSIONS.PAYMENTS_VIEW),
   getPayments
 );
 
@@ -106,6 +112,7 @@ router.get(
 
 router.get(
   "/:id",
+  requirePermission(PERMISSIONS.PAYMENTS_VIEW),
   getPayment
 );
 

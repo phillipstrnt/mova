@@ -533,6 +533,10 @@ export const getDashboard =
           branchId;
       }
 
+      if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+        saleFilter.cashierId = req.user._id;
+      }
+
       console.log(
         "Dashboard filters:",
         {
@@ -1081,6 +1085,19 @@ export const getDashboard =
 
         paymentBreakdown,
       };
+
+      if (String(req.user?.role || "").toUpperCase() === "CASHIER") {
+        responseData.stats.totalExpenses = null;
+        responseData.stats.grossProfit = null;
+        responseData.stats.netProfit = null;
+        responseData.stats.profitDataAvailable = false;
+        responseData.summary.expenses = null;
+        responseData.summary.grossProfit = null;
+        responseData.summary.netProfit = null;
+        responseData.summary.lowStock = null;
+        responseData.summary.profitDataAvailable = false;
+        responseData.lowStockProducts = [];
+      }
 
       console.log(
         "Dashboard successfully generated:",

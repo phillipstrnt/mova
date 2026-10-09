@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -31,6 +32,22 @@ const formatCurrency = (amount) => {
   }).format(Number(amount) || 0);
 };
 
+const getLoyaltyTier = (points) => {
+  const total = Number(points) || 0;
+  if (total >= 1000) return "Platinum";
+  if (total >= 500) return "Gold";
+  if (total >= 100) return "Silver";
+  return "Member";
+};
+
+const getNextLoyaltyTier = (points) => {
+  const total = Number(points) || 0;
+  if (total < 100) return { name: "Silver", remaining: 100 - total };
+  if (total < 500) return { name: "Gold", remaining: 500 - total };
+  if (total < 1000) return { name: "Platinum", remaining: 1000 - total };
+  return null;
+};
+
 
 // ======================================================
 // EMPTY FORM
@@ -51,6 +68,7 @@ const EMPTY_FORM = {
 // ======================================================
 
 const Customers = () => {
+  const location = useLocation();
   // ====================================================
   // CUSTOMERS
   // ====================================================
@@ -175,6 +193,14 @@ const Customers = () => {
     }
   };
 
+
+  useEffect(() => {
+    const globalSearch = new URLSearchParams(location.search).get("search");
+    if (globalSearch !== null) {
+      setSearch(globalSearch);
+      setPage(1);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     const timer =
@@ -571,7 +597,7 @@ const Customers = () => {
 
           <p className="mt-1 text-slate-500">
             Manage customer profiles,
-            purchases and credit.
+            purchases, credit and MOVA loyalty rewards. Customers earn 1 point per UGX 1,000 spent.
           </p>
         </div>
 
@@ -925,7 +951,7 @@ const Customers = () => {
                             </p>
 
                             <p className="text-xs text-slate-400">
-                              View profile
+                              {getLoyaltyTier(customer.lifetimeLoyaltyPoints)} member · {Number(customer.loyaltyPoints || 0).toLocaleString("en-UG")} points
                             </p>
                           </div>
 
@@ -1489,7 +1515,7 @@ const Customers = () => {
 
               {/* Customer statistics */}
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
 
                 <div className="rounded-2xl bg-slate-50 p-4">
 
@@ -1548,6 +1574,23 @@ const Customers = () => {
                     )}
                   </p>
 
+                </div>
+
+                <div className="rounded-2xl bg-violet-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-violet-500">
+                    MOVA rewards
+                  </p>
+                  <p className="mt-2 text-xl font-black text-violet-800">
+                    {Number(selectedCustomer.loyaltyPoints || 0).toLocaleString("en-UG")} points
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-violet-600">
+                    {getLoyaltyTier(selectedCustomer.lifetimeLoyaltyPoints)} member · lifetime {Number(selectedCustomer.lifetimeLoyaltyPoints || 0).toLocaleString("en-UG")} points
+                  </p>
+                  {getNextLoyaltyTier(selectedCustomer.lifetimeLoyaltyPoints) && (
+                    <p className="mt-1 text-xs text-violet-600">
+                      {getNextLoyaltyTier(selectedCustomer.lifetimeLoyaltyPoints).remaining.toLocaleString("en-UG")} points to {getNextLoyaltyTier(selectedCustomer.lifetimeLoyaltyPoints).name}
+                    </p>
+                  )}
                 </div>
 
               </div>

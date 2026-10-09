@@ -24,6 +24,12 @@ const isObjectId = (value) => {
   return mongoose.Types.ObjectId.isValid(value);
 };
 
+const isValidProfileImage = (value) => {
+  return typeof value === "string" &&
+    value.length <= 700000 &&
+    /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+};
+
 /**
  * Convert a user document into a safe response.
  *
@@ -376,6 +382,7 @@ export const createUser = async (req, res) => {
       name,
       email,
       phone,
+      profileImage,
       password,
       role,
       branchIds,
@@ -409,6 +416,13 @@ export const createUser = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Password is required.",
+      });
+    }
+
+    if (profileImage && !isValidProfileImage(profileImage)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid image under 500 KB.",
       });
     }
 
@@ -529,6 +543,8 @@ export const createUser = async (req, res) => {
         ? String(phone).trim()
         : "",
 
+      profileImage: profileImage || "",
+
       passwordHash: hashedPassword,
 
       role: normalizedRole,
@@ -633,6 +649,7 @@ export const updateUser = async (req, res) => {
       name,
       email,
       phone,
+      profileImage,
       password,
       role,
       branchIds,
@@ -682,6 +699,17 @@ export const updateUser = async (req, res) => {
     if (phone !== undefined) {
       changes.phone =
         String(phone).trim();
+    }
+
+    if (profileImage !== undefined) {
+      if (profileImage !== "" && !isValidProfileImage(profileImage)) {
+        return res.status(400).json({
+          success: false,
+          message: "Choose a valid image under 500 KB.",
+        });
+      }
+
+      changes.profileImage = profileImage;
     }
 
     if (role !== undefined) {
@@ -849,7 +877,12 @@ export const updateUser = async (req, res) => {
     await auditUserUpdated({
       req,
       user: targetUser,
-      changes,
+      changes: {
+        ...changes,
+        ...(profileImage !== undefined
+          ? { profileImage: profileImage ? "[profile image updated]" : "[profile image removed]" }
+          : {}),
+      },
     });
 
     return res.status(200).json({

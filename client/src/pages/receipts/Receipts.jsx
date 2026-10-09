@@ -2188,6 +2188,13 @@ const Receipts = ({
 
                 </div>
 
+                {Number(saleProp.loyaltyPointsEarned || 0) > 0 && (
+                  <div className="flex justify-between rounded-xl bg-violet-50 px-3 py-2.5 text-sm">
+                    <span className="font-semibold text-violet-700">MOVA points earned</span>
+                    <span className="font-black text-violet-800">+{Number(saleProp.loyaltyPointsEarned).toLocaleString("en-UG")}</span>
+                  </div>
+                )}
+
                 {receiptSettings.showAmountPaid &&
                   paymentDetails.hasAmountPaid && (
                   <div className="flex justify-between text-sm">

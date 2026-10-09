@@ -458,6 +458,9 @@ const login = async (req, res) => {
         phone:
           user.phone,
 
+        profileImage:
+          user.profileImage || "",
+
         status:
           user.status,
       },
@@ -838,6 +841,9 @@ const getMe = async (
 
         phone:
           req.user.phone,
+
+        profileImage:
+          req.user.profileImage || "",
 
         status:
           req.user.status,

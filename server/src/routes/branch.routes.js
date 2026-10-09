@@ -121,6 +121,7 @@ router.put(
 router.delete(
   "/:id",
   protect,
+  requirePermission("branches.delete"),
   deleteBranch
 );
 

@@ -10,6 +10,7 @@ import {
   protect,
   authorize,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
@@ -18,13 +19,14 @@ router.use(protect);
 /*
  * View inventory history
  */
-router.get("/", getInventoryTransactions);
+router.get("/", requirePermission("inventory.view"), getInventoryTransactions);
 
 /*
  * View one product's inventory history
  */
 router.get(
   "/product/:productId",
+  requirePermission("inventory.view"),
   getProductInventoryTransactions
 );
 
@@ -41,6 +43,7 @@ router.post(
     "MANAGER",
     "INVENTORY_MANAGER"
   ),
+  requirePermission("inventory.adjust"),
   adjustInventory
 );
 

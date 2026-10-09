@@ -39,6 +39,7 @@ import {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const isCashier = String(user?.role || "").toUpperCase() === "CASHIER";
 
   const {
     business,
@@ -78,10 +79,6 @@ const Dashboard = () => {
 
   /* =========================================================
      PWA INSTALL STATE
-     
-     IMPORTANT:
-     We deliberately DO NOT use canInstallPWA()
-     to disable the button.
   ========================================================= */
 
   useEffect(() => {
@@ -164,11 +161,13 @@ const Dashboard = () => {
       }
 
       /*
-       * No native browser prompt was available.
-       *
-       * Show manual installation instructions.
+       * Some browsers do not provide an automatic prompt. Show
+       * manual instructions only in that case. A dismissed native
+       * prompt is not an installation failure.
        */
-      setShowInstallHelp(true);
+      if (result?.outcome === "manual") {
+        setShowInstallHelp(true);
+      }
     } catch (installError) {
       console.error(
         "MOVA PWA installation failed:",
@@ -978,7 +977,7 @@ const Dashboard = () => {
 
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {!isCashier && <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-start justify-between">
 
@@ -1015,7 +1014,7 @@ const Dashboard = () => {
 
           </div>
 
-        </div>
+        </div>}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1057,7 +1056,7 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {!isCashier && <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
@@ -1090,9 +1089,9 @@ const Dashboard = () => {
             </span>
           </p>
 
-        </div>
+        </div>}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {!isCashier && <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
@@ -1120,7 +1119,7 @@ const Dashboard = () => {
             Products requiring attention
           </p>
 
-        </div>
+        </div>}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1494,7 +1493,7 @@ const Dashboard = () => {
 
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {!isCashier && <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
 
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
 
@@ -1623,7 +1622,7 @@ const Dashboard = () => {
             </div>
           )}
 
-        </div>
+        </div>}
 
       </div>
 

@@ -3,11 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Camera,
   Edit3,
   Eye,
   EyeOff,
   Loader2,
-  Plus,
   RefreshCw,
   Search,
   Shield,
@@ -108,7 +108,35 @@ const DEFAULT_FORM = {
   password: "",
   role: "CASHIER",
   branchIds: [],
+  profileImage: "",
 };
+
+const resizeProfileImage = (file) => new Promise((resolve, reject) => {
+  const imageUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    const maxDimension = 480;
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Unable to prepare this image."));
+      return;
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL("image/webp", 0.82);
+    URL.revokeObjectURL(imageUrl);
+    resolve(imageData.startsWith("data:image/webp") ? imageData : canvas.toDataURL("image/jpeg", 0.82));
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(imageUrl);
+    reject(new Error("Unable to read this image. Choose a JPG, PNG, or WebP photo."));
+  };
+  image.src = imageUrl;
+});
 
 /* =========================================================
    USERS COMPONENT
@@ -438,6 +466,7 @@ export default function Users() {
               ),
             ]
           : [],
+      profileImage: user?.profileImage || "",
     });
 
     setShowPassword(
@@ -567,6 +596,7 @@ export default function Users() {
         role: form.role,
         branchIds:
           form.branchIds,
+        profileImage: form.profileImage,
       };
 
       if (
@@ -632,6 +662,31 @@ export default function Users() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleProfileImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Choose a JPG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Choose an image smaller than 10 MB.");
+      return;
+    }
+    try {
+      setError("");
+      const profileImage = await resizeProfileImage(file);
+      if (profileImage.length > 700000) {
+        setError("This photo is still too large. Choose a smaller image.");
+        return;
+      }
+      updateForm("profileImage", profileImage);
+    } catch (imageError) {
+      setError(imageError.message || "Unable to prepare this image.");
     }
   };
 
@@ -1120,16 +1175,13 @@ export default function Users() {
 
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">
-                              {(
-                                user.name ||
-                                "U"
-                              )
-                                .charAt(
-                                  0
-                                )
-                                .toUpperCase()}
-                            </div>
+                            {user.profileImage ? (
+                              <img src={user.profileImage} alt={`${user.name || "User"} profile`} className="h-11 w-11 shrink-0 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">
+                                {(user.name || "U").charAt(0).toUpperCase()}
+                              </div>
+                            )}
 
                             <div>
                               <div className="flex items-center gap-2">
@@ -1377,6 +1429,30 @@ export default function Users() {
                   {error}
                 </div>
               )}
+
+              {/* PROFILE PHOTO */}
+              <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center">
+                {form.profileImage ? (
+                  <img src={form.profileImage} alt="Profile preview" className="h-20 w-20 rounded-full object-cover ring-4 ring-white" />
+                ) : (
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 ring-4 ring-white">
+                    <span className="text-2xl font-black">{(form.name || "U").charAt(0).toUpperCase()}</span>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-black text-slate-800">{form.role === "CASHIER" ? "Cashier profile photo" : "Profile photo"}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Upload a clear face photo. It will appear in this team member’s account icon and team list.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-100">
+                      <Camera size={16} /> Choose photo
+                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleProfileImageChange} className="sr-only" />
+                    </label>
+                    {form.profileImage && (
+                      <button type="button" onClick={() => updateForm("profileImage", "")} className="rounded-xl px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50">Remove photo</button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* NAME / PHONE */}
 

@@ -5,6 +5,19 @@ import Notification from "../models/Notification.js";
 const isObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(value);
 
+const normalizeBranchId = (value) => {
+  const id = value?._id || value?.id || value;
+  return id ? String(id).trim() : "";
+};
+
+const getUserBranchIds = (user) => [
+  ...(Array.isArray(user?.authorizedBranchIds) ? user.authorizedBranchIds : []),
+  ...(Array.isArray(user?.branchIds) ? user.branchIds : []),
+  user?.branchId,
+]
+  .map(normalizeBranchId)
+  .filter((id) => isObjectId(id));
+
 /**
  * Determine whether the current user can access a branch.
  *
@@ -24,11 +37,9 @@ const canAccessBranch = (user, branchId) => {
     return true;
   }
 
-  const allowedBranches = Array.isArray(user?.branchIds)
-    ? user.branchIds.map((id) => String(id))
-    : [];
+  const allowedBranches = getUserBranchIds(user);
 
-  return allowedBranches.includes(String(branchId));
+  return allowedBranches.includes(normalizeBranchId(branchId));
 };
 
 /**
@@ -103,11 +114,7 @@ export const getNotifications = async (req, res) => {
       const role = String(req.user?.role || "").toUpperCase();
 
       if (role !== "OWNER" && role !== "ADMIN") {
-        const branchIds = Array.isArray(req.user?.branchIds)
-          ? req.user.branchIds
-              .filter((id) => isObjectId(id))
-              .map((id) => id)
-          : [];
+        const branchIds = getUserBranchIds(req.user);
 
         filter.$and = [
           {
@@ -155,11 +162,7 @@ export const getNotifications = async (req, res) => {
       const role = String(req.user?.role || "").toUpperCase();
 
       if (role !== "OWNER" && role !== "ADMIN") {
-        const branchIds = Array.isArray(req.user?.branchIds)
-          ? req.user.branchIds
-              .filter((id) => isObjectId(id))
-              .map((id) => id)
-          : [];
+        const branchIds = getUserBranchIds(req.user);
 
         unreadFilter.$and = [
           {
@@ -217,11 +220,7 @@ export const getUnreadNotificationCount = async (req, res) => {
     const role = String(req.user?.role || "").toUpperCase();
 
     if (role !== "OWNER" && role !== "ADMIN") {
-      const branchIds = Array.isArray(req.user?.branchIds)
-        ? req.user.branchIds
-            .filter((id) => isObjectId(id))
-            .map((id) => id)
-        : [];
+      const branchIds = getUserBranchIds(req.user);
 
       filter.$and = [
         {
@@ -339,14 +338,31 @@ export const markAllNotificationsRead = async (req, res) => {
       ],
     };
 
+    const branchId = normalizeBranchId(req.body?.branchId);
+    if (branchId) {
+      if (!isObjectId(branchId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid branch ID.",
+        });
+      }
+
+      if (!canAccessBranch(req.user, branchId)) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have access to this branch.",
+        });
+      }
+
+      filter.$and = [{
+        $or: [{ branchId: null }, { branchId }],
+      }];
+    }
+
     const role = String(req.user?.role || "").toUpperCase();
 
-    if (role !== "OWNER" && role !== "ADMIN") {
-      const branchIds = Array.isArray(req.user?.branchIds)
-        ? req.user.branchIds
-            .filter((id) => isObjectId(id))
-            .map((id) => id)
-        : [];
+    if (!branchId && role !== "OWNER" && role !== "ADMIN") {
+      const branchIds = getUserBranchIds(req.user);
 
       filter.$and = [
         {

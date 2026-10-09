@@ -12,6 +12,7 @@ import {
   protect,
   authorize,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
@@ -32,7 +33,7 @@ router.use(protect);
 |
 */
 
-router.get("/", getExpenses);
+router.get("/", requirePermission("expenses.view"), getExpenses);
 
 /*
 |--------------------------------------------------------------------------
@@ -40,7 +41,7 @@ router.get("/", getExpenses);
 |--------------------------------------------------------------------------
 */
 
-router.get("/:id", getExpenseById);
+router.get("/:id", requirePermission("expenses.view"), getExpenseById);
 
 /*
 |--------------------------------------------------------------------------
@@ -62,6 +63,7 @@ router.post(
     "ACCOUNTANT",
     "CASHIER"
   ),
+  requirePermission("expenses.create"),
   createExpense
 );
 
@@ -82,6 +84,7 @@ router.put(
     "MANAGER",
     "ACCOUNTANT"
   ),
+  requirePermission("expenses.update"),
   updateExpense
 );
 
@@ -102,6 +105,7 @@ router.post(
     "MANAGER",
     "ACCOUNTANT"
   ),
+  requirePermission("expenses.update"),
   cancelExpense
 );
 

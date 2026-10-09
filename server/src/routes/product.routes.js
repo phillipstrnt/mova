@@ -10,14 +10,15 @@ import {
 } from "../controllers/productController.js";
 
 import { protect, authorize } from "../middleware/authMiddleware.js";
+import { requirePermission, requireAnyPermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
 router.use(protect);
 
-router.get("/", getProducts);
+router.get("/", requireAnyPermission(["products.view", "pos.view"]), getProducts);
 
-router.get("/:id", getProductById);
+router.get("/:id", requirePermission("products.view"), getProductById);
 
 router.post(
   "/",
@@ -27,6 +28,7 @@ router.post(
     "MANAGER",
     "INVENTORY_MANAGER"
   ),
+  requirePermission("products.create"),
   createProduct
 );
 
@@ -38,18 +40,21 @@ router.patch(
     "MANAGER",
     "INVENTORY_MANAGER"
   ),
+  requirePermission("products.update"),
   updateProduct
 );
 
 router.patch(
   "/:id/deactivate",
   authorize("OWNER", "ADMIN", "MANAGER"),
+  requirePermission("products.update"),
   deactivateProduct
 );
 
 router.patch(
   "/:id/activate",
   authorize("OWNER", "ADMIN", "MANAGER"),
+  requirePermission("products.update"),
   activateProduct
 );
 

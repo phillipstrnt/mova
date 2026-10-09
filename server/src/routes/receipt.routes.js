@@ -9,8 +9,13 @@ import {
 import {
   protect,
 } from "../middleware/authMiddleware.js";
+import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
+
+// This legacy receipts endpoint returns business report data, so it uses
+// the same report permission as the canonical /api/reports routes.
+router.use(protect, requirePermission("reports.view"));
 
 /*
 |--------------------------------------------------------------------------

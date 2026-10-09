@@ -97,6 +97,12 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
 
+    profileImage: {
+      type: String,
+      default: "",
+      maxlength: 700000,
+    },
+
     status: {
       type: String,
       enum: [

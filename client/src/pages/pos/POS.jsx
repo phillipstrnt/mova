@@ -348,6 +348,10 @@ export default function POS() {
     subtotal - parsedDiscount
   );
 
+  const loyaltyPointsToEarn = selectedCustomer
+    ? Math.floor(total / 1000)
+    : 0;
+
   const parsedCashReceived = Math.max(
     0,
     Number(cashReceived || 0)
@@ -1456,6 +1460,12 @@ export default function POS() {
                           </span>
                         )}
                       </div>
+
+                      <div className="mt-2 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-700">
+                        <span>{Number(selectedCustomer.loyaltyPoints || 0).toLocaleString("en-UG")} MOVA points</span>
+                        {loyaltyPointsToEarn > 0 && <span>· Earn {loyaltyPointsToEarn} on this sale</span>}
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-400">Earn 1 point per UGX 1,000 on completed purchases.</p>
                     </div>
 
                     <div className="flex gap-2">
