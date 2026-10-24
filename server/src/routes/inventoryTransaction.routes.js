@@ -4,7 +4,7 @@ import {
   getInventoryTransactions,
   getProductInventoryTransactions,
   adjustInventory,
-} from "../controllers/inventoryTransactionController.js";
+} from "../controllers/InventoryTransactionController.js";
 
 import {
   protect,

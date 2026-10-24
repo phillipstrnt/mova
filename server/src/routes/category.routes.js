@@ -7,7 +7,7 @@ import {
   updateCategory,
   deactivateCategory,
   activateCategory,
-} from "../controllers/categoryController.js";
+} from "../controllers/CategoryController.js";
 
 import { protect, authorize } from "../middleware/authMiddleware.js";
 import { requirePermission } from "../middleware/permissionMiddleware.js";
