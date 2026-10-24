@@ -1,31 +1,43 @@
+
 import mongoose from "mongoose";
 
 const connectDB = async () => {
-  try {
-    if (!process.env.MONGO_URI) {
-      throw new Error("MONGO_URI is not defined in .env");
-    }
+  const mongoUri = process.env.MONGO_URI;
 
-    const connection = await mongoose.connect(
-      process.env.MONGO_URI,
-      {
-        retryWrites: false,
-      }
+  if (!mongoUri) {
+    throw new Error(
+      "MONGO_URI is missing from the server environment."
+    );
+  }
+
+  try {
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 15000,
+    });
+
+    console.log(
+      `[MOVA] MongoDB connected successfully: ${mongoose.connection.name}`
     );
 
-    console.log("--------------------------------------");
-    console.log("MongoDB connected successfully");
-    console.log(`Database: ${connection.connection.name}`);
-    console.log(`Host: ${connection.connection.host}`);
-    console.log("Retryable writes: DISABLED");
-    console.log("--------------------------------------");
-  } catch (error) {
-    console.error("--------------------------------------");
-    console.error("MongoDB connection failed");
-    console.error(error.message);
-    console.error("--------------------------------------");
+    mongoose.connection.on("error", (error) => {
+      console.error(
+        "[MOVA] MongoDB connection error:",
+        error.message
+      );
+    });
 
-    process.exit(1);
+    mongoose.connection.on("disconnected", () => {
+      console.warn("[MOVA] MongoDB disconnected.");
+    });
+
+    return mongoose.connection;
+  } catch (error) {
+    console.error(
+      "[MOVA] MongoDB connection failed:",
+      error.message
+    );
+
+    throw error;
   }
 };
 
