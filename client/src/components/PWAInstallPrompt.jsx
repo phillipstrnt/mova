@@ -1,5 +1,1 @@
-const PWAInstallPrompt = () => {
-  return null;
-};
-
-export default PWAInstallPrompt;
+export { default } from "../pwa/PWAInstallPrompt.jsx";
