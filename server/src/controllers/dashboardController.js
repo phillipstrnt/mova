@@ -210,6 +210,15 @@ const calculateTransactions = (
   ).length;
 };
 
+const calculateLoyaltyPointsEarned = (sales = []) =>
+  sales.reduce((total, sale) => {
+    if (isCancelledSale(sale)) return total;
+
+    const earned = Math.max(0, toNumber(sale?.loyaltyPointsEarned));
+    const reversed = Math.max(0, toNumber(sale?.loyaltyPointsReversed));
+    return total + Math.max(0, earned - reversed);
+  }, 0);
+
 /*
 |--------------------------------------------------------------------------
 | PAYMENT BREAKDOWN
@@ -690,6 +699,9 @@ export const getDashboard =
           monthSales
         );
 
+      const monthLoyaltyPointsEarned =
+        calculateLoyaltyPointsEarned(monthSales);
+
       /*
       |--------------------------------------------------------------------------
       | EXPENSES
@@ -1081,6 +1093,8 @@ export const getDashboard =
 
           monthTransactions,
 
+          monthLoyaltyPointsEarned,
+
           totalCustomers,
 
           totalExpenses,
@@ -1114,6 +1128,8 @@ export const getDashboard =
 
           transactions:
             monthTransactions,
+
+          monthLoyaltyPointsEarned,
 
           customers:
             totalCustomers,

@@ -207,7 +207,7 @@ async function main() {
       const existingSale = await Sale.findOne({ receiptNumber }).select("_id").lean();
       const sale = await Sale.findOneAndUpdate(
         { receiptNumber },
-        { $set: { businessId, branchId: spec.branch._id, cashierId: spec.user._id, customerId: customer._id, receiptNumber, items: [{ productId: product._id, name: product.name, sku: product.sku, quantity, unitPrice: product.sellingPrice, buyingPrice: product.buyingPrice, subtotal: total }], subtotal: total, discount: 0, total, paymentMethod, paymentStatus: "PAID", status: "COMPLETED", notes: `${marker} sample sale`, createdAt: saleDate, updatedAt: saleDate } },
+        { $set: { businessId, branchId: spec.branch._id, cashierId: spec.user._id, customerId: customer._id, receiptNumber, items: [{ productId: product._id, name: product.name, sku: product.sku, quantity, unitPrice: product.sellingPrice, buyingPrice: product.buyingPrice, subtotal: total }], subtotal: total, discount: 0, total, loyaltyPointsEarned: Math.floor(total / 1000), paymentMethod, paymentStatus: "PAID", status: "COMPLETED", notes: `${marker} sample sale`, createdAt: saleDate, updatedAt: saleDate } },
         { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true, timestamps: false },
       );
       if (!existingSale) salesCreated += 1;
@@ -233,6 +233,41 @@ async function main() {
         { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true, timestamps: false },
       );
     }
+  }
+
+  const trialCustomerPoints = await Sale.aggregate([
+    {
+      $match: {
+        businessId,
+        customerId: { $ne: null },
+        notes: `${marker} sample sale`,
+        status: { $ne: "CANCELLED" },
+      },
+    },
+    {
+      $group: {
+        _id: "$customerId",
+        pointsEarned: { $sum: { $ifNull: ["$loyaltyPointsEarned", 0] } },
+        pointsReversed: { $sum: { $ifNull: ["$loyaltyPointsReversed", 0] } },
+        pointsRedeemed: { $sum: { $ifNull: ["$loyaltyPointsRedeemed", 0] } },
+        pointsRestored: { $sum: { $ifNull: ["$loyaltyPointsRestored", 0] } },
+      },
+    },
+  ]);
+  for (const points of trialCustomerPoints) {
+    await Customer.updateOne(
+      { _id: points._id, businessId },
+      {
+        $set: {
+          loyaltyPoints: Math.max(
+            0,
+            points.pointsEarned + points.pointsRestored -
+              points.pointsReversed - points.pointsRedeemed
+          ),
+          lifetimeLoyaltyPoints: points.pointsEarned,
+        },
+      },
+    );
   }
 
   for (const branch of Object.values(branches)) {

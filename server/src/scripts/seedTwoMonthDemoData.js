@@ -138,13 +138,17 @@ async function main() {
         sale = await Sale.create({
           businessId, branchId: spec.branch._id, cashierId: spec.cashier._id, customerId: customer._id, receiptNumber,
           items: [{ productId: product._id, name: product.name, sku: product.sku, quantity, unitPrice, buyingPrice, subtotal }],
-          subtotal, discount: 0, total: subtotal, loyaltyPointsEarned: 0,
+          subtotal, discount: 0, total: subtotal, loyaltyPointsEarned: Math.floor(subtotal / 1000),
           paymentMethod: ["CASH", "MOBILE_MONEY", "CARD", "BANK"][(dayOffset + cashierIndex) % 4],
           paymentStatus: "PAID", status: "COMPLETED", notes: `${marker} · Demo sale for dashboard and reports.`,
           createdAt: saleDate, updatedAt: saleDate,
         });
         createdSales += 1;
-      } else alreadyPresent += 1;
+      } else {
+        sale.loyaltyPointsEarned = Math.floor(Number(sale.total || subtotal) / 1000);
+        await sale.save();
+        alreadyPresent += 1;
+      }
 
       if (!(await Payment.exists({ businessId, saleId: sale._id }))) {
         await Payment.create({ businessId, branchId: spec.branch._id, saleId: sale._id, customerId: customer._id, receivedBy: spec.cashier._id, amount: Number(sale.total), paymentMethod: sale.paymentMethod, reference: receiptNumber, notes: `${marker} · Payment for ${receiptNumber}`, status: "COMPLETED", paymentDate: saleDate, createdAt: saleDate, updatedAt: saleDate });
@@ -170,10 +174,26 @@ async function main() {
   for (const customer of demoCustomers) {
     const saleStats = await Sale.aggregate([
       { $match: { businessId: customer.businessId, customerId: customer._id, receiptNumber: { $regex: /^DEMO-/ } } },
-      { $group: { _id: null, orders: { $sum: 1 }, spent: { $sum: "$total" } } },
+      { $group: {
+        _id: null,
+        orders: { $sum: 1 },
+        spent: { $sum: "$total" },
+        pointsEarned: { $sum: { $ifNull: ["$loyaltyPointsEarned", 0] } },
+        pointsReversed: { $sum: { $ifNull: ["$loyaltyPointsReversed", 0] } },
+        pointsRedeemed: { $sum: { $ifNull: ["$loyaltyPointsRedeemed", 0] } },
+        pointsRestored: { $sum: { $ifNull: ["$loyaltyPointsRestored", 0] } },
+      } },
     ]);
     customer.totalOrders = saleStats[0]?.orders || 0;
     customer.totalSpent = saleStats[0]?.spent || 0;
+    customer.loyaltyPoints = Math.max(
+      0,
+      (saleStats[0]?.pointsEarned || 0) -
+        (saleStats[0]?.pointsReversed || 0) -
+        (saleStats[0]?.pointsRedeemed || 0) +
+        (saleStats[0]?.pointsRestored || 0)
+    );
+    customer.lifetimeLoyaltyPoints = saleStats[0]?.pointsEarned || 0;
     await customer.save();
   }
   if (!(await AuditLog.exists({ businessId, action: "DEMO_OPERATIONS_SEEDED", description: marker }))) {

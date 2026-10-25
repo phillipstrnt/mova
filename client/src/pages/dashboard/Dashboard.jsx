@@ -9,6 +9,7 @@ import {
 
 import {
   AlertCircle,
+  Award,
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
@@ -36,6 +37,29 @@ import {
   isPWAInstalled,
   subscribeToPWAInstallState,
 } from "../../pwa.js";
+
+const PAYMENT_METHOD_COLORS = {
+  CASH: "bg-emerald-500",
+  MOBILE_MONEY: "bg-violet-500",
+  "MOBILE MONEY": "bg-violet-500",
+  CARD: "bg-sky-500",
+  BANK: "bg-indigo-500",
+  CREDIT: "bg-amber-500",
+};
+
+const getPaymentColor = (method, index) => {
+  const normalizedMethod = String(method || "OTHER")
+    .trim()
+    .toUpperCase();
+  const fallbackColors = [
+    "bg-rose-500",
+    "bg-cyan-500",
+    "bg-fuchsia-500",
+    "bg-orange-500",
+  ];
+
+  return PAYMENT_METHOD_COLORS[normalizedMethod] || fallbackColors[index % fallbackColors.length];
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -389,6 +413,16 @@ const Dashboard = () => {
       [business?.currency]
     );
 
+  const formatCompactCurrency = useCallback(
+    (value) => new Intl.NumberFormat("en-UG", {
+      style: "currency",
+      currency: business?.currency || "UGX",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(Number(value) || 0),
+    [business?.currency]
+  );
+
   const formatNumber =
     useCallback(
       (value) => {
@@ -493,6 +527,13 @@ const Dashboard = () => {
         ([method, amount]) => ({ method, amount })
       );
 
+  const maxSalesChartAmount = Math.max(
+    0,
+    ...salesChart.map((item) => Number(
+      item?.revenue ?? item?.amount ?? item?.total ?? item?.sales ?? 0
+    ) || 0)
+  );
+
   const recentSales =
     Array.isArray(
       safeData.recentSales
@@ -548,6 +589,13 @@ const Dashboard = () => {
         0
       );
     }, [paymentBreakdown]);
+
+  const monthLoyaltyPointsEarned = Number(
+    stats.monthLoyaltyPointsEarned ??
+      summary.monthLoyaltyPointsEarned ??
+      safeData.monthLoyaltyPointsEarned ??
+      0
+  );
 
   /* =========================================================
      GREETING
@@ -1065,7 +1113,7 @@ const Dashboard = () => {
           SECONDARY KPI
       ===================================================== */}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
 
         {!isCashier && <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
@@ -1162,6 +1210,34 @@ const Dashboard = () => {
 
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <div className="flex items-center justify-between">
+
+            <div>
+
+              <p className="text-sm font-medium text-slate-500">
+                Customer Points Awarded
+              </p>
+
+              <p className="mt-2 text-xl font-bold text-slate-900">
+                {formatNumber(monthLoyaltyPointsEarned)}
+              </p>
+
+            </div>
+
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+              <Award size={20} />
+            </div>
+
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Net MOVA points earned this month
+          </p>
+
+        </div>
+
       </div>
 
       {/* =====================================================
@@ -1199,44 +1275,20 @@ const Dashboard = () => {
               No sales chart data available yet.
             </div>
           ) : (
-            <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto">
+            <div className="mt-6 flex h-64 items-end gap-3 overflow-x-auto pb-1">
 
               {salesChart.map(
                 (
                   item,
                   index
                 ) => {
-                  const amount =
-                    Number(
-                      item?.amount ??
-                        item?.revenue ??
-                        item?.total ??
-                        0
-                    );
-
-                  const maxAmount =
-                    Math.max(
-                      ...salesChart.map(
-                        (
-                          chartItem
-                        ) =>
-                          Number(
-                            chartItem?.amount ??
-                              chartItem?.revenue ??
-                              chartItem?.total ??
-                              0
-                          )
-                      ),
-                      1
-                    );
-
-                  const height =
-                    Math.max(
-                      8,
-                      (amount /
-                        maxAmount) *
-                        100
-                    );
+                  const amount = Math.max(0, Number(
+                    item?.revenue ?? item?.amount ?? item?.total ?? item?.sales ?? 0
+                  ) || 0);
+                  const height = maxSalesChartAmount > 0
+                    ? Math.max(amount > 0 ? 8 : 2, (amount / maxSalesChartAmount) * 72)
+                    : 2;
+                  const transactionCount = Number(item?.transactions || 0);
 
                   return (
                     <div
@@ -1245,22 +1297,28 @@ const Dashboard = () => {
                         item?.date ||
                         index
                       }
-                      className="flex min-w-[44px] flex-1 flex-col items-center justify-end gap-2"
+                      className="flex h-full min-w-[58px] flex-1 flex-col items-center gap-2"
                     >
 
-                      <div className="group relative flex h-full w-full items-end justify-center">
+                      <div className="group relative flex min-h-0 w-full flex-1 items-end justify-center" aria-label={`${formatCurrency(amount)} sales, ${transactionCount} transactions`}>
+
+                        <span
+                          className="pointer-events-none absolute z-10 w-full truncate text-center text-[9px] font-semibold text-slate-600"
+                          style={{ bottom: `calc(${height}% + 4px)` }}
+                          title={formatCurrency(amount)}
+                        >
+                          {formatCompactCurrency(amount)}
+                        </span>
 
                         <div
-                          className="w-full max-w-12 rounded-t-lg bg-slate-900 transition hover:bg-slate-700"
+                          className="w-full max-w-12 rounded-t-lg bg-blue-600 transition hover:bg-blue-700"
                           style={{
                             height: `${height}%`,
                           }}
                         />
 
                         <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white group-hover:block">
-                          {formatCurrency(
-                            amount
-                          )}
+                          {formatCurrency(amount)} · {transactionCount} {transactionCount === 1 ? "sale" : "sales"}
                         </div>
 
                       </div>
@@ -1333,6 +1391,10 @@ const Dashboard = () => {
                             100
                         )
                       : 0;
+                  const paymentColor = getPaymentColor(
+                    item?.method || item?.paymentMethod,
+                    index
+                  );
 
                   return (
                     <div
@@ -1345,7 +1407,8 @@ const Dashboard = () => {
 
                       <div className="mb-2 flex items-center justify-between text-xs">
 
-                        <span className="font-medium text-slate-600">
+                        <span className="flex items-center gap-2 font-medium text-slate-600">
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${paymentColor}`} />
                           {item?.method ||
                             item?.paymentMethod ||
                             "Other"}
@@ -1362,7 +1425,7 @@ const Dashboard = () => {
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
 
                         <div
-                          className="h-full rounded-full bg-slate-900"
+                          className={`h-full rounded-full ${paymentColor} transition-all`}
                           style={{
                             width: `${percentage}%`,
                           }}
@@ -1437,6 +1500,11 @@ const Dashboard = () => {
                           sale?.amount ??
                           0
                       );
+                    const pointsEarned = Math.max(
+                      0,
+                      Number(sale?.loyaltyPointsEarned || 0) -
+                        Number(sale?.loyaltyPointsReversed || 0)
+                    );
 
                     return (
                       <div
@@ -1467,6 +1535,12 @@ const Dashboard = () => {
                               sale?.paymentMethod ||
                               "Walk-in customer"}
                           </p>
+
+                          {sale?.customerId && (
+                            <p className="mt-1 text-[10px] font-semibold text-violet-700">
+                              +{formatNumber(pointsEarned)} MOVA points earned
+                            </p>
+                          )}
 
                         </div>
 
