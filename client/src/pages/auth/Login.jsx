@@ -23,6 +23,7 @@ import {
 
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
+import InstallMovaButton from "../../components/InstallMovaButton";
 
 const Login = () => {
   const navigate =
@@ -218,6 +219,8 @@ const Login = () => {
               </div>
 
             </div>
+
+            <div className="mb-5"><InstallMovaButton /></div>
 
             {/* HEADER */}
 
