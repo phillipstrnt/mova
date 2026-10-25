@@ -233,6 +233,10 @@ const MANAGER_PERMISSIONS = [
 const CASHIER_PERMISSIONS = [
   PERMISSIONS.DASHBOARD_VIEW,
 
+  // The API scopes branch reads to branchIds, so cashiers can load only
+  // the branch assigned to their account (needed by the app shell and POS).
+  PERMISSIONS.BRANCHES_VIEW,
+
   PERMISSIONS.POS_VIEW,
   PERMISSIONS.POS_CREATE_SALE,
 
@@ -267,6 +271,9 @@ const CASHIER_PERMISSIONS = [
 
 const INVENTORY_MANAGER_PERMISSIONS = [
   PERMISSIONS.DASHBOARD_VIEW,
+
+  // Branch listing remains restricted to the user's assigned branchIds.
+  PERMISSIONS.BRANCHES_VIEW,
 
   PERMISSIONS.PRODUCTS_VIEW,
   PERMISSIONS.PRODUCTS_CREATE,
@@ -307,6 +314,9 @@ const INVENTORY_MANAGER_PERMISSIONS = [
 
 const ACCOUNTANT_PERMISSIONS = [
   PERMISSIONS.DASHBOARD_VIEW,
+
+  // Branch listing remains restricted to the user's assigned branchIds.
+  PERMISSIONS.BRANCHES_VIEW,
 
   PERMISSIONS.SALES_VIEW,
 
