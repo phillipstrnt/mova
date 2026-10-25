@@ -43,7 +43,7 @@ const SetupGuard = ({
 
           const response =
             await api.get(
-              "/business/setup-status"
+              `/business/setup-status?check=${Date.now()}`
             );
 
           if (!mounted) {
@@ -194,3 +194,4 @@ const SetupGuard = ({
 };
 
 export default SetupGuard;
+
