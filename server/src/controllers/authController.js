@@ -8,6 +8,7 @@ import Branch from "../models/Branch.js";
 
 import sendPasswordResetEmail from "../utils/emailService.js";
 import generateToken from "../utils/generateToken.js";
+import { isValidEmail, normalizeEmail } from "../utils/emailValidation.js";
 
 // ======================================================
 // REGISTER BUSINESS + OWNER
@@ -33,6 +34,7 @@ const registerBusiness = async (req, res) => {
       !businessType ||
       !ownerName ||
       !email ||
+      typeof password !== "string" ||
       !password
     ) {
       return res.status(400).json({
@@ -42,11 +44,18 @@ const registerBusiness = async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address.",
+      });
+    }
+
+    if (password.length < 8) {
       return res.status(400).json({
         success: false,
         message:
-          "Password must contain at least 6 characters",
+          "Password must contain at least 8 characters",
       });
     }
 
@@ -54,8 +63,7 @@ const registerBusiness = async (req, res) => {
     // NORMALIZE EMAIL
     // ------------------------------------------
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
 
     // ------------------------------------------
     // CHECK EXISTING USER
@@ -249,7 +257,12 @@ const login = async (req, res) => {
     // VALIDATION
     // ------------------------------------------
 
-    if (!email || !password) {
+    if (
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -257,8 +270,7 @@ const login = async (req, res) => {
       });
     }
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
 
     // ------------------------------------------
     // FIND USER
@@ -522,14 +534,18 @@ const googleAuth = async (req, res) => {
       audience: clientId,
     });
     const profile = ticket.getPayload();
-    if (!profile?.sub || !profile.email || profile.email_verified !== true) {
+    if (
+      !profile?.sub ||
+      !isValidEmail(profile.email) ||
+      profile.email_verified !== true
+    ) {
       return res.status(401).json({
         success: false,
         message: "Use a Google account with a verified email address.",
       });
     }
 
-    const email = profile.email.trim().toLowerCase();
+    const email = normalizeEmail(profile.email);
     let user = await User.findOne({ googleId: profile.sub }).select("+googleId");
     let matchedByEmail = false;
     if (!user) {
@@ -705,15 +721,14 @@ const forgotPassword = async (req, res) => {
     const genericMessage =
       "If an account exists for that email, a password reset link has been sent.";
 
-    if (!email) {
+    if (typeof email !== "string" || !isValidEmail(email)) {
       return res.status(200).json({
         success: true,
         message: genericMessage,
       });
     }
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
 
     const user =
       await User.findOne({
@@ -852,7 +867,7 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    if (!password) {
+    if (typeof password !== "string" || !password) {
       return res.status(400).json({
         success: false,
         message:
@@ -860,11 +875,11 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       return res.status(400).json({
         success: false,
         message:
-          "Password must contain at least 6 characters.",
+          "Password must contain at least 8 characters.",
       });
     }
 

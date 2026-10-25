@@ -129,7 +129,6 @@ const Register = () => {
     // ---------------------------------------------------------
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
     if (!googleCredential && !emailPattern.test(email)) {
       setError("Please enter a valid email address.");
       return;
@@ -139,8 +138,8 @@ const Register = () => {
     // Password validation
     // ---------------------------------------------------------
 
-    if (!googleCredential && password.length < 6) {
-      setError("Password must contain at least 6 characters.");
+    if (!googleCredential && password.length < 8) {
+      setError("Password must contain at least 8 characters.");
       return;
     }
 
@@ -521,7 +520,7 @@ const Register = () => {
                     name="password"
                     value={form.password}
                     onChange={handleChange}
-                    placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                     autoComplete="new-password"
                     disabled={loading}
                     className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"

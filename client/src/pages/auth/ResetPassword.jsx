@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Link,
-  useNavigate,
   useParams,
 } from "react-router-dom";
 
@@ -18,7 +17,6 @@ import api from "../../services/api";
 
 const ResetPassword = () => {
   const { token } = useParams();
-  const navigate = useNavigate();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] =
@@ -46,9 +44,9 @@ const ResetPassword = () => {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       setError(
-        "Your password must contain at least 6 characters."
+        "Your password must contain at least 8 characters."
       );
       return;
     }
@@ -200,7 +198,7 @@ const ResetPassword = () => {
             </div>
 
             <p className="mt-2 text-xs text-slate-400">
-              Minimum 6 characters.
+              Minimum 8 characters.
             </p>
           </div>
 

@@ -36,7 +36,7 @@
 - Passwords are hashed with bcrypt; new registrations and password resets require at least 8 characters.
 - Password reset tokens are random, stored as SHA-256 hashes, expire after 15 minutes, and are invalidated after use. Resetting a password increments the user's token version to invalidate previously issued JWT sessions.
 - Authentication endpoints have per-IP rate limits. The generic forgot-password response is designed not to reveal whether an email is registered.
-- Google ID tokens are verified by the API against the configured audience, and the email must be verified by Google.
+- Registration validates email syntax on the API after normalization. Google ID tokens are verified against the configured audience, and Google must mark the account email as verified.
 
 If an actual `.env` file or credential was ever committed to a repository or included in an archive shared outside your team, rotate those secrets immediately. Removing a file from the latest version does not remove it from Git history.
 
@@ -44,7 +44,7 @@ If an actual `.env` file or credential was ever committed to a repository or inc
 
 See [`DEPLOYMENT-CHECKLIST.md`](./DEPLOYMENT-CHECKLIST.md) for step-by-step MongoDB Atlas, Render, Vercel, Google OAuth, SMTP, and production testing instructions. A root-level [`render.yaml`](./render.yaml) is included for Render Blueprint import.
 
-After the API is deployed and configured, run `npm run smoke:auth` from `server/` with `API_BASE_URL` set to the API origin. These non-destructive checks verify health, safe rejection of missing Google credentials, generic password-recovery responses, and invalid reset-token rejection. They do not replace live successful login/registration/reset tests using real test accounts.
+After the API is deployed and configured, run `npm run smoke:auth` from `server/` with `API_BASE_URL` set to the API origin. These non-destructive checks verify health, safe rejection of missing Google credentials, generic password-recovery responses, and invalid reset-token rejection. Set `SMOKE_EMAIL` and `SMOKE_PASSWORD` to also verify an existing test login; the script never prints the password or session token.
 
 ### Seed an isolated trial store
 
