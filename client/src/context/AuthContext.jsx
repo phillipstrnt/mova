@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import api from "../api";
+import api, { loginWithRetry } from "../api";
 
 const AuthContext = createContext(null);
 
@@ -132,6 +132,13 @@ const getApiErrorMessage = (
   error,
   fallback = "Something went wrong."
 ) => {
+  if (
+    !error?.response &&
+    (error?.code === "ERR_NETWORK" || error?.message === "Network Error")
+  ) {
+    return "MOVA could not be reached. Please check your connection and try again.";
+  }
+
   return (
     error?.response?.data?.message ||
     error?.response?.data?.error ||
@@ -500,7 +507,39 @@ export const AuthProvider = ({
     async (registrationData) => {
       setLoading(true);
       try {
-        const response = await api.post("/auth/register", registrationData);
+        let response;
+
+        try {
+          response = await api.post("/auth/register", registrationData);
+        } catch (registrationError) {
+          // If the response was lost after account creation, verify the new
+          // account with the submitted password instead of creating again.
+          if (
+            registrationError?.response?.status === 409 ||
+            !registrationError?.response
+          ) {
+            try {
+              const loginResponse = await loginWithRetry({
+                email: registrationData.email,
+                password: registrationData.password,
+              });
+
+              return {
+                ...establishSession(
+                  loginResponse.data?.data || loginResponse.data || {}
+                ),
+                existingAccount: true,
+              };
+            } catch (loginError) {
+              if (registrationError?.response?.status === 409) {
+                throw loginError;
+              }
+            }
+          }
+
+          throw registrationError;
+        }
+
         return establishSession(response.data?.data || response.data || {});
       } catch (error) {
         const message = getApiErrorMessage(error, "Unable to create your account.");
@@ -796,10 +835,7 @@ export const AuthProvider = ({
          * }
          */
         const response =
-          await api.post(
-            "/auth/login",
-            credentials
-          );
+          await loginWithRetry(credentials);
 
         const payload =
           response.data?.data ||

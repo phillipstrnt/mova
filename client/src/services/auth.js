@@ -1,4 +1,5 @@
 import api from "./api";
+import { loginWithRetry } from "../api";
 
 export const registerBusiness = async (businessData) => {
   const response = await api.post("/auth/register", businessData);
@@ -7,7 +8,7 @@ export const registerBusiness = async (businessData) => {
 };
 
 export const login = async (credentials) => {
-  const response = await api.post("/auth/login", credentials);
+  const response = await loginWithRetry(credentials);
 
   return response.data;
 };

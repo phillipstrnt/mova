@@ -75,6 +75,12 @@ const allowedOrigins = [
   ),
 ];
 
+// Vercel preview URLs keep the project slug and append deployment metadata,
+// for example mova-azure-two-git-branch-team.vercel.app. Accept those MOVA
+// previews without opening the API to unrelated Vercel projects.
+const isMovaVercelOrigin = (origin) =>
+  /^https:\/\/mova-azure-two(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
+
 console.log("[MOVA] Allowed CORS origins:", allowedOrigins);
 
 const corsOptions = {
@@ -85,7 +91,11 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) {
+    if (
+      allowedOrigins.includes(origin) ||
+      (process.env.NODE_ENV === "production" &&
+        isMovaVercelOrigin(origin))
+    ) {
       return callback(null, true);
     }
 

@@ -167,7 +167,7 @@ const Register = () => {
         return;
       }
 
-      await register({
+      const registration = await register({
         businessName,
         businessType,
         ownerName,
@@ -186,7 +186,7 @@ const Register = () => {
        *
        * The user then continues through MOVA onboarding.
        */
-      navigate("/setup/business", {
+      navigate(registration?.existingAccount ? "/app" : "/setup/business", {
         replace: true,
       });
     } catch (err) {

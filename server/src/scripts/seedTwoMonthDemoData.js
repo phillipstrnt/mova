@@ -18,7 +18,7 @@ const businessId = process.argv[2];
 const marker = "MOVA-DEMO-2MO-V1";
 const branchCode = "DEMO02";
 const demoBranchName = "Demo Branch 2";
-const passwordForNewUsers = process.env.MOVA_DEMO_CASHIER_PASSWORD || `${crypto.randomBytes(14).toString("base64url")}A1!`;
+const passwordForDemoUsers = process.env.MOVA_DEMO_CASHIER_PASSWORD || `${crypto.randomBytes(14).toString("base64url")}A1!`;
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -65,20 +65,21 @@ async function main() {
     { key: branchCode, name: "Demo Cashier Two", email: "demo.cashier2@mova.test", branch: secondBranch },
   ];
   const cashiers = [];
-  const newCredentials = [];
+  const cashierCredentials = [];
+  const demoPasswordHash = await bcrypt.hash(passwordForDemoUsers, 12);
   for (const spec of specs) {
     let cashier = await User.findOne({ businessId, email: spec.email });
     if (!cashier) {
       cashier = await User.create({
         businessId, branchId: spec.branch._id, branchIds: [spec.branch._id], activeBranchId: spec.branch._id,
-        name: spec.name, email: spec.email, phone: "", passwordHash: await bcrypt.hash(passwordForNewUsers, 12),
+        name: spec.name, email: spec.email, phone: "", passwordHash: demoPasswordHash,
         role: "CASHIER", status: "ACTIVE",
       });
-      newCredentials.push({ email: cashier.email, password: passwordForNewUsers });
     } else {
-      Object.assign(cashier, { name: spec.name, role: "CASHIER", status: "ACTIVE", branchId: spec.branch._id, branchIds: [spec.branch._id], activeBranchId: spec.branch._id });
+      Object.assign(cashier, { name: spec.name, role: "CASHIER", status: "ACTIVE", branchId: spec.branch._id, branchIds: [spec.branch._id], activeBranchId: spec.branch._id, passwordHash: demoPasswordHash });
       await cashier.save();
     }
+    cashierCredentials.push({ email: cashier.email, password: passwordForDemoUsers });
     cashiers.push({ ...spec, cashier });
   }
 
@@ -184,7 +185,7 @@ async function main() {
     business: business.name,
     branch: { name: secondBranch.name, code: secondBranch.code, id: String(secondBranch._id) },
     cashiers: cashiers.map(({ cashier, branch }) => ({ name: cashier.name, email: cashier.email, branch: branch.name })),
-    newCashierCredentials: newCredentials,
+    cashierCredentials,
     scheduleWeekStarts: weekStart.toISOString().slice(0, 10),
     salesPeriod: { from: firstDay.toISOString().slice(0, 10), to: today.toISOString().slice(0, 10) },
     demoSalesCreated: createdSales,

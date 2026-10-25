@@ -36,6 +36,7 @@ const Login = () => {
     login,
     googleSignIn,
     isAuthenticated,
+    user,
   } = useAuth();
 
   const [email, setEmail] =
@@ -56,8 +57,12 @@ const Login = () => {
   const handleGoogleCredential = useCallback(async (credential) => {
     setError("");
     try {
-      await googleSignIn(credential);
-      navigate("/app", { replace: true });
+      const session = await googleSignIn(credential);
+      const destination =
+        String(session?.user?.role || "").toUpperCase() === "CASHIER"
+          ? "/app/pos"
+          : "/app";
+      navigate(destination, { replace: true });
     } catch (googleError) {
       if (googleError.code === "GOOGLE_REGISTRATION_REQUIRED") {
         sessionStorage.setItem("mova_google_registration", credential);
@@ -76,14 +81,21 @@ const Login = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
+      const defaultPath =
+        String(user?.role || "").toUpperCase() === "CASHIER"
+          ? "/app/pos"
+          : "/app";
+
       navigate(
-        "/app",
+        location.state?.from?.pathname || defaultPath,
         { replace: true }
       );
     }
   }, [
     isAuthenticated,
+    location.state,
     navigate,
+    user?.role,
   ]);
 
   const handleSubmit = async (
@@ -113,7 +125,7 @@ const Login = () => {
     try {
       setLoading(true);
 
-      await login(
+      const session = await login(
         cleanEmail,
         password
       );
@@ -121,7 +133,9 @@ const Login = () => {
       const from =
         location.state?.from
           ?.pathname ||
-        "/app";
+        (String(session?.user?.role || "").toUpperCase() === "CASHIER"
+          ? "/app/pos"
+          : "/app");
 
       navigate(from, {
         replace: true,

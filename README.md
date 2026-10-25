@@ -10,7 +10,7 @@
 - The frontend is configured for Vercel through `client/vercel.json`. Set its root directory to `client`, build command to `npm run build`, and output directory to `dist`.
 - `server/render.yaml` configures the API for Render. Supply `MONGO_URI`, `CLIENT_URL`, and `GOOGLE_CLIENT_ID` when Render prompts for them. Set the frontend's `VITE_API_URL` to the deployed API URL plus `/api`.
 - In Google Cloud Console, configure the OAuth consent screen and add the deployed frontend origin to the OAuth client's authorized JavaScript origins. Set the same client ID as `VITE_GOOGLE_CLIENT_ID` for the frontend build and `GOOGLE_CLIENT_ID` for the API.
-- Set the API's `CLIENT_URL` to the deployed frontend origin so browser requests pass CORS. Rebuild the frontend whenever its `VITE_*` settings change.
+- The API allows the production MOVA Vercel domain and project preview URLs. Put any custom frontend domains in Render's `CLIENT_URL` (comma-separated, with no trailing slash) and redeploy the API. Rebuild the frontend whenever its `VITE_*` settings change.
 
 
 ## Secure authentication setup
@@ -49,3 +49,5 @@ After the API is deployed and configured, run `npm run smoke:auth` from `server/
 ### Seed an isolated trial store
 
 After MongoDB connectivity is confirmed, run `npm run seed:trial` from `server/` with `MOVA_ENABLE_TRIAL_SEED=true` and `MOVA_TRIAL_SEED_CONFIRM_DB` set to the exact database name. The script creates a separate MOVA Trial Market business with two branches, seven role-based accounts, eight products with bundled image paths, customers, 120 sales and 60 received purchases across the latest 60 days, reconciled inventory movements, schedules, and closed cashier shifts. Existing businesses and records are left alone. It generates a random shared trial password unless `MOVA_TRIAL_PASSWORD` is supplied, and prints the credentials once on success.
+
+For an existing business's two-month cashier demo, run `npm run seed:demo-operations -- <business-id>` from `server/` against the intended database. This resets both demo cashier passwords and prints both email/password pairs; set `MOVA_DEMO_CASHIER_PASSWORD` first if you need a known password. Share those demo credentials only with intended testers.
