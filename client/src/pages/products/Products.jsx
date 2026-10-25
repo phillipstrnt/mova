@@ -4,7 +4,9 @@ import { useLocation } from "react-router-dom";
 import {
   AlertCircle,
   Check,
+  Download,
   Edit3,
+  FileUp,
   FolderPlus,
   ImagePlus,
   Package,
@@ -55,6 +57,49 @@ const formatNumber = (value) => {
   return new Intl.NumberFormat("en-UG").format(
     Number(value) || 0
   );
+};
+
+const parseCsv = (text) => {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') quoted = false;
+      else cell += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && source[index + 1] === "\n") index += 1;
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += char;
+  }
+  if (quoted) throw new Error("The CSV has an unclosed quoted field.");
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+};
+
+const downloadProductTemplate = () => {
+  const csv = "name,sku,barcode,description,category,buyingPrice,sellingPrice,stockQuantity,minimumStock,unit,trackStock,stockRotation\n" +
+    'Example product,SKU-001,,Optional description,,1000,1500,20,5,piece,true,FIFO\n';
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "mova-product-import-template.csv";
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 const resizeProductImage = (file) => new Promise((resolve, reject) => {
@@ -134,7 +179,10 @@ const Products = () => {
 
   const [form, setForm] = useState(emptyForm);
   const imageInputRef = useRef(null);
+  const importInputRef = useRef(null);
   const [processingImage, setProcessingImage] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
 
   const [categoryForm, setCategoryForm] =
     useState(emptyCategoryForm);
@@ -147,6 +195,77 @@ const Products = () => {
   ].includes(
     String(user?.role || "").toUpperCase()
   );
+
+  const importProductsFromCsv = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError("");
+    setSuccess("");
+    setImportProgress("");
+    setImporting(true);
+    try {
+      const rows = parseCsv(await file.text());
+      if (rows.length < 2) throw new Error("Add at least one product row below the CSV header.");
+      const headers = rows[0].map((header) => header.trim().toLowerCase());
+      const required = ["name", "sku", "buyingprice", "sellingprice"];
+      const missing = required.filter((header) => !headers.includes(header));
+      if (missing.length) throw new Error(`CSV is missing required columns: ${missing.join(", ")}.`);
+      const column = Object.fromEntries(headers.map((header, index) => [header, index]));
+      const inputRows = rows.slice(1);
+      if (inputRows.length > 500) throw new Error("Import up to 500 products at a time.");
+      const categoryByName = new Map(categories.map((category) => [String(category.name || "").trim().toLowerCase(), category._id || category.id]));
+      const knownSkus = new Set(products.map((product) => String(product.sku || "").trim().toUpperCase()));
+      const failures = [];
+      let imported = 0;
+      for (let index = 0; index < inputRows.length; index += 1) {
+        const cells = inputRows[index];
+        const rowNumber = index + 2;
+        const value = (name) => String(cells[column[name]] ?? "").trim();
+        const name = value("name");
+        const sku = value("sku").toUpperCase();
+        const categoryName = value("category").toLowerCase();
+        const numeric = (key, fallback) => {
+          const raw = value(key);
+          const number = raw === "" ? fallback : Number(raw);
+          if (!Number.isFinite(number) || number < 0) throw new Error(`${key} must be a non-negative number`);
+          return number;
+        };
+        try {
+          if (!name || !sku) throw new Error("name and sku are required");
+          if (knownSkus.has(sku)) throw new Error(`SKU ${sku} is already present in this product list or import`);
+          const categoryId = categoryName ? categoryByName.get(categoryName) : null;
+          if (categoryName && !categoryId) throw new Error(`category “${value("category")}” does not exist`);
+          const rotation = (value("stockrotation") || "FIFO").toUpperCase();
+          if (!["FIFO", "LIFO"].includes(rotation)) throw new Error("stockRotation must be FIFO or LIFO");
+          const trackText = value("trackstock").toLowerCase();
+          if (trackText && !["true", "false", "yes", "no", "1", "0"].includes(trackText)) throw new Error("trackStock must be true or false");
+          const payload = {
+            name, sku, barcode: value("barcode"), description: value("description"),
+            categoryId, buyingPrice: numeric("buyingprice", 0), sellingPrice: numeric("sellingprice", 0),
+            stockQuantity: numeric("stockquantity", 0), minimumStock: numeric("minimumstock", 0),
+            unit: value("unit") || "piece", trackStock: trackText ? ["true", "yes", "1"].includes(trackText) : true,
+            stockRotation: rotation,
+          };
+          await api.post("/products", payload);
+          knownSkus.add(sku);
+          imported += 1;
+        } catch (rowError) {
+          failures.push(`Row ${rowNumber}: ${rowError?.response?.data?.message || rowError.message || "could not be imported"}`);
+        }
+        setImportProgress(`Imported ${imported} of ${inputRows.length} products…`);
+      }
+      await fetchProducts({ silent: true });
+      if (failures.length) {
+        setError(`${imported} product${imported === 1 ? "" : "s"} imported; ${failures.length} row${failures.length === 1 ? "" : "s"} need attention. ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? `; and ${failures.length - 3} more` : ""}`);
+      } else setSuccess(`${imported} product${imported === 1 ? "" : "s"} imported successfully.`);
+    } catch (importError) {
+      setError(importError.message || "Unable to import this CSV file.");
+    } finally {
+      setImportProgress("");
+      setImporting(false);
+    }
+  };
 
   // ==========================================================
   // FETCH PRODUCTS
@@ -1034,6 +1153,33 @@ const Products = () => {
         {/* ACTION BUTTONS */}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {canManageProducts && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={importProductsFromCsv}
+                className="hidden"
+                aria-label="Choose a product CSV file"
+              />
+              <button
+                type="button"
+                onClick={downloadProductTemplate}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <Download size={17} /> CSV template
+              </button>
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+              >
+                <FileUp size={17} /> {importing ? "Importing…" : "Import CSV"}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() =>
@@ -1093,6 +1239,12 @@ const Products = () => {
           )}
         </div>
       </div>
+
+      {importProgress && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700" role="status" aria-live="polite">
+          {importProgress}
+        </div>
+      )}
 
       {/* =====================================================
           ALERTS
