@@ -30,7 +30,7 @@ const ForgotPassword = () => {
       setCodeSent(true);
     } catch (requestError) {
       console.error("Password recovery request failed:", requestError);
-      setError("We couldn't send a verification code right now. Please try again.");
+      setError(requestError?.response?.data?.message || "We couldn't send a verification code right now. Please try again.");
     } finally {
       setLoading(false);
     }

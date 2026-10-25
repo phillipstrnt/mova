@@ -726,6 +726,15 @@ const forgotPassword = async (req, res) => {
     const genericMessage =
       "If an account exists for that email, a password reset verification code has been sent.";
 
+    // Check delivery configuration before account lookup so this status never
+    // reveals whether a submitted address belongs to a MOVA account.
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      return res.status(503).json({
+        success: false,
+        message: "Password reset email is not configured yet. Please contact MOVA support or try again later.",
+      });
+    }
+
     if (typeof email !== "string" || !isValidEmail(email)) {
       return res.status(200).json({
         success: true,
