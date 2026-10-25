@@ -15,6 +15,7 @@ import {
 
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
+import InstallMovaButton from "../../components/InstallMovaButton";
 
 const Register = () => {
   const navigate = useNavigate();
@@ -280,6 +281,7 @@ const Register = () => {
 
         <div className="flex items-center justify-center bg-white px-5 py-10 sm:px-8">
           <div className="w-full max-w-xl">
+            <div className="mb-5"><InstallMovaButton /></div>
 
             {/* Mobile brand */}
 
