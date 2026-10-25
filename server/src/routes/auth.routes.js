@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 
 import {
   registerBusiness,
@@ -13,6 +14,19 @@ import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+const createAttemptLimiter = (windowMs, max, message) => rateLimit({
+  windowMs,
+  max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message },
+});
+
+const registrationLimiter = createAttemptLimiter(60 * 60 * 1000, 5, "Too many account creation attempts. Please try again later.");
+const signInLimiter = createAttemptLimiter(15 * 60 * 1000, 10, "Too many sign-in attempts. Please wait 15 minutes and try again.");
+const recoveryLimiter = createAttemptLimiter(15 * 60 * 1000, 5, "Too many password recovery attempts. Please wait and try again.");
+const resetLimiter = createAttemptLimiter(15 * 60 * 1000, 10, "Too many password reset attempts. Please wait and try again.");
+
 /*
 |--------------------------------------------------------------------------
 | REGISTER
@@ -21,6 +35,7 @@ const router = express.Router();
 
 router.post(
   "/register",
+  registrationLimiter,
   registerBusiness
 );
 
@@ -32,11 +47,13 @@ router.post(
 
 router.post(
   "/login",
+  signInLimiter,
   login
 );
 
 router.post(
   "/google",
+  signInLimiter,
   googleAuth
 );
 
@@ -48,6 +65,7 @@ router.post(
 
 router.post(
   "/forgot-password",
+  recoveryLimiter,
   forgotPassword
 );
 
@@ -59,6 +77,7 @@ router.post(
 
 router.post(
   "/reset-password/:token",
+  resetLimiter,
   resetPassword
 );
 
