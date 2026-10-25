@@ -90,6 +90,7 @@ api.interceptors.response.use(
       localStorage.removeItem(
         "mova_branch"
       );
+      window.dispatchEvent(new CustomEvent("mova:auth-expired"));
     }
 
     return Promise.reject(error);

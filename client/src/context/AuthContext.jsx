@@ -270,6 +270,12 @@ export const AuthProvider = ({
     removeAuthStorage();
   }, []);
 
+  useEffect(() => {
+    const handleExpiredSession = () => clearAuth();
+    window.addEventListener("mova:auth-expired", handleExpiredSession);
+    return () => window.removeEventListener("mova:auth-expired", handleExpiredSession);
+  }, [clearAuth]);
+
   /*
   |--------------------------------------------------------------------------
   | Normalize authenticated user

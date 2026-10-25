@@ -1,29 +1,21 @@
 import { Navigate, useLocation } from "react-router-dom";
+import { Loader2 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 function ProtectedRoute({ children }) {
   const location = useLocation();
+  const { user, loading } = useAuth();
 
-  /*
-  |--------------------------------------------------------------------------
-  | Check MOVA authentication
-  |--------------------------------------------------------------------------
-  |
-  | MOVA currently stores the authentication token in localStorage.
-  |
-  */
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600" role="status" aria-live="polite">
+        <Loader2 className="mr-3 h-5 w-5 animate-spin text-blue-600" />
+        Checking your MOVA session…
+      </div>
+    );
+  }
 
-  const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("mova_token") ||
-    localStorage.getItem("accessToken");
-
-  /*
-  |--------------------------------------------------------------------------
-  | User is not authenticated
-  |--------------------------------------------------------------------------
-  */
-
-  if (!token) {
+  if (!user) {
     return (
       <Navigate
         to="/login"
@@ -34,12 +26,6 @@ function ProtectedRoute({ children }) {
       />
     );
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | User is authenticated
-  |--------------------------------------------------------------------------
-  */
 
   return children;
 }

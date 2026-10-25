@@ -2,15 +2,16 @@ import { useMemo, useState } from "react";
 
 import {
   Bot,
-  ChevronDown,
+  ExternalLink,
+  Globe2,
   Lightbulb,
+  Loader2,
   MessageCircle,
   Send,
   Sparkles,
-  TrendingDown,
-  TrendingUp,
   X,
 } from "lucide-react";
+import api from "../../../services/api";
 
 const formatUGX = (value) => {
   const number = Number(value) || 0;
@@ -446,6 +447,8 @@ const BusinessCopilot = ({
   const [open, setOpen] = useState(false);
 
   const [question, setQuestion] = useState("");
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   const initialMessage = useMemo(
     () =>
@@ -473,10 +476,37 @@ Ask me what you should improve or choose one of the quick questions below.`,
     "Which payment method is strongest?",
   ];
 
-  const askCopilot = (text) => {
+  const askCopilot = async (text) => {
     const cleanText = String(text || "").trim();
 
-    if (!cleanText) return;
+    if (!cleanText || searching) return;
+
+    const userMessageId = Date.now();
+    const assistantMessageId = userMessageId + 1;
+    const userMessage = { id: userMessageId, role: "user", text: cleanText };
+
+    if (webSearchEnabled) {
+      setMessages((current) => [
+        ...current,
+        userMessage,
+        { id: assistantMessageId, role: "assistant", text: "Searching trusted web sources…", sources: [] },
+      ]);
+      setQuestion("");
+      setSearching(true);
+      try {
+        const response = await api.post("/reports/assistant-search", { query: cleanText });
+        const result = response.data?.data || response.data || {};
+        setMessages((current) => current.map((message) => message.id === assistantMessageId
+          ? { ...message, text: result.answer || "I could not find an answer for that question.", sources: result.sources || [] }
+          : message));
+      } catch (error) {
+        const message = error?.response?.data?.message || "Web search is temporarily unavailable. You can turn off web search to ask about your MOVA report.";
+        setMessages((current) => current.map((item) => item.id === assistantMessageId ? { ...item, text: message } : item));
+      } finally {
+        setSearching(false);
+      }
+      return;
+    }
 
     const answer = generateAnswer({
       question: cleanText,
@@ -496,13 +526,9 @@ Ask me what you should improve or choose one of the quick questions below.`,
 
     setMessages((current) => [
       ...current,
+      userMessage,
       {
-        id: Date.now(),
-        role: "user",
-        text: cleanText,
-      },
-      {
-        id: Date.now() + 1,
+        id: assistantMessageId,
         role: "assistant",
         text: answer,
       },
@@ -561,7 +587,7 @@ Ask me what you should improve or choose one of the quick questions below.`,
                   </h2>
 
                   <p className="text-xs text-slate-300">
-                    Smart business assistant
+                    Report analysis and web research
                   </p>
                 </div>
               </div>
@@ -616,6 +642,24 @@ Ask me what you should improve or choose one of the quick questions below.`,
                       )}
 
                       {message.text}
+                      {message.sources?.length > 0 && (
+                        <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Web sources</p>
+                          {message.sources.map((source, index) => {
+                            let host = "Source";
+                            try { host = new URL(source.url).hostname; } catch { /* Ignore invalid provider URLs. */ }
+                            return (
+                              <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noopener noreferrer" className="block rounded-xl border border-slate-200 bg-white p-3 text-slate-700 transition hover:border-blue-300 hover:bg-blue-50">
+                                <span className="flex items-start justify-between gap-2 text-sm font-semibold text-blue-700">
+                                  <span>{source.title || host}</span>
+                                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                </span>
+                                {source.snippet && <span className="mt-1 block text-xs leading-5 text-slate-600">{source.snippet}</span>}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -623,6 +667,14 @@ Ask me what you should improve or choose one of the quick questions below.`,
             </div>
 
             <div className="border-t border-slate-200 bg-white p-4">
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <button type="button" aria-pressed={webSearchEnabled} disabled={searching} onClick={() => setWebSearchEnabled((enabled) => !enabled)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition ${webSearchEnabled ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"}`}>
+                  <Globe2 className="h-4 w-4" />
+                  Search the web {webSearchEnabled ? "on" : "off"}
+                </button>
+                <p className="mt-2 text-xs leading-5 text-slate-500">When enabled, only your question is sent to Brave Search. MOVA report figures stay private.</p>
+              </div>
+
               <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
                 {quickQuestions.map((item) => (
                   <button
@@ -656,11 +708,11 @@ Ask me what you should improve or choose one of the quick questions below.`,
 
                 <button
                   type="submit"
-                  disabled={!question.trim()}
+                    disabled={!question.trim() || searching}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Send question"
                 >
-                  <Send className="h-4 w-4" />
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </button>
               </form>
             </div>

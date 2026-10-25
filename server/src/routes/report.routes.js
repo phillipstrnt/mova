@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 
 import {
   getReports,
@@ -7,6 +8,7 @@ import {
   getExpenseReport,
   getProfitReport,
   getInventoryReport,
+  searchReportAssistant,
 } from "../controllers/reportController.js";
 
 import {
@@ -16,6 +18,15 @@ import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router =
   express.Router();
+
+const assistantSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  keyGenerator: (req) => String(req.user?._id || "authenticated"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Please wait a moment before searching again." },
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -41,6 +52,12 @@ router.use(requirePermission("reports.view"));
 router.get(
   "/",
   getReports
+);
+
+router.post(
+  "/assistant-search",
+  assistantSearchLimiter,
+  searchReportAssistant
 );
 
 /*

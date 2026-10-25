@@ -46,6 +46,7 @@ api.interceptors.response.use(
       localStorage.removeItem("mova_user");
       localStorage.removeItem("mova_business");
       localStorage.removeItem("mova_branch");
+      window.dispatchEvent(new CustomEvent("mova:auth-expired"));
     }
 
     return Promise.reject(error);

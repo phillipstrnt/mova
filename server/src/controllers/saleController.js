@@ -8,6 +8,7 @@ import InventoryTransaction from "../models/InventoryTransaction.js";
 import Payment from "../models/Payment.js";
 import PaymentTransaction from "../models/PaymentTransaction.js";
 import Branch from "../models/Branch.js";
+import Business from "../models/Business.js";
 import { hasPermission } from "../config/permissions.js";
 import AuditLog from "../models/AuditLog.js";
 import InventoryBatch from "../models/InventoryBatch.js";
@@ -41,6 +42,49 @@ const VALID_SALE_STATUSES = [
   "PARTIALLY_REFUNDED",
   "REFUNDED",
 ];
+
+const getLocalDayStart = (dateValue, timeZone) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateValue || ""));
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const localAsUtc = Date.UTC(year, month - 1, day);
+  const check = new Date(localAsUtc);
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+
+  let candidate = localAsUtc;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    const wholeSecond = Math.floor(candidate / 1000) * 1000;
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(wholeSecond)).map(({ type, value }) => [type, value]));
+    const representedAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+    const offset = representedAsUtc - wholeSecond;
+    const adjusted = localAsUtc - offset;
+    if (adjusted === candidate) break;
+    candidate = adjusted;
+  }
+  return new Date(candidate);
+};
+
+const getLocalDayEnd = (dateValue, timeZone) => {
+  const start = getLocalDayStart(dateValue, timeZone);
+  if (!start) return null;
+  const nextDate = new Date(`${dateValue}T00:00:00Z`);
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+  const nextDay = getLocalDayStart(nextDate.toISOString().slice(0, 10), timeZone);
+  return nextDay ? new Date(nextDay.getTime() - 1) : null;
+};
 
 const serializeSaleItems = (items, canViewCosts) => (items || []).map((item) => {
   const safeItem = typeof item?.toObject === "function" ? item.toObject() : { ...item };
@@ -1415,13 +1459,12 @@ export const getSales = async (req, res) => {
 
     if (startDate || endDate) {
       filter.createdAt = {};
+      const business = await Business.findById(businessId).select("timezone").lean();
+      const timeZone = business?.timezone || "Africa/Kampala";
 
       if (startDate) {
-        const start = new Date(
-          `${startDate}T00:00:00`
-        );
-
-        if (Number.isNaN(start.getTime())) {
+        const start = getLocalDayStart(startDate, timeZone);
+        if (!start) {
           return res.status(400).json({
             success: false,
             message: "Invalid start date.",
@@ -1432,11 +1475,8 @@ export const getSales = async (req, res) => {
       }
 
       if (endDate) {
-        const end = new Date(
-          `${endDate}T23:59:59.999`
-        );
-
-        if (Number.isNaN(end.getTime())) {
+        const end = getLocalDayEnd(endDate, timeZone);
+        if (!end) {
           return res.status(400).json({
             success: false,
             message: "Invalid end date.",

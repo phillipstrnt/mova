@@ -2,6 +2,117 @@ import Sale from "../models/Sale.js";
 import Expense from "../models/Expense.js";
 import ReceiptSettings from "../models/ReceiptSettings.js";
 
+export const searchReportAssistant = async (req, res) => {
+  const query = String(req.body?.query || "").trim();
+  if (query.length < 3 || query.length > 400) {
+    return res.status(400).json({ success: false, message: "Enter a question between 3 and 400 characters." });
+  }
+
+  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({
+      success: false,
+      code: "WEB_SEARCH_NOT_CONFIGURED",
+      message: "Web search is not configured yet. Add BRAVE_SEARCH_API_KEY to MOVA's API environment settings.",
+    });
+  }
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 20000);
+  try {
+    const response = await fetch("https://api.search.brave.com/res/v1/chat/completions", {
+      method: "POST",
+      signal: abortController.signal,
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        "X-Subscription-Token": apiKey,
+      },
+      body: JSON.stringify({
+        model: "brave",
+        stream: true,
+        enable_citations: true,
+        enable_research: false,
+        country: "UG",
+        language: "en",
+        safesearch: "moderate",
+        max_completion_tokens: 600,
+        messages: [{ role: "user", content: query }],
+      }),
+    });
+
+    if (!response.ok) {
+      const status = response.status === 429 || response.status === 402 ? 503 : 502;
+      return res.status(status).json({
+        success: false,
+        code: response.status === 402 ? "WEB_SEARCH_CREDITS_REQUIRED" : "WEB_SEARCH_FAILED",
+        message: response.status === 402
+          ? "The web search service needs an active plan or more credits."
+          : response.status === 429
+            ? "The web search service is busy. Please try again shortly."
+            : "The web search service could not answer this question.",
+      });
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Search provider did not return a response stream.");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let answer = "";
+    const sources = [];
+    let done = false;
+    const processLine = (line) => {
+      if (!line.startsWith("data:")) return false;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") return payload === "[DONE]";
+      try {
+        const content = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+        if (typeof content !== "string") return false;
+        const citationMatch = content.match(/^<citation>([\s\S]*)<\/citation>$/);
+        if (citationMatch) {
+          const citation = JSON.parse(citationMatch[1]);
+          const url = new URL(citation.url);
+          if (["http:", "https:"].includes(url.protocol) && !sources.some((item) => item.url === url.href)) {
+            sources.push({ url: url.href, snippet: String(citation.snippet || "").slice(0, 600) });
+          }
+        } else if (!content.startsWith("<usage>")) {
+          answer += content;
+        }
+      } catch (error) {
+        if (error instanceof SyntaxError) return false;
+        return false;
+      }
+      return false;
+    };
+
+    while (!done) {
+      const { value, done: streamDone } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !streamDone });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (processLine(line)) done = true;
+      }
+      if (streamDone) {
+        if (buffer) processLine(buffer);
+        break;
+      }
+    }
+
+    const cleanAnswer = answer.trim();
+    if (!cleanAnswer) {
+      return res.status(502).json({ success: false, message: "The web search service returned no answer. Please try rephrasing your question." });
+    }
+    return res.json({ success: true, data: { answer: cleanAnswer, sources } });
+  } catch (error) {
+    console.error("Report web search failed:", error.name === "AbortError" ? "request timed out" : error.message);
+    return res.status(502).json({ success: false, message: error.name === "AbortError" ? "Web search took too long. Please try again." : "The web search service is temporarily unavailable." });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 /*
 |--------------------------------------------------------------------------
 | HELPERS
