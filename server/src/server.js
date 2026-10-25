@@ -19,6 +19,7 @@ import auditRoutes from "./routes/audit.routes.js";
 
 // Core MOVA routes
 import authRoutes from "./routes/auth.routes.js";
+import receiptSettingsRoutes from "./routes/receiptSettings.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import branchRoutes from "./routes/branch.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
@@ -238,6 +239,9 @@ app.get("/api/test", (req, res) => {
 // ============================================================
 
 app.use("/api/auth", authRoutes);
+
+// Receipt configuration is used during first-run business setup.
+app.use("/api/receipt-settings", receiptSettingsRoutes);
 
 // ============================================================
 // BUSINESS
@@ -524,3 +528,4 @@ const startServer = async () => {
 startServer();
 
 export default app;
+
