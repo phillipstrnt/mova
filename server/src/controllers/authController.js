@@ -531,8 +531,18 @@ const googleAuth = async (req, res) => {
 
     const email = profile.email.trim().toLowerCase();
     let user = await User.findOne({ googleId: profile.sub }).select("+googleId");
+    let matchedByEmail = false;
     if (!user) {
-      user = await User.findOne({ email }).select("+googleId");
+      const emailMatches = await User.find({ email }).select("+googleId").limit(2);
+      if (emailMatches.length > 1) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_EMAIL_AMBIGUOUS",
+          message: "This email is used by more than one MOVA account. Sign in with your MOVA email and password.",
+        });
+      }
+      user = emailMatches[0] || null;
+      matchedByEmail = Boolean(user);
     }
 
     let business = null;
@@ -604,6 +614,20 @@ const googleAuth = async (req, res) => {
           success: false,
           message: "This email is linked to a different Google account.",
         });
+      }
+
+      if (matchedByEmail && !user.googleId) {
+        const emailDomain = email.split("@")[1] || "";
+        const isGmail = emailDomain === "gmail.com";
+        const isVerifiedWorkspaceEmail =
+          Boolean(profile.hd) && profile.hd.toLowerCase() === emailDomain;
+        if (!isGmail && !isVerifiedWorkspaceEmail) {
+          return res.status(409).json({
+            success: false,
+            code: "GOOGLE_LINK_REQUIRES_PASSWORD",
+            message: "This email matches an existing MOVA account. Sign in with your MOVA email and password instead.",
+          });
+        }
       }
 
       user.googleId = profile.sub;
