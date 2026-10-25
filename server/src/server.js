@@ -70,7 +70,7 @@ const envOrigins = process.env.CLIENT_URL
 const allowedOrigins = [
   ...new Set(
     process.env.NODE_ENV === "production"
-      ? envOrigins
+      ? ["https://mova-azure-two.vercel.app", ...envOrigins]
       : [...defaultOrigins, ...envOrigins]
   ),
 ];
