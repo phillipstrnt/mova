@@ -51,7 +51,7 @@ const createTransporter = () => {
 const sendPasswordResetEmail = async ({
   email,
   name,
-  resetUrl,
+  verificationCode,
 }) => {
   const transporter =
     createTransporter();
@@ -67,22 +67,22 @@ const sendPasswordResetEmail = async ({
     to: email,
 
     subject:
-      "Reset your MOVA password",
+      "Your MOVA password reset code",
 
     text: `
 Hello ${name || "there"},
 
 We received a request to reset your MOVA password.
 
-Use the link below to create a new password:
+Enter this verification code in MOVA to choose a new password:
 
-${resetUrl}
+${verificationCode}
 
-This password-reset link expires in 15 minutes.
+This code expires in 10 minutes and can only be used once.
 
 If you did not request a password reset, you can safely ignore this email.
 
-For your security, never share this link with anyone.
+For your security, never share this code with anyone.
 
 Regards,
 MOVA Team
@@ -99,7 +99,7 @@ MOVA Team
     content="width=device-width, initial-scale=1.0"
   />
 
-  <title>Reset your MOVA password</title>
+  <title>Your MOVA password reset code</title>
 </head>
 
 <body
@@ -160,29 +160,23 @@ MOVA Team
         "
       >
         We received a request to reset your MOVA password.
-        Click the button below to create a new password.
+        Enter this verification code in MOVA to choose a new password.
       </p>
 
       <div
         style="
           margin:28px 0;
+          padding:20px;
+          border-radius:12px;
+          background:#eff6ff;
+          color:#1d4ed8;
           text-align:center;
+          font-size:32px;
+          font-weight:bold;
+          letter-spacing:10px;
         "
       >
-        <a
-          href="${resetUrl}"
-          style="
-            display:inline-block;
-            padding:14px 24px;
-            background:#2563eb;
-            color:#ffffff;
-            text-decoration:none;
-            border-radius:10px;
-            font-weight:bold;
-          "
-        >
-          Reset Password
-        </a>
+        ${verificationCode}
       </div>
 
       <p
@@ -192,8 +186,8 @@ MOVA Team
           line-height:1.6;
         "
       >
-        This link expires in
-        <strong>15 minutes</strong>.
+        This code expires in
+        <strong>10 minutes</strong> and can only be used once.
       </p>
 
       <p
@@ -223,7 +217,7 @@ MOVA Team
         "
       >
         For your security, never share your password-reset
-        link with anyone.
+        code with anyone.
       </p>
     </div>
   </div>

@@ -10,6 +10,11 @@ import sendPasswordResetEmail from "../utils/emailService.js";
 import generateToken from "../utils/generateToken.js";
 import { isValidEmail, normalizeEmail } from "../utils/emailValidation.js";
 
+const hashPasswordResetCode = (email, code) => {
+  if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET must be configured to issue password reset codes.");
+  return crypto.createHmac("sha256", process.env.JWT_SECRET).update(`${email}:${code}`).digest("hex");
+};
+
 // ======================================================
 // REGISTER BUSINESS + OWNER
 // ======================================================
@@ -719,7 +724,7 @@ const forgotPassword = async (req, res) => {
      * which email addresses have MOVA accounts.
      */
     const genericMessage =
-      "If an account exists for that email, a password reset link has been sent.";
+      "If an account exists for that email, a password reset verification code has been sent.";
 
     if (typeof email !== "string" || !isValidEmail(email)) {
       return res.status(200).json({
@@ -734,7 +739,7 @@ const forgotPassword = async (req, res) => {
       await User.findOne({
         email: normalizedEmail,
       }).select(
-        "+passwordResetToken +passwordResetExpires"
+        "+passwordResetToken +passwordResetCode +passwordResetExpires"
       );
 
     if (!user) {
@@ -745,34 +750,18 @@ const forgotPassword = async (req, res) => {
     }
 
     // ------------------------------------------
-    // GENERATE SECURE RESET TOKEN
-    // ------------------------------------------
+    // Generate a one-time code and store only its keyed hash.
+    const verificationCode = String(crypto.randomInt(100000, 1000000));
+    const resetCodeHash = hashPasswordResetCode(normalizedEmail, verificationCode);
+    user.passwordResetToken = null;
+    user.passwordResetCode = resetCodeHash;
 
-    const resetToken =
-      crypto
-        .randomBytes(32)
-        .toString("hex");
-
-    // ------------------------------------------
-    // HASH TOKEN BEFORE DATABASE STORAGE
-    // ------------------------------------------
-
-    const resetTokenHash =
-      crypto
-        .createHash("sha256")
-        .update(resetToken)
-        .digest("hex");
-
-    user.passwordResetToken =
-      resetTokenHash;
-
-    // ------------------------------------------
     // TOKEN EXPIRATION
     // ------------------------------------------
 
     user.passwordResetExpires =
       new Date(
-        Date.now() + 15 * 60 * 1000
+        Date.now() + 10 * 60 * 1000
       );
 
     await user.save({
@@ -780,16 +769,6 @@ const forgotPassword = async (req, res) => {
     });
 
     // ------------------------------------------
-    // RESET URL
-    // ------------------------------------------
-
-    const clientUrl =
-      process.env.CLIENT_URL ||
-      "http://localhost:5173";
-
-    const resetUrl =
-      `${clientUrl}/reset-password/${resetToken}`;
-
     // ------------------------------------------
     // SEND EMAIL
     // ------------------------------------------
@@ -798,13 +777,14 @@ const forgotPassword = async (req, res) => {
       await sendPasswordResetEmail({
         email: user.email,
         name: user.name,
-        resetUrl,
+        verificationCode,
       });
     } catch (emailError) {
       /*
        * Invalidate the token if email delivery fails.
        */
       user.passwordResetToken = null;
+      user.passwordResetCode = null;
       user.passwordResetExpires = null;
 
       await user.save({
@@ -841,7 +821,7 @@ const forgotPassword = async (req, res) => {
     return res.status(200).json({
       success: true,
       message:
-        "If an account exists for that email, a password reset link has been sent.",
+        "If an account exists for that email, a password reset verification code has been sent.",
     });
   }
 };
@@ -904,7 +884,7 @@ const resetPassword = async (req, res) => {
           $gt: new Date(),
         },
       }).select(
-        "+passwordResetToken +passwordResetExpires"
+        "+passwordResetToken +passwordResetCode +passwordResetExpires"
       );
 
     if (!user) {
@@ -935,6 +915,8 @@ const resetPassword = async (req, res) => {
     user.passwordResetToken =
       null;
 
+    user.passwordResetCode = null;
+
     user.passwordResetExpires =
       null;
 
@@ -956,6 +938,41 @@ const resetPassword = async (req, res) => {
       message:
         "Unable to reset your password.",
     });
+  }
+};
+
+
+const resetPasswordWithCode = async (req, res) => {
+  try {
+    const { email, code, password } = req.body || {};
+    if (typeof email !== "string" || !isValidEmail(email) || !/^\d{6}$/.test(String(code || ""))) {
+      return res.status(400).json({ success: false, message: "Enter the email address and six-digit code from your MOVA email." });
+    }
+    if (typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({ success: false, message: "Password must contain at least 8 characters." });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const codeHash = hashPasswordResetCode(normalizedEmail, code);
+    const user = await User.findOne({
+      email: normalizedEmail,
+      passwordResetCode: codeHash,
+      passwordResetExpires: { $gt: new Date() },
+    }).select("+passwordResetCode +passwordResetToken +passwordResetExpires");
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: "That verification code is invalid or has expired. Request a new code and try again." });
+    }
+
+    user.passwordHash = await bcrypt.hash(password, 12);
+    user.passwordResetCode = null;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
+    return res.status(200).json({ success: true, message: "Your password has been reset. You can now sign in." });
+  } catch (error) {
+    console.error("Password reset code error:", error);
+    return res.status(500).json({ success: false, message: "Unable to reset your password right now." });
   }
 };
 
@@ -1097,5 +1114,6 @@ export {
   googleAuth,
   forgotPassword,
   resetPassword,
+  resetPasswordWithCode,
   getMe,
 };

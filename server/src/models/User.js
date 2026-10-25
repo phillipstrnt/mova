@@ -79,6 +79,13 @@ const userSchema = new mongoose.Schema(
       select: false,
     },
 
+    // Keyed hash of the one-time code emailed during password recovery.
+    passwordResetCode: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
     passwordResetExpires: {
       type: Date,
       default: null,

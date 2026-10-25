@@ -7,6 +7,7 @@ import {
   googleAuth,
   forgotPassword,
   resetPassword,
+  resetPasswordWithCode,
   getMe,
 } from "../controllers/authController.js";
 
@@ -74,6 +75,12 @@ router.post(
 | RESET PASSWORD
 |--------------------------------------------------------------------------
 */
+
+router.post(
+  "/reset-password",
+  resetLimiter,
+  resetPasswordWithCode
+);
 
 router.post(
   "/reset-password/:token",
