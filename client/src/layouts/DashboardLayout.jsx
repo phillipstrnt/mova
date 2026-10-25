@@ -4,6 +4,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
 import BranchSelector from "../components/BranchSelector";
+import OfflineStatusBanner from "../components/OfflineStatusBanner";
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] =
@@ -22,6 +23,8 @@ const DashboardLayout = () => {
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
+
+          <OfflineStatusBanner />
 
           {/* Topbar */}
           <Topbar

@@ -124,6 +124,13 @@ const inventoryTransactionSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+
+    // Client-generated key makes queued offline adjustments safe to retry.
+    clientAdjustmentId: {
+      type: String,
+      trim: true,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
@@ -161,6 +168,11 @@ inventoryTransactionSchema.index({
   referenceType: 1,
   referenceId: 1,
 });
+
+inventoryTransactionSchema.index(
+  { businessId: 1, clientAdjustmentId: 1 },
+  { unique: true, partialFilterExpression: { clientAdjustmentId: { $type: "string" } } }
+);
 
 // ==========================================
 // USER ACTIVITY

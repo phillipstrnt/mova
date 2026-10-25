@@ -1,10 +1,17 @@
 const DB_NAME = "mova-pos-offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const CATALOG_STORE = "catalog";
 const SALES_STORE = "queuedSales";
 const EVENTS_STORE = "queuedEvents";
+const INVENTORY_STORE = "queuedInventory";
 
 let databasePromise;
+
+const emitQueueUpdate = (detail) => {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mova:offline-queue-updated", { detail }));
+  }
+};
 
 export const openOfflineDatabase = () => {
   if (typeof indexedDB === "undefined") {
@@ -30,6 +37,12 @@ export const openOfflineDatabase = () => {
           events.createIndex("userId", "userId", { unique: false });
           events.createIndex("status", "status", { unique: false });
           events.createIndex("createdAt", "createdAt", { unique: false });
+        }
+        if (!database.objectStoreNames.contains(INVENTORY_STORE)) {
+          const inventory = database.createObjectStore(INVENTORY_STORE, { keyPath: "clientAdjustmentId" });
+          inventory.createIndex("userId", "userId", { unique: false });
+          inventory.createIndex("status", "status", { unique: false });
+          inventory.createIndex("createdAt", "createdAt", { unique: false });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -88,6 +101,7 @@ export const enqueueOfflineSale = async (sale) => {
     updatedAt: new Date().toISOString(),
   };
   await withStore(SALES_STORE, "readwrite", (store) => store.put(queued));
+  emitQueueUpdate({ status: "QUEUED", kind: "SALE", clientSaleId: queued.clientSaleId });
   return queued;
 };
 
@@ -122,6 +136,7 @@ export const enqueueOfflineAuditEvent = async (event, identity) => {
   const eventId = globalThis.crypto?.randomUUID?.() || `mova-event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const record = { ...event, eventId, ...identity, status: "PENDING", createdAt: new Date().toISOString() };
   await withStore(EVENTS_STORE, "readwrite", (store) => store.put(record));
+  emitQueueUpdate({ status: "QUEUED", kind: "EVENT", eventId });
   return record;
 };
 
@@ -136,6 +151,45 @@ export const updateOfflineAuditEvent = async (eventId, patch) => {
     const transaction = database.transaction(EVENTS_STORE, "readwrite");
     const store = transaction.objectStore(EVENTS_STORE);
     const request = store.get(eventId);
+    let updated;
+    request.onsuccess = () => {
+      if (!request.result) return;
+      updated = { ...request.result, ...patch, updatedAt: new Date().toISOString() };
+      store.put(updated);
+    };
+    transaction.oncomplete = () => resolve(updated || null);
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const enqueueOfflineInventoryAdjustment = async (adjustment) => {
+  const clientAdjustmentId = adjustment.clientAdjustmentId || globalThis.crypto?.randomUUID?.() || `mova-adjustment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const queued = {
+    ...adjustment,
+    clientAdjustmentId,
+    status: "PENDING",
+    attempts: 0,
+    createdAt: adjustment.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await withStore(INVENTORY_STORE, "readwrite", (store) => store.put(queued));
+  emitQueueUpdate({ status: "QUEUED", kind: "INVENTORY", clientAdjustmentId });
+  return queued;
+};
+
+export const listOfflineInventoryAdjustments = async ({ userId, includeSynced = true } = {}) => {
+  const records = await withStore(INVENTORY_STORE, "readonly", (store) => store.getAll());
+  return (records || [])
+    .filter((record) => (!userId || String(record.userId) === String(userId)) && (includeSynced || record.status !== "SYNCED"))
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+};
+
+export const updateOfflineInventoryAdjustment = async (clientAdjustmentId, patch) => {
+  const database = await openOfflineDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(INVENTORY_STORE, "readwrite");
+    const store = transaction.objectStore(INVENTORY_STORE);
+    const request = store.get(clientAdjustmentId);
     let updated;
     request.onsuccess = () => {
       if (!request.result) return;

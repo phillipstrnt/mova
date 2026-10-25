@@ -12,11 +12,12 @@ import Branch from "../models/Branch.js";
 */
 
 const resolveActiveBranch =
-  async (req) => {
+  async (req, requestedBranchId = null) => {
     const businessId =
       req.user.businessId;
 
     const activeBranchId =
+      requestedBranchId ||
       req.user.activeBranchId ||
       req.user.branchId;
 
@@ -515,6 +516,7 @@ export const adjustInventory =
         quantity,
         reason = "",
         notes = "",
+        clientAdjustmentId,
       } = req.body;
 
       const businessId =
@@ -527,7 +529,7 @@ export const adjustInventory =
        * Branch.
        */
       const branch =
-        await resolveActiveBranch(req);
+        await resolveActiveBranch(req, req.body?.branchId);
 
       if (!branch) {
         return res.status(400).json({
@@ -539,6 +541,13 @@ export const adjustInventory =
 
       const branchId =
         branch._id;
+
+      if (clientAdjustmentId !== undefined &&
+        (typeof clientAdjustmentId !== "string" ||
+          clientAdjustmentId.length < 8 ||
+          clientAdjustmentId.length > 120)) {
+        return res.status(400).json({ success: false, message: "Invalid offline adjustment ID." });
+      }
 
       /*
        * Product ID.
@@ -554,6 +563,31 @@ export const adjustInventory =
           message:
             "Invalid product ID.",
         });
+      }
+
+      if (clientAdjustmentId) {
+        const existingTransaction = await InventoryTransaction.findOne({
+          businessId,
+          branchId,
+          clientAdjustmentId,
+        });
+        if (existingTransaction) {
+          const isSameRequest =
+            String(existingTransaction.userId) === String(userId) &&
+            String(existingTransaction.productId) === String(productId) &&
+            existingTransaction.type === type &&
+            Number(existingTransaction.quantity) === Number(quantity);
+          if (!isSameRequest) {
+            return res.status(409).json({ success: false, message: "This offline adjustment ID was already used for a different change." });
+          }
+          return res.json({
+            success: true,
+            message: "Inventory adjustment was already synchronized.",
+            transaction: existingTransaction,
+            stock: { before: existingTransaction.stockBefore, after: existingTransaction.stockAfter },
+            alreadySynced: true,
+          });
+        }
       }
 
       /*
@@ -813,6 +847,7 @@ export const adjustInventory =
                 String(
                   notes || ""
                 ).trim(),
+              ...(clientAdjustmentId ? { clientAdjustmentId } : {}),
             }
           );
       } catch (ledgerError) {
@@ -874,6 +909,21 @@ export const adjustInventory =
         },
       });
     } catch (error) {
+      if (error?.code === 11000 && req.body?.clientAdjustmentId) {
+        const existingTransaction = await InventoryTransaction.findOne({
+          businessId: req.user.businessId,
+          clientAdjustmentId: req.body.clientAdjustmentId,
+        }).catch(() => null);
+        if (existingTransaction && String(existingTransaction.userId) === String(req.user._id)) {
+          return res.json({
+            success: true,
+            message: "Inventory adjustment was already synchronized.",
+            transaction: existingTransaction,
+            stock: { before: existingTransaction.stockBefore, after: existingTransaction.stockAfter },
+            alreadySynced: true,
+          });
+        }
+      }
       console.error(
         "Adjust inventory error:",
         error

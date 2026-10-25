@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   Boxes,
+  Camera,
   Eye,
   Package,
   RefreshCw,
@@ -13,6 +14,28 @@ import {
 
 import api from "../../services/api";
 import ProductImage from "../../components/products/ProductImage";
+import BarcodeScanner from "../../components/POS/BarcodeScanner";
+import {
+  enqueueOfflineInventoryAdjustment,
+  readPosCatalog,
+  savePosCatalog,
+} from "../../offline/database";
+import { syncOfflineSales } from "../../offline/syncManager";
+
+const readOfflineIdentity = () => {
+  try {
+    const user = JSON.parse(localStorage.getItem("mova_user") || "null");
+    const business = JSON.parse(localStorage.getItem("mova_business") || "null");
+    const branch = JSON.parse(localStorage.getItem("mova_branch") || "null");
+    return {
+      userId: String(user?._id || user?.id || ""),
+      businessId: String(user?.businessId?._id || user?.businessId || business?._id || business?.id || ""),
+      branchId: String(branch?._id || branch?.id || user?.activeBranchId || user?.branchId || ""),
+    };
+  } catch {
+    return { userId: "", businessId: "", branchId: "" };
+  }
+};
 
 const Inventory = () => {
   const [products, setProducts] = useState([]);
@@ -20,6 +43,7 @@ const Inventory = () => {
 
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
@@ -42,6 +66,7 @@ const Inventory = () => {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const offlineIdentity = readOfflineIdentity();
 
   /*
    * =====================================================
@@ -54,19 +79,30 @@ const Inventory = () => {
       setLoading(true);
       setError("");
 
+      if (!navigator.onLine) {
+        const cached = await readPosCatalog(offlineIdentity);
+        if (Array.isArray(cached?.products)) setProducts(cached.products);
+        else setError("This device has no saved stock list yet. Connect once before managing stock offline.");
+        return;
+      }
+
       const response = await api.get("/products");
 
-      setProducts(response.data.products || []);
+      const loaded = response.data.products || [];
+      setProducts(loaded);
+      if (offlineIdentity.businessId && offlineIdentity.branchId) {
+        const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+        await savePosCatalog({ ...offlineIdentity, products: loaded, customers: cached?.customers || [] }).catch((cacheError) => console.warn("Unable to cache inventory for offline use:", cacheError));
+      }
     } catch (error) {
       console.error(
         "Failed to load inventory:",
         error
       );
 
-      setError(
-        error.response?.data?.message ||
-          "Failed to load inventory."
-      );
+      const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+      if (Array.isArray(cached?.products) && cached.products.length) setProducts(cached.products);
+      else setError(error.response?.data?.message || "Failed to load inventory.");
     } finally {
       setLoading(false);
     }
@@ -116,6 +152,15 @@ const Inventory = () => {
 
     loadInventory();
   }, []);
+
+  useEffect(() => {
+    const handleOnline = async () => {
+      await syncOfflineSales(api, offlineIdentity.userId).catch((syncError) => console.warn("Stock changes will retry syncing:", syncError));
+      await Promise.all([loadProducts(), loadTransactions()]);
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [offlineIdentity.userId]);
 
   /*
    * =====================================================
@@ -240,6 +285,20 @@ const Inventory = () => {
     });
   };
 
+  const handleBarcodeDetected = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    const product = products.find((item) =>
+      [item.barcode, item.sku].some((code) => String(code || "").trim().toLowerCase() === normalized)
+    );
+    if (!product) {
+      setSearch(String(value || ""));
+      setError(`No product matches barcode ${value}. Add the product first, then scan it again to stock it.`);
+      return;
+    }
+    openAdjustment(product, "STOCK_RECEIVED");
+    setAdjustmentForm({ quantity: "", type: "STOCK_RECEIVED", reason: "Barcode stock intake", notes: `Scanned code: ${value}` });
+  };
+
   /*
    * =====================================================
    * CLOSE ADJUSTMENT MODAL
@@ -338,39 +397,58 @@ const Inventory = () => {
       setError("");
       setSuccess("");
 
-      await api.post(
-        "/inventory-transactions/adjust",
-        {
-          productId: adjustmentModal._id,
-          quantity,
-          type: adjustmentForm.type,
-          reason:
-            adjustmentForm.reason.trim(),
-          notes:
-            adjustmentForm.notes.trim(),
+      const clientAdjustmentId = globalThis.crypto?.randomUUID?.() || `mova-adjustment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const payload = {
+        productId: adjustmentModal._id,
+        quantity,
+        type: adjustmentForm.type,
+        reason: adjustmentForm.reason.trim(),
+        notes: adjustmentForm.notes.trim(),
+        clientAdjustmentId,
+        branchId: offlineIdentity.branchId,
+      };
+      const saveLocally = async () => {
+        if (!offlineIdentity.userId || !offlineIdentity.businessId || !offlineIdentity.branchId) {
+          throw new Error("Offline stock updates need a saved user, business, and branch. Reconnect and open MOVA once before managing stock offline.");
         }
-      );
+        await enqueueOfflineInventoryAdjustment({ ...payload, ...offlineIdentity });
+        const increases = ["OPENING_STOCK", "STOCK_RECEIVED", "ADJUSTMENT_IN"].includes(payload.type);
+        const delta = increases ? quantity : -quantity;
+        const updatedProducts = products.map((product) => String(product._id || product.id) === String(payload.productId)
+          ? { ...product, stockQuantity: Number(product.stockQuantity || 0) + delta, branchStockQuantity: Number(product.stockQuantity || 0) + delta }
+          : product);
+        setProducts(updatedProducts);
+        const cached = await readPosCatalog(offlineIdentity).catch(() => null);
+        await savePosCatalog({ ...offlineIdentity, products: updatedProducts, customers: cached?.customers || [] });
+        setSuccess(`${adjustmentModal.name} stock change saved on this device. It will sync automatically when internet returns.`);
+        if (navigator.onLine) {
+          syncOfflineSales(api, offlineIdentity.userId)
+            .then(() => Promise.all([loadProducts(), loadTransactions()]))
+            .catch((syncError) => console.warn("Queued stock change will retry:", syncError));
+        }
+      };
 
-      setSuccess(
-        `${adjustmentModal.name} inventory updated successfully.`
-      );
+      if (!navigator.onLine) {
+        await saveLocally();
+      } else {
+        try {
+          await api.post("/inventory-transactions/adjust", payload);
+          setSuccess(`${adjustmentModal.name} inventory updated successfully.`);
+          await Promise.all([loadProducts(), loadTransactions()]);
+        } catch (requestError) {
+          if (!requestError?.response) await saveLocally();
+          else throw requestError;
+        }
+      }
 
       closeAdjustment();
-
-      await Promise.all([
-        loadProducts(),
-        loadTransactions(),
-      ]);
     } catch (error) {
       console.error(
         "Inventory adjustment failed:",
         error
       );
 
-      setError(
-        error.response?.data?.message ||
-          "Failed to adjust inventory."
-      );
+      setError(error.response?.data?.message || error.message || "Failed to adjust inventory.");
     } finally {
       setSavingAdjustment(false);
     }
@@ -678,21 +756,29 @@ const Inventory = () => {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={18}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-            />
+          <div className="flex min-w-0 flex-1 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              />
 
-            <input
-              type="text"
-              value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
-              placeholder="Search by product name, SKU or barcode..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-            />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name, SKU or barcode..."
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100 sm:px-4"
+              title="Scan barcode to stock a product"
+            >
+              <Camera size={18} /> <span className="hidden sm:inline">Scan to stock</span><span className="sm:hidden">Scan</span>
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -1222,6 +1308,13 @@ const Inventory = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {scannerOpen && (
+        <BarcodeScanner
+          onDetected={handleBarcodeDetected}
+          onClose={() => setScannerOpen(false)}
+        />
       )}
 
       {/* =================================================

@@ -259,8 +259,10 @@ export default function POS() {
     const updateNetwork = () => {
       setIsOnline(navigator.onLine);
       if (navigator.onLine) {
-        syncOfflineSales(api, offlineIdentity.userId).then(({ synced }) => {
-          if (synced) setOfflineSyncMessage(`${synced} queued sale${synced === 1 ? "" : "s"} synced successfully.`);
+        syncOfflineSales(api, offlineIdentity.userId).then(async ({ synced, syncedAdjustments, failed }) => {
+          if (failed) setOfflineSyncMessage(`${failed} saved change${failed === 1 ? "" : "s"} need attention; they remain saved on this device.`);
+          else if (synced || syncedAdjustments) setOfflineSyncMessage(`${synced} sale${synced === 1 ? "" : "s"} and ${syncedAdjustments} stock change${syncedAdjustments === 1 ? "" : "s"} synced successfully.`);
+          await fetchProducts();
           refreshOfflineCount();
         }).catch((error) => console.warn("MOVA sale sync failed:", error));
       }
@@ -1102,6 +1104,20 @@ export default function POS() {
           receiptNumber,
           payload,
         });
+        const soldByProduct = new Map();
+        cart.forEach((item) => {
+          const id = String(getId(item));
+          soldByProduct.set(id, (soldByProduct.get(id) || 0) + Number(item.quantity || 0));
+        });
+        const locallyUpdatedProducts = products.map((product) => {
+          const sold = soldByProduct.get(String(getId(product))) || 0;
+          if (!sold || product.trackStock === false) return product;
+          const remaining = Math.max(0, Number(product.stockQuantity || 0) - sold);
+          return { ...product, stockQuantity: remaining, branchStockQuantity: remaining };
+        });
+        setProducts(locallyUpdatedProducts);
+        const cachedCatalog = await readPosCatalog(offlineIdentity).catch(() => null);
+        await savePosCatalog({ ...offlineIdentity, products: locallyUpdatedProducts, customers: cachedCatalog?.customers || [] }).catch((cacheError) => console.warn("Unable to update the offline product list after sale:", cacheError));
         const localSale = {
           id: payload.clientSaleId,
           receiptNumber,
