@@ -91,6 +91,7 @@ const ReceiptSetup = () => {
               "MOVA",
 
             footer:
+              settings.footerMessage ||
               settings.footer ||
               "Thank you for shopping with us.",
 
@@ -152,7 +153,7 @@ const ReceiptSetup = () => {
         "/receipt-settings",
         {
           prefix,
-          footer: form.footer.trim(),
+          footerMessage: form.footer.trim(),
           showLogo: form.showLogo,
           showPhone: form.showPhone,
           showAddress: form.showAddress,
@@ -716,3 +717,4 @@ const ReceiptSetup = () => {
 };
 
 export default ReceiptSetup;
+
