@@ -7,6 +7,9 @@ import SetupGuard from "./components/SetupGuard";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 import Login from "./pages/auth/Login";
+import Register from "./pages/auth/Register";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 import Landing from "./pages/Landing";
 import Branches from "./pages/branches/Branches";
 
@@ -53,6 +56,21 @@ function App() {
         element={<Login />}
       />
 
+      <Route
+        path="/register"
+        element={<Register />}
+      />
+
+      <Route
+        path="/forgot-password"
+        element={<ForgotPassword />}
+      />
+
+      <Route
+        path="/reset-password/:token"
+        element={<ResetPassword />}
+      />
+
 
       {/* =========================================================
           BUSINESS SETUP
@@ -62,7 +80,37 @@ function App() {
         path="/setup"
         element={
           <ProtectedRoute>
+            <Navigate
+              to="/setup/business"
+              replace
+            />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/setup/business"
+        element={
+          <ProtectedRoute>
             <BusinessSetup />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/setup/branch"
+        element={
+          <ProtectedRoute>
+            <BranchSetup />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/setup/receipt"
+        element={
+          <ProtectedRoute>
+            <ReceiptSetup />
           </ProtectedRoute>
         }
       />
@@ -251,25 +299,6 @@ function App() {
         />
 
 
-        {/* =======================================================
-            SETUP SUB-PAGES
-        ======================================================= */}
-
-        <Route
-          path="setup/business"
-          element={<BusinessSetup />}
-        />
-
-        <Route
-          path="setup/branch"
-          element={<BranchSetup />}
-        />
-
-        <Route
-          path="setup/receipt"
-          element={<ReceiptSetup />}
-        />
-
       </Route>
 
 
@@ -303,3 +332,4 @@ function App() {
 
 
 export default App;
+
