@@ -10,8 +10,8 @@ const DashboardLayout = () => {
     useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="flex min-h-screen">
+    <div className="min-h-screen min-h-[100dvh] bg-slate-50 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <div className="flex min-h-screen min-h-[100dvh]">
 
         {/* Sidebar */}
         <Sidebar
