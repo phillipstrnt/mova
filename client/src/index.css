@@ -403,22 +403,23 @@ textarea {
   }
 }
 
-/* Subtle motion on the public landing page; keep it calm and skip it when requested. */
+/* Landing page motion stays brief, secondary to the content, and respects reduced motion. */
 @keyframes landing-rise-in {
-  from { opacity: 0; transform: translateY(14px); }
+  from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes landing-bar-grow {
-  from { transform: scaleY(0.25); }
-  to { transform: scaleY(1); }
+.landing-reveal { animation: landing-rise-in 600ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+.landing-reveal-later { animation-delay: 120ms; }
+.landing-feature-card {
+  animation: landing-rise-in 520ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation-delay: calc(var(--landing-order, 0) * 90ms + 120ms);
 }
-
-.landing-hero-copy { animation: landing-rise-in 650ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-.landing-preview { animation: landing-rise-in 800ms 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-.landing-chart-bar { transform-origin: bottom; animation: landing-bar-grow 750ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.landing-feature-card.green > span { color: #047857; }
+.landing-feature-card.amber > span { color: #b45309; }
+.landing-status-chip { animation: landing-rise-in 500ms 320ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-hero-copy, .landing-preview, .landing-chart-bar { animation: none; }
+  .landing-reveal, .landing-feature-card, .landing-status-chip { animation: none; }
   html { scroll-behavior: auto; }
 }
