@@ -16,6 +16,7 @@ const generateToken = (user) => {
   return jwt.sign(
     {
       userId: user._id.toString(),
+      tokenVersion: Number(user.tokenVersion || 0),
     },
     process.env.JWT_SECRET,
     {

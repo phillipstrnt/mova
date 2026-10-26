@@ -67,7 +67,7 @@ const protect = async (
       await User.findById(
         decoded.userId
       )
-        .select("-passwordHash")
+        .select("-passwordHash +tokenVersion")
         .populate(
           "activeBranchId",
           "businessId name code phone address isActive"
@@ -82,6 +82,14 @@ const protect = async (
         success: false,
         message:
           "User account no longer exists",
+      });
+    }
+
+    // Password recovery increments tokenVersion and revokes existing sessions.
+    if (Number(decoded.tokenVersion || 0) !== Number(user.tokenVersion || 0)) {
+      return res.status(401).json({
+        success: false,
+        message: "Your session has expired. Please sign in again.",
       });
     }
 

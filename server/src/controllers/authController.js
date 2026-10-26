@@ -56,11 +56,11 @@ const registerBusiness = async (req, res) => {
       });
     }
 
-    if (password.length < 8) {
+    if (password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
       return res.status(400).json({
         success: false,
         message:
-          "Password must contain at least 8 characters",
+          "Password must contain at least 8 characters and no more than 72 UTF-8 bytes.",
       });
     }
 
@@ -864,11 +864,11 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    if (password.length < 8) {
+    if (password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
       return res.status(400).json({
         success: false,
         message:
-          "Password must contain at least 8 characters.",
+          "Password must contain at least 8 characters and no more than 72 UTF-8 bytes.",
       });
     }
 
@@ -957,8 +957,8 @@ const resetPasswordWithCode = async (req, res) => {
     if (typeof email !== "string" || !isValidEmail(email) || !/^\d{6}$/.test(String(code || ""))) {
       return res.status(400).json({ success: false, message: "Enter the email address and six-digit code from your MOVA email." });
     }
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ success: false, message: "Password must contain at least 8 characters." });
+    if (typeof password !== "string" || password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
+      return res.status(400).json({ success: false, message: "Password must contain at least 8 characters and no more than 72 UTF-8 bytes." });
     }
 
     const normalizedEmail = normalizeEmail(email);

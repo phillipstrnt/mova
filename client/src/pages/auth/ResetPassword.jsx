@@ -171,6 +171,7 @@ const ResetPassword = () => {
                 }
                 placeholder="Enter your new password"
                 autoComplete="new-password"
+                maxLength={72}
                 disabled={loading}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 pr-12 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
               />
@@ -226,6 +227,7 @@ const ResetPassword = () => {
                 }
                 placeholder="Confirm your new password"
                 autoComplete="new-password"
+                maxLength={72}
                 disabled={loading}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 pr-12 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60"
               />

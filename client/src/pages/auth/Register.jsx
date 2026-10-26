@@ -525,7 +525,8 @@ const Register = () => {
                     name="password"
                     value={form.password}
                     onChange={handleChange}
-                  placeholder="At least 8 characters"
+                    placeholder="At least 8 characters"
+                    maxLength={72}
                     autoComplete="new-password"
                     disabled={loading}
                     className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"

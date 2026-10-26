@@ -717,4 +717,3 @@ const ReceiptSetup = () => {
 };
 
 export default ReceiptSetup;
-

@@ -61,6 +61,13 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Incremented after credential recovery to revoke existing JWT sessions.
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+
     googleId: {
       type: String,
       default: undefined,
