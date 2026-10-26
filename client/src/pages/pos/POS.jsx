@@ -50,6 +50,20 @@ const readOfflineIdentity = () => {
 
 const createClientSaleId = () => globalThis.crypto?.randomUUID?.() || `mova-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+const getHeldSalesStorageKey = ({ userId, businessId, branchId }) =>
+  `mova_held_sales:${businessId || "unknown-business"}:${userId || "unknown-user"}:${branchId || "default-branch"}`;
+
+const readHeldSales = (storageKey) => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    return Array.isArray(saved)
+      ? saved.filter((sale) => sale && sale.id && Array.isArray(sale.cart) && sale.cart.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 const PAYMENT_METHODS = [
   {
     value: "CASH",
@@ -117,6 +131,7 @@ export default function POS() {
   const lastLoggedDiscountRef = useRef("");
 
   const offlineIdentity = readOfflineIdentity();
+  const heldSalesStorageKey = getHeldSalesStorageKey(offlineIdentity);
 
   const refreshOfflineCount = useCallback(async () => {
     if (!offlineIdentity.userId) return;
@@ -178,8 +193,25 @@ export default function POS() {
   /*
    * Held sales
    */
-  const [heldSales, setHeldSales] = useState([]);
+  const [heldSales, setHeldSales] = useState(() => readHeldSales(heldSalesStorageKey));
   const [heldSalesOpen, setHeldSalesOpen] = useState(false);
+  const [heldSalesSearch, setHeldSalesSearch] = useState("");
+  const heldSalesStorageKeyRef = useRef(heldSalesStorageKey);
+
+  useEffect(() => {
+    if (heldSalesStorageKeyRef.current !== heldSalesStorageKey) {
+      heldSalesStorageKeyRef.current = heldSalesStorageKey;
+      setHeldSales(readHeldSales(heldSalesStorageKey));
+      setHeldSalesSearch("");
+      return;
+    }
+
+    try {
+      localStorage.setItem(heldSalesStorageKey, JSON.stringify(heldSales));
+    } catch (error) {
+      console.warn("Unable to save held sales on this device:", error);
+    }
+  }, [heldSales, heldSalesStorageKey]);
 
   /*
    * Receipt
@@ -658,6 +690,7 @@ export default function POS() {
     });
     setCart([]);
     setDiscount("");
+    setLoyaltyPointsRedeemed("");
     setCashReceived("");
     setSaleError("");
     setSuccessMessage("");
@@ -1238,23 +1271,22 @@ export default function POS() {
     }
 
     const heldSale = {
-      id: Date.now().toString(),
+      id: createClientSaleId(),
       createdAt: new Date().toISOString(),
-      cart,
+      cart: cart.map((item) => ({ ...item })),
       discount,
-      customer: selectedCustomer,
+      customer: selectedCustomer ? { ...selectedCustomer } : null,
       paymentMethod,
       cashReceived,
+      loyaltyPointsRedeemed,
     };
 
-    setHeldSales((current) => [
-      ...current,
-      heldSale,
-    ]);
+    setHeldSales((current) => [heldSale, ...current]);
 
     clearCart({ logActivity: false });
     setSelectedCustomer(null);
     setCustomerSearch("");
+    setCustomerPanelOpen(false);
 
     setSuccessMessage(
       "Sale held successfully."
@@ -1262,30 +1294,47 @@ export default function POS() {
   };
 
   const resumeHeldSale = (heldSale) => {
-    setCart(heldSale.cart || []);
-    setDiscount(heldSale.discount || "");
-    setSelectedCustomer(
-      heldSale.customer || null
-    );
-    setPaymentMethod(
-      heldSale.paymentMethod || "CASH"
-    );
-    setCashReceived(
-      heldSale.cashReceived || ""
-    );
+    const activeSale = cart.length > 0
+      ? {
+          id: createClientSaleId(),
+          createdAt: new Date().toISOString(),
+          cart: cart.map((item) => ({ ...item })),
+          discount,
+          customer: selectedCustomer ? { ...selectedCustomer } : null,
+          paymentMethod,
+          cashReceived,
+          loyaltyPointsRedeemed,
+        }
+      : null;
+    const nextHeldSales = heldSales.filter((item) => item.id !== heldSale.id);
 
+    if (activeSale) nextHeldSales.unshift(activeSale);
+
+    setHeldSales(nextHeldSales);
+    setCart(Array.isArray(heldSale.cart) ? heldSale.cart : []);
+    setDiscount(heldSale.discount ?? "");
+    setSelectedCustomer(heldSale.customer || null);
+    setLoyaltyPointsRedeemed(heldSale.loyaltyPointsRedeemed || "");
+    setPaymentMethod(heldSale.paymentMethod || "CASH");
+    setCashReceived(heldSale.cashReceived ?? "");
+
+    // Reconfirm any electronic/manual payment after resuming; never reuse a
+    // stale approval from the time the sale was first held.
     setManualPaymentVerified(false);
     setManualPaymentReference("");
     setPaymentTransaction(null);
-
-    setHeldSales((current) =>
-      current.filter(
-        (item) => item.id !== heldSale.id
-      )
-    );
+    setCardPaymentError("");
+    setCardPaymentStatus("");
+    setCustomerSearch("");
+    setCustomerPanelOpen(false);
 
     setHeldSalesOpen(false);
     setSaleError("");
+    setSuccessMessage(
+      activeSale
+        ? "Sale resumed. Your current cart was saved in Held Sales."
+        : "Held sale resumed."
+    );
   };
 
   const deleteHeldSale = (id) => {
@@ -1293,6 +1342,25 @@ export default function POS() {
       current.filter((item) => item.id !== id)
     );
   };
+
+  const filteredHeldSales = useMemo(() => {
+    const search = heldSalesSearch.trim().toLowerCase();
+    if (!search) return heldSales;
+
+    return heldSales.filter((sale) => {
+      const searchableText = [
+        sale.customer?.name,
+        sale.customer?.phone,
+        sale.customer?.email,
+        sale.id,
+        ...(Array.isArray(sale.cart)
+          ? sale.cart.flatMap((item) => [item.name, item.sku, item.barcode])
+          : []),
+      ].join(" ").toLowerCase();
+
+      return searchableText.includes(search);
+    });
+  }, [heldSales, heldSalesSearch]);
 
   /*
    * ---------------------------------------------------------
@@ -2343,6 +2411,11 @@ export default function POS() {
                 <p className="text-xs text-slate-500">
                   Resume a sale that was put on hold.
                 </p>
+                {cart.length > 0 && (
+                  <p className="mt-2 max-w-lg text-xs font-medium text-blue-700">
+                    Your current cart will be saved in Held Sales before the selected sale resumes.
+                  </p>
+                )}
               </div>
 
               <button
@@ -2357,13 +2430,29 @@ export default function POS() {
             </div>
 
             <div className="max-h-[65vh] overflow-y-auto p-5">
+              {heldSales.length > 0 && (
+                <label className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-400">
+                  <Search size={16} />
+                  <input
+                    type="search"
+                    value={heldSalesSearch}
+                    onChange={(event) => setHeldSalesSearch(event.target.value)}
+                    placeholder="Find by customer, item or SKU"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                  />
+                </label>
+              )}
               {heldSales.length === 0 ? (
                 <div className="py-12 text-center text-sm text-slate-500">
                   No held sales.
                 </div>
+              ) : filteredHeldSales.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-500">
+                  No held sales match that search.
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {heldSales.map((heldSale) => {
+                  {filteredHeldSales.map((heldSale) => {
                     const heldSubtotal =
                       heldSale.cart.reduce(
                         (sum, item) =>
@@ -2390,6 +2479,11 @@ export default function POS() {
                               {heldSale.customer
                                 ?.name ||
                                 "Walk-in Customer"}
+                            </div>
+
+                            <div className="mt-1 text-xs text-slate-500">
+                              {(Array.isArray(heldSale.cart) ? heldSale.cart : []).slice(0, 2).map((item) => item.name).filter(Boolean).join(", ")}
+                              {(heldSale.cart.length > 2) ? ` +${heldSale.cart.length - 2} more` : ""}
                             </div>
 
                             <div className="mt-1 text-xs text-slate-500">
