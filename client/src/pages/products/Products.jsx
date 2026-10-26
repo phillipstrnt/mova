@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import {
   AlertCircle,
+  Camera,
   Check,
   Download,
   Edit3,
@@ -21,6 +22,7 @@ import {
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import ProductImage from "../../components/products/ProductImage";
+import BarcodeScanner from "../../components/POS/BarcodeScanner";
 
 const emptyForm = {
   name: "",
@@ -167,6 +169,8 @@ const Products = () => {
     useState("");
   const [statusFilter, setStatusFilter] =
     useState("active");
+
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const [showModal, setShowModal] =
     useState(false);
@@ -1966,19 +1970,14 @@ const Products = () => {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-slate-700">
-                    Barcode
-                  </label>
-
-                  <input
-                    name="barcode"
-                    value={form.barcode}
-                    onChange={
-                      handleChange
-                    }
-                    placeholder="Scan or enter barcode"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-                  />
+                  <label className="mb-2 block text-sm font-bold text-slate-700">Barcode or QR code</label>
+                  <div className="flex gap-2">
+                    <input name="barcode" value={form.barcode} onChange={handleChange} placeholder="Scan or enter product code" className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" />
+                    <button type="button" onClick={() => setScannerOpen(true)} className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" aria-label="Scan product barcode or QR code" title="Scan barcode or QR code">
+                      <Camera size={17} /><span className="hidden sm:inline">Scan</span>
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-500">Use your camera or a connected scanner. The scanned code will be saved with this product.</p>
                 </div>
 
                 {/* CATEGORY */}
@@ -2418,6 +2417,16 @@ const Products = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {scannerOpen && (
+        <BarcodeScanner
+          onDetected={(value) => {
+            setForm((current) => ({ ...current, barcode: value }));
+            setScannerOpen(false);
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
       )}
     </div>
   );

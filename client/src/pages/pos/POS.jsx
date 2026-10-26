@@ -1507,7 +1507,7 @@ export default function POS() {
                         className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                       />
                     </div>
-                    <button type="button" onClick={() => setScannerOpen(true)} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" title="Scan product barcode">
+                    <button type="button" onClick={() => setScannerOpen(true)} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" title="Scan product barcode or QR code">
                       <ScanLine size={18} /><span className="hidden sm:inline">Scan</span>
                     </button>
                   </div>

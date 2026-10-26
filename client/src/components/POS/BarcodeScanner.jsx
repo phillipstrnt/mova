@@ -53,16 +53,16 @@ export default function BarcodeScanner({ onDetected, onClose }) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-label="Scan product barcode">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-label="Scan a product barcode or QR code">
       <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
-          <div className="flex items-center gap-2 font-semibold text-slate-900"><Camera size={19} /> Scan a product</div>
+          <div className="flex items-center gap-2 font-semibold text-slate-900"><Camera size={19} /> Scan a product code</div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close scanner"><X size={19} /></button>
         </div>
         <div className="bg-black">
           <video ref={videoRef} className="aspect-video w-full object-cover" playsInline muted />
         </div>
-        <div className="p-4 text-sm text-slate-600">Point your phone’s rear camera at the barcode and hold steady. You can also connect an inexpensive USB or Bluetooth scanner, or type the code.</div>
+        <div className="p-4 text-sm text-slate-600">Point your phone camera at the product barcode or QR code and hold steady. You can also connect a USB or Bluetooth scanner, or type the code.</div>
         {error && <div className="mx-4 mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{error}</div>}
       </div>
     </div>
