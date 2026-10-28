@@ -24,6 +24,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 import InstallMovaButton from "../../components/InstallMovaButton";
+import api from "../../api";
 
 const Login = () => {
   const navigate =
@@ -52,6 +53,9 @@ const Login = () => {
     useState("");
 
   const [loading, setLoading] =
+    useState(false);
+
+  const [slowConnection, setSlowConnection] =
     useState(false);
 
   const handleGoogleCredential = useCallback(async (credential) => {
@@ -97,6 +101,23 @@ const Login = () => {
     navigate,
     user?.role,
   ]);
+
+  // Wake the hosted API while the user enters their credentials. Render's
+  // free backend sleeps when idle, so this moves its cold start off the
+  // critical path of the sign-in button.
+  useEffect(() => {
+    api.get("/health", { timeout: 90_000 }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlowConnection(false);
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setSlowConnection(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   const handleSubmit = async (
     event
@@ -409,7 +430,7 @@ const Login = () => {
                       className="animate-spin"
                     />
 
-                    Signing in...
+                    {slowConnection ? "Connecting to MOVA..." : "Signing in..."}
                   </>
                 ) : (
                   <>
@@ -420,6 +441,12 @@ const Login = () => {
                 )}
 
               </button>
+
+              {loading && slowConnection && (
+                <p role="status" className="text-center text-xs leading-5 text-slate-500">
+                  MOVA is waking its server. The first connection can take about a minute; please keep this page open.
+                </p>
+              )}
 
             </form>
 

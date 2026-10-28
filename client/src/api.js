@@ -14,37 +14,45 @@ const API_URL =
 
 const api = axios.create({
   baseURL: API_URL,
+  // Render Free services can take roughly a minute to wake after idling.
+  // Allow authentication requests to survive that cold start.
+  timeout: 90_000,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-const wait = (milliseconds) =>
+const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-// Only use retries for sign-in: registration and Google account creation are
-// state-changing requests, so replaying them after a lost response can create
-// duplicate businesses. Password login is safe to retry.
-export const loginWithRetry = async (credentials) => {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      return await api.post("/auth/login", credentials);
-    } catch (error) {
-      const retryable =
-        !error?.response ||
-        [502, 503, 504].includes(error.response.status);
+// Authentication POSTs are safe to retry: failed credentials are never
+// retried, while connection failures and transient Render gateway responses
+// often mean the sleeping API is still waking up.
+export const postAuthWithRetry = async (url, data) => {
+  const maxAttempts = 3;
 
-      if (!retryable || attempt === 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await api.post(url, data, { timeout: 90_000 });
+    } catch (error) {
+      const status = error?.response?.status;
+      const retryable =
+        !error?.response || [502, 503, 504].includes(status);
+
+      if (!retryable || attempt === maxAttempts) {
         if (!error?.response) {
           throw Object.assign(
-            new Error("MOVA could not be reached. Please check your connection and try again."),
+            new Error(
+              "MOVA's server is taking longer than expected to respond. Please check your internet connection and try again."
+            ),
             { cause: error, code: error?.code, config: error?.config }
           );
         }
+
         throw error;
       }
 
-      await wait(attempt * 800);
+      await delay(attempt * 1200);
     }
   }
 };

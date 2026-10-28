@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import api, { loginWithRetry } from "../api";
+import api, { postAuthWithRetry } from "../api";
 
 const AuthContext = createContext(null);
 
@@ -510,34 +510,36 @@ export const AuthProvider = ({
         let response;
 
         try {
-          response = await api.post("/auth/register", registrationData);
-        } catch (registrationError) {
-          // If the response was lost after account creation, verify the new
-          // account with the submitted password instead of creating again.
+          response = await postAuthWithRetry(
+            "/auth/register",
+            registrationData
+          );
+        } catch (error) {
+          // A registration may have completed even if its response was lost
+          // during a cold start or network interruption. Recover that session
+          // by signing in with the credentials just submitted.
           if (
-            registrationError?.response?.status === 409 ||
-            !registrationError?.response
+            error?.response?.status === 409 &&
+            registrationData?.email &&
+            registrationData?.password
           ) {
-            try {
-              const loginResponse = await loginWithRetry({
+            const loginResponse = await postAuthWithRetry(
+              "/auth/login",
+              {
                 email: registrationData.email,
                 password: registrationData.password,
-              });
-
-              return {
-                ...establishSession(
-                  loginResponse.data?.data || loginResponse.data || {}
-                ),
-                existingAccount: true,
-              };
-            } catch (loginError) {
-              if (registrationError?.response?.status === 409) {
-                throw loginError;
               }
-            }
+            );
+
+            return {
+              ...establishSession(
+                loginResponse.data?.data || loginResponse.data || {}
+              ),
+              existingAccount: true,
+            };
           }
 
-          throw registrationError;
+          throw error;
         }
 
         return establishSession(response.data?.data || response.data || {});
@@ -558,7 +560,7 @@ export const AuthProvider = ({
     async (credential, businessDetails = {}) => {
       setLoading(true);
       try {
-        const response = await api.post("/auth/google", {
+        const response = await postAuthWithRetry("/auth/google", {
           credential,
           ...businessDetails,
         });
@@ -834,8 +836,10 @@ export const AuthProvider = ({
          *   password
          * }
          */
-        const response =
-          await loginWithRetry(credentials);
+        const response = await postAuthWithRetry(
+          "/auth/login",
+          credentials
+        );
 
         const payload =
           response.data?.data ||

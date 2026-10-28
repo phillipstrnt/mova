@@ -1,5 +1,5 @@
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -16,12 +16,17 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 import InstallMovaButton from "../../components/InstallMovaButton";
+import api from "../../api";
 
 const Register = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { register, googleSignIn } = useAuth();
   const pendingGoogle = location.state?.googleRegistration || null;
+
+  useEffect(() => {
+    api.get("/health", { timeout: 90_000 }).catch(() => {});
+  }, []);
 
   const [form, setForm] = useState({
     businessName: "",
