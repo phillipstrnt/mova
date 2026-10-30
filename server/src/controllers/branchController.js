@@ -45,20 +45,12 @@ const userHasBranchAccess = (req, branchId) => {
   return getUserBranchIds(req).includes(String(branchId));
 };
 
-const canManageBranches = (req) => {
-  const role = normalizeRole(req.user?.role);
+const canCreateBranches = (req) => normalizeRole(req.user?.role) === "OWNER";
 
-  return (
-    role === "OWNER" ||
-    role === "ADMIN" ||
-    role === "MANAGER"
-  );
-};
+const canManageBranches = (req) => ["OWNER", "ADMIN", "MANAGER"].includes(normalizeRole(req.user?.role));
 
 const canDeleteBranches = (req) => {
-  const role = normalizeRole(req.user?.role);
-
-  return role === "OWNER" || role === "ADMIN";
+  return normalizeRole(req.user?.role) === "OWNER";
 };
 
 const audit = async ({
@@ -198,10 +190,7 @@ export const getBranch = async (req, res) => {
 |--------------------------------------------------------------------------
 | CREATE BRANCH
 |--------------------------------------------------------------------------
-| OWNER / ADMIN / MANAGER
-|
-| If a MANAGER creates a branch, the manager is automatically assigned
-| to that branch.
+| OWNER only
 |--------------------------------------------------------------------------
 */
 
@@ -209,7 +198,7 @@ export const createBranch = async (req, res) => {
   try {
     const businessId = getBusinessId(req);
 
-    if (!canManageBranches(req)) {
+    if (!canCreateBranches(req)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to create branches.",
@@ -258,9 +247,7 @@ export const createBranch = async (req, res) => {
 
     let assignedManagerId = null;
 
-    if (role === "MANAGER") {
-      assignedManagerId = req.user._id;
-    } else if (managerId) {
+    if (managerId) {
       if (!isValidObjectId(managerId)) {
         return res.status(400).json({
           success: false,
@@ -532,6 +519,13 @@ export const updateBranch = async (req, res) => {
       isMain !== undefined &&
       (role === "OWNER" || role === "ADMIN")
     ) {
+      if (!Boolean(isMain) && branch.isMain) {
+        return res.status(400).json({
+          success: false,
+          message: "Set another branch as the main branch before changing this one.",
+        });
+      }
+
       if (Boolean(isMain)) {
         await Branch.updateMany(
           {
@@ -616,7 +610,7 @@ export const deleteBranch = async (req, res) => {
     if (!canDeleteBranches(req)) {
       return res.status(403).json({
         success: false,
-        message: "Only owners and administrators can deactivate branches.",
+        message: "Only the business owner can delete branches.",
       });
     }
 
@@ -643,7 +637,15 @@ export const deleteBranch = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "The main branch cannot be deactivated. Set another branch as the main branch first.",
+          "The main branch cannot be deleted. Set another branch as the main branch first.",
+      });
+    }
+
+    const activeBranchCount = await Branch.countDocuments({ businessId, isActive: true });
+    if (activeBranchCount <= 1) {
+      return res.status(400).json({
+        success: false,
+        message: "The last active branch cannot be deleted.",
       });
     }
 
@@ -666,16 +668,25 @@ export const deleteBranch = async (req, res) => {
       }
     );
 
+    await User.updateMany(
+      { businessId, activeBranchId: branch._id },
+      { $set: { activeBranchId: null } }
+    );
+    await User.updateMany(
+      { businessId, branchId: branch._id },
+      { $set: { branchId: null } }
+    );
+
     await audit({
       req,
       action: "BRANCH_DEACTIVATED",
-      description: `Deactivated branch ${branch.name} (${branch.code}).`,
+      description: `Deleted branch ${branch.name} (${branch.code}) by deactivating it to preserve historical records.`,
       branchId: branch._id,
     });
 
     return res.json({
       success: true,
-      message: "Branch deactivated successfully.",
+      message: "Branch deleted from active locations. Historical records were preserved.",
     });
   } catch (error) {
     console.error("Delete branch error:", error);

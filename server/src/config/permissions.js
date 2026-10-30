@@ -143,7 +143,12 @@ const OWNER_PERMISSIONS = Object.values(PERMISSIONS);
 |--------------------------------------------------------------------------
 */
 
-const ADMIN_PERMISSIONS = Object.values(PERMISSIONS);
+const ADMIN_PERMISSIONS = Object.values(PERMISSIONS).filter(
+  (permission) => ![
+    PERMISSIONS.BRANCHES_CREATE,
+    PERMISSIONS.BRANCHES_DELETE,
+  ].includes(permission)
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -213,7 +218,6 @@ const MANAGER_PERMISSIONS = [
   PERMISSIONS.SHIFTS_CLOCK,
 
   PERMISSIONS.BRANCHES_VIEW,
-  PERMISSIONS.BRANCHES_CREATE,
   PERMISSIONS.BRANCHES_UPDATE,
 
   PERMISSIONS.SETTINGS_VIEW,

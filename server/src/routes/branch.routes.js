@@ -11,7 +11,7 @@ import {
   switchBranch,
 } from "../controllers/branchController.js";
 
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, authorize } from "../middleware/authMiddleware.js";
 import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
@@ -69,15 +69,14 @@ router.get(
 | CREATE BRANCH
 |--------------------------------------------------------------------------
 |
-| OWNER, ADMIN and MANAGER can create branches because
-| their roles receive branches.create.
+| Only the business owner can create branches.
 |
 */
 
 router.post(
   "/",
   protect,
-  requirePermission("branches.create"),
+  authorize("OWNER"),
   createBranch
 );
 
@@ -112,16 +111,14 @@ router.put(
 | DELETE BRANCH
 |--------------------------------------------------------------------------
 |
-| We intentionally keep deletion restricted to OWNER and ADMIN.
-| Manager can create/update branches but cannot permanently
-| delete a branch.
+| Only the business owner can delete a branch.
 |
 */
 
 router.delete(
   "/:id",
   protect,
-  requirePermission("branches.delete"),
+  authorize("OWNER"),
   deleteBranch
 );
 

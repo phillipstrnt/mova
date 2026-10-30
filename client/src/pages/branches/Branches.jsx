@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   UserRound,
   X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const emptyForm = {
   phone: "",
   address: "",
   managerId: "",
+  isMain: false,
 };
 
 
@@ -54,8 +56,10 @@ const Branches = () => {
     user,
     branch: activeBranch,
     branches: authBranches,
+    setBranch,
     setBranches,
   } = useAuth();
+  const isOwner = String(user?.role || "").toUpperCase() === "OWNER";
 
   const [branches, setLocalBranches] =
     useState([]);
@@ -294,6 +298,7 @@ const Branches = () => {
         item?.managerId?._id ||
         item?.managerId ||
         "",
+      isMain: Boolean(item?.isMain),
     });
 
     setError("");
@@ -383,6 +388,7 @@ const Branches = () => {
           form.address.trim(),
         managerId:
           form.managerId || undefined,
+        ...(isOwner ? { isMain: Boolean(form.isMain) } : {}),
       };
 
       let response;
@@ -522,6 +528,33 @@ const Branches = () => {
       }
     };
 
+  const deleteBranch = async (item) => {
+    const confirmed = window.confirm(
+      `Delete ${item.name}? MOVA will remove it from active locations and staff access, while keeping its historical sales and inventory records. ${item.isMain ? "Set another branch as the main branch first." : ""}`
+    );
+    if (!confirmed || item.isMain) return;
+
+    try {
+      setError("");
+      setSuccess("");
+      await api.delete(`/branches/${item._id}`);
+      const remaining = branches.filter((branchItem) => String(branchItem._id) !== String(item._id) && branchItem.isActive !== false);
+      const activeBranchId = String(activeBranch?._id || activeBranch?.id || "");
+      if (activeBranchId === String(item._id)) {
+        const nextBranch = remaining.find((branchItem) => branchItem.isMain) || remaining[0] || null;
+        setBranch?.(nextBranch);
+        if (nextBranch) localStorage.setItem("mova_branch", JSON.stringify(nextBranch));
+        else localStorage.removeItem("mova_branch");
+      }
+      await loadBranches(true);
+      setSuccess("Branch deleted from active locations. Historical records were preserved.");
+      window.dispatchEvent(new CustomEvent("mova:branch-changed"));
+      window.dispatchEvent(new CustomEvent("mova:data-changed", { detail: { type: "branch-deleted" } }));
+    } catch (err) {
+      setError(err?.response?.data?.message || "Unable to delete branch.");
+    }
+  };
+
 
   /*
   |--------------------------------------------------------------------------
@@ -597,7 +630,7 @@ const Branches = () => {
           </button>
 
 
-          <button
+          {isOwner && <button
             type="button"
             onClick={openCreate}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
@@ -605,7 +638,7 @@ const Branches = () => {
             <Plus size={17} />
 
             New Branch
-          </button>
+          </button>}
 
         </div>
       </div>
@@ -730,17 +763,17 @@ const Branches = () => {
             </h3>
 
             <p className="mt-1 max-w-md text-sm text-slate-500">
-              Create your first branch to start managing multiple business locations.
+              {isOwner ? "Create your first branch to start managing multiple business locations." : "No branches are assigned to your account. Ask the business owner to create a branch and assign you."}
             </p>
 
-            <button
+            {isOwner && <button
               type="button"
               onClick={openCreate}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
             >
               <Plus size={16} />
               Create Branch
-            </button>
+            </button>}
 
           </div>
         ) : (
@@ -936,8 +969,8 @@ const Branches = () => {
 
 
                         <td className="px-5 py-4 text-right">
-
-                          <button
+                          <div className="inline-flex items-center gap-2">
+                            <button
                             type="button"
                             onClick={() =>
                               openEdit(
@@ -950,7 +983,15 @@ const Branches = () => {
                               size={14}
                             />
                             Edit
-                          </button>
+                            </button>
+                            {isOwner && <button
+                              type="button"
+                              onClick={() => deleteBranch(item)}
+                              disabled={Boolean(item.isMain)}
+                              title={item.isMain ? "Set another branch as the main branch before deleting this one." : "Delete branch"}
+                              className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            ><Trash2 size={14} />Delete</button>}
+                          </div>
 
                         </td>
 
@@ -1131,6 +1172,17 @@ const Branches = () => {
 
                   </select>
                 </div>
+
+
+                {isOwner && <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.isMain)}
+                    onChange={(event) => setForm((current) => ({ ...current, isMain: event.target.checked }))}
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                  />
+                  <span><span className="block font-bold text-slate-800">Set as main branch</span><span className="mt-1 block text-xs leading-5 text-slate-600">A main branch must remain active. Set another branch as main before deleting the current one.</span></span>
+                </label>}
 
 
                 {/* ADDRESS */}

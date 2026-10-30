@@ -55,8 +55,8 @@ const ROLES = [
 
 const ROLE_LIMITS = [
   { role: "OWNER", title: "Business Owner", limits: "Full access across the business, every branch, users, reports, and backups. The owner account cannot be assigned to another user." },
-  { role: "ADMIN", title: "Administrator", limits: "Broad operational access, staff management, branch administration, and reports. Cannot manage or replace the owner account; backup and restore remain owner-only." },
-  { role: "MANAGER", title: "Manager", limits: "Runs daily operations and reports for the assigned active branch. Cannot manage user accounts, remove branches, access backups, or view another branch unless assigned." },
+  { role: "ADMIN", title: "Administrator", limits: "Broad operational access, staff management, reports, and editing existing branches. Cannot manage or replace the owner account, create or delete branches, or access owner-only backups." },
+  { role: "MANAGER", title: "Manager", limits: "Runs daily operations and reports for assigned branches and can edit assigned branch details. Cannot create or delete branches, manage user accounts, access backups, or view another branch unless assigned." },
   { role: "CASHIER", title: "Cashier", limits: "Creates sales, handles receipts, returns and customers, and manages own shift. Access is limited to assigned branch and own sales; no financial reports, expenses, or user administration." },
   { role: "INVENTORY_MANAGER", title: "Inventory Manager", limits: "Manages products, stock, transfers, suppliers, and purchases in assigned branches. Cannot manage users or access financial reports and business backups." },
   { role: "ACCOUNTANT", title: "Accountant", limits: "Views sales and financial reports, records expenses and payments, and works with assigned branches. Cannot create POS sales, manage stock, users, or backups." },
