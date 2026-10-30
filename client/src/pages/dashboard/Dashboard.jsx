@@ -22,6 +22,7 @@ import {
   RefreshCw,
   ShoppingCart,
   Smartphone,
+  Store,
   Users,
   Wallet,
   X,
@@ -64,6 +65,7 @@ const getPaymentColor = (method, index) => {
 const Dashboard = () => {
   const { user } = useAuth();
   const isCashier = String(user?.role || "").toUpperCase() === "CASHIER";
+  const isOwner = String(user?.role || "").toUpperCase() === "OWNER";
 
   const {
     business,
@@ -73,6 +75,7 @@ const Dashboard = () => {
 
   const [dashboardData, setDashboardData] =
     useState(null);
+  const [branchSummary, setBranchSummary] = useState([]);
 
   const [loading, setLoading] =
     useState(true);
@@ -249,6 +252,16 @@ const Dashboard = () => {
           setDashboardData(data);
           setLastUpdated(new Date());
         }
+
+        if (isOwner) {
+          try {
+            const branchResponse = await api.get("/dashboard/branches/summary", { params: { _t: Date.now() } });
+            const branches = branchResponse?.data?.branches;
+            if (requestId === dashboardRequestRef.current) setBranchSummary(Array.isArray(branches) ? branches : []);
+          } catch (branchRequestError) {
+            console.warn("MOVA branch summary could not be loaded:", branchRequestError);
+          }
+        }
       } catch (requestError) {
         console.error(
           "MOVA Dashboard Error:",
@@ -271,7 +284,7 @@ const Dashboard = () => {
         }
       }
     },
-    [activeBranchId]
+    [activeBranchId, isOwner]
   );
 
   /* =========================================================
@@ -1109,6 +1122,39 @@ const Dashboard = () => {
 
       </div>
 
+      {isOwner && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Store size={20} /></span>
+              <div>
+                <h2 className="font-bold text-slate-900">All branches this month</h2>
+                <p className="mt-1 text-xs text-slate-500">Compare branch sales without switching your active branch.</p>
+              </div>
+            </div>
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">
+              Combined revenue: {formatCurrency(branchSummary.reduce((sum, item) => sum + Number(item.revenue || 0), 0))}
+            </p>
+          </div>
+          {branchSummary.length === 0 ? (
+            <p className="mt-5 rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-500">No active branch sales are available for this month yet.</p>
+          ) : (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {branchSummary.map((item) => (
+                <article key={item.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><h3 className="font-bold text-slate-900">{item.name}</h3><p className="mt-1 text-xs text-slate-500">{item.code}</p></div>
+                    <span className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">{formatNumber(item.transactions)} sales</span>
+                  </div>
+                  <p className="mt-4 text-xl font-black text-slate-900">{formatCurrency(item.revenue)}</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatNumber(item.pointsAwarded)} customer points awarded</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* =====================================================
           SECONDARY KPI
       ===================================================== */}
@@ -1233,7 +1279,9 @@ const Dashboard = () => {
           </div>
 
           <p className="mt-3 text-xs text-slate-500">
-            Net MOVA points earned this month
+            {isCashier && monthLoyaltyPointsEarned === 0
+              ? "Points are earned when a sale includes a customer."
+              : "Net MOVA points earned this month"}
           </p>
 
         </div>

@@ -2,14 +2,23 @@ import express from "express";
 
 import {
   getDashboard,
+  getBranchDashboardSummary,
 } from "../controllers/dashboardController.js";
 
 import {
   protect,
+  authorize,
 } from "../middleware/authMiddleware.js";
 import { requirePermission } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
+
+router.get(
+  "/branches/summary",
+  protect,
+  authorize("OWNER"),
+  getBranchDashboardSummary
+);
 
 /*
 |--------------------------------------------------------------------------

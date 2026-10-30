@@ -6,6 +6,7 @@ import Expense from "../models/Expense.js";
 import ProductBranchStock from "../models/ProductBranchStock.js";
 import InventoryBatch from "../models/InventoryBatch.js";
 import Business from "../models/Business.js";
+import Branch from "../models/Branch.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -218,6 +219,46 @@ const calculateLoyaltyPointsEarned = (sales = []) =>
     const reversed = Math.max(0, toNumber(sale?.loyaltyPointsReversed));
     return total + Math.max(0, earned - reversed);
   }, 0);
+
+export const getBranchDashboardSummary = async (req, res) => {
+  try {
+    const businessId = getBusinessId(req);
+    if (!businessId || String(req.user?.role || "").toUpperCase() !== "OWNER") {
+      return res.status(403).json({ success: false, message: "Only the business owner can view the all-branch summary." });
+    }
+
+    const business = await Business.findById(businessId).select("timezone currency").lean();
+    const timeZone = business?.timezone || "Africa/Kampala";
+    const now = new Date();
+    const parts = getTimeZoneParts(now, timeZone);
+    const monthStart = startOfCalendarDay(parts.year, parts.month, 1, timeZone);
+    const [branches, totals] = await Promise.all([
+      Branch.find({ businessId, isActive: true }).select("name code").sort({ name: 1 }).lean(),
+      Sale.aggregate([
+        { $match: { businessId: new mongoose.Types.ObjectId(String(businessId)), createdAt: { $gte: monthStart, $lt: now }, status: { $ne: "CANCELLED" } } },
+        { $group: { _id: "$branchId", revenue: { $sum: "$total" }, transactions: { $sum: 1 }, pointsAwarded: { $sum: { $max: [0, { $subtract: [{ $ifNull: ["$loyaltyPointsEarned", 0] }, { $ifNull: ["$loyaltyPointsReversed", 0] }] }] } } } },
+      ]),
+    ]);
+
+    const totalByBranch = new Map(totals.map((item) => [String(item._id), item]));
+    const branchSummary = branches.map((branch) => {
+      const summary = totalByBranch.get(String(branch._id)) || {};
+      return {
+        id: String(branch._id),
+        name: branch.name,
+        code: branch.code,
+        revenue: toNumber(summary.revenue),
+        transactions: toNumber(summary.transactions),
+        pointsAwarded: toNumber(summary.pointsAwarded),
+      };
+    });
+
+    return res.json({ success: true, currency: business?.currency || "UGX", period: { startDate: monthStart, endDate: now }, branches: branchSummary });
+  } catch (error) {
+    console.error("Get branch dashboard summary error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load branch summary." });
+  }
+};
 
 /*
 |--------------------------------------------------------------------------
