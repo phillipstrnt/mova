@@ -443,6 +443,13 @@ const Sidebar = ({
   const navigation = ["OWNER", "ADMIN", "MANAGER", "INVENTORY_MANAGER"].includes(String(role).toUpperCase())
     ? [...baseNavigation, { label: "Branch Transfers", icon: ArrowLeftRight, path: "/app/transfers" }]
     : baseNavigation;
+  if (role === "OWNER" || user?.permissions?.includes("customers.view")) {
+    navigation.splice(Math.max(0, navigation.findIndex((item) => item.path === "/app/customers") + 1), 0, {
+      label: "Credit customers",
+      icon: Banknote,
+      path: "/app/credit",
+    });
+  }
 
   return (
     <>

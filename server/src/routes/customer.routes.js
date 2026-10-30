@@ -14,6 +14,7 @@ import {
 } from "../controllers/customerController.js";
 import {
   getCustomerCreditHistory,
+  getCreditLedger,
   recordCustomerCreditPayment,
 } from "../controllers/customerCreditController.js";
 
@@ -51,6 +52,12 @@ router.get(
     PERMISSIONS.CUSTOMERS_VIEW
   ),
   getCustomers
+);
+
+router.get(
+  "/credit-ledger",
+  requirePermission(PERMISSIONS.CUSTOMERS_VIEW),
+  getCreditLedger
 );
 
 

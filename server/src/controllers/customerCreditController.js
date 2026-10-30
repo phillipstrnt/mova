@@ -31,6 +31,45 @@ export const getCustomerCreditHistory = async (req, res) => {
   }
 };
 
+// Business credit book: one row per unpaid credit sale, with customer,
+// receipt and branch information so staff can follow up without opening each profile.
+export const getCreditLedger = async (req, res) => {
+  try {
+    const role = roleOf(req);
+    const requestedBranch = String(req.query.branchId || "").trim();
+    const allowed = branchIds(req);
+    if (!isAdmin(req) && (!allowed.length || (requestedBranch && !allowed.includes(requestedBranch)))) {
+      return res.status(403).json({ success: false, message: "You can only view credit for your assigned branch." });
+    }
+    const filter = { businessId: req.user.businessId, remainingBalance: { $gt: 0 } };
+    if (requestedBranch) filter.branchId = requestedBranch;
+    else if (!isAdmin(req)) filter.branchId = { $in: allowed };
+
+    const search = String(req.query.search || "").trim();
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      const matchingCustomers = await Customer.find({ businessId: req.user.businessId, $or: [{ name: regex }, { phone: regex }, { email: regex }] }).distinct("_id");
+      filter.$or = [{ customerId: { $in: matchingCustomers } }, { notes: regex }];
+    }
+    const debts = await CustomerCreditDebt.find(filter)
+      .populate("customerId", "name phone email")
+      .populate("saleId", "receiptNumber createdAt total")
+      .populate("branchId", "name")
+      .sort({ dueDate: 1, createdAt: 1 }).lean();
+    const now = Date.now();
+    const summary = debts.reduce((totals, debt) => {
+      totals.balance += Number(debt.remainingBalance || 0);
+      totals.overdueBalance += debt.dueDate && new Date(debt.dueDate).getTime() < now ? Number(debt.remainingBalance || 0) : 0;
+      return totals;
+    }, { balance: 0, overdueBalance: 0 });
+    return res.json({ success: true, debts, summary: { ...summary, count: debts.length } });
+  } catch (error) {
+    console.error("Get credit ledger error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load the credit ledger." });
+  }
+};
+
 export const recordCustomerCreditPayment = async (req, res) => {
   const allocations = [];
   try {

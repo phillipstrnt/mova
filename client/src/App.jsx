@@ -25,6 +25,7 @@ import Transfers from "./pages/inventory/Transfers";
 import Categories from "./pages/products/Categories";
 
 import Customers from "./pages/customers/Customers";
+import CreditLedger from "./pages/customers/CreditLedger";
 import Suppliers from "./pages/suppliers/Suppliers";
 
 import Purchases from "./pages/purchases/Purchases";
@@ -222,6 +223,7 @@ function App() {
           path="customers"
           element={<Customers />}
         />
+        <Route path="credit" element={<CreditLedger />} />
 
 
         {/* =======================================================
