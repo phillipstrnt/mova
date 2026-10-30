@@ -16,6 +16,8 @@ import userRoutes from "./routes/user.routes.js";
 import cashierShiftRoutes from "./routes/cashierShift.routes.js";
 import inventoryTransferRoutes from "./routes/inventoryTransfer.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
+import backupRoutes from "./routes/backup.routes.js";
+import { startAutomaticBackups } from "./services/backupService.js";
 
 // Core MOVA routes
 import authRoutes from "./routes/auth.routes.js";
@@ -258,6 +260,7 @@ app.use("/api/receipt-settings", receiptSettingsRoutes);
 // ============================================================
 
 app.use("/api/business", businessRoutes);
+app.use("/api/backups", backupRoutes);
 
 // ============================================================
 // AUDIT LOGS
@@ -498,6 +501,7 @@ const startServer = async () => {
     console.log("[MOVA] Connecting to MongoDB...");
 
     await connectDB();
+    startAutomaticBackups();
 
     console.log("[MOVA] MongoDB connected successfully.");
 

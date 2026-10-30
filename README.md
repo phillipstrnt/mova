@@ -38,6 +38,13 @@
 - Authentication endpoints have per-IP rate limits. The generic forgot-password response is designed not to reveal whether an email is registered.
 - Registration validates email syntax on the API after normalization. Google ID tokens are verified against the configured audience, and Google must mark the account email as verified.
 
+### MOVA backups
+
+- The business owner can download a business JSON backup and merge it back from Settings. Device backups include business records but intentionally exclude user accounts, password hashes, and authentication tokens. Restore validates the business ID, updates matching record IDs, re-adds missing records, and does not delete records created after the backup. Store downloaded files privately.
+- Device backup/restore is limited to 9 MB. Larger businesses should configure automatic off-site backups.
+- Automatic backups run on the API every 24 hours by default and retain 30 days. Configure `MOVA_BACKUP_MONGO_URI` on the API host to a **separate MongoDB cluster** from `MONGO_URI`. Optionally set `MOVA_BACKUP_INTERVAL_HOURS` and `MOVA_BACKUP_RETENTION_DAYS`. The API reports whether automatic backups are configured and when the latest snapshot completed. Do not reuse the production database URI as the backup destination.
+- Backups are not active until the separate backup URI is configured in the hosting provider's secret environment and the API is redeployed. Monitor the owner's Settings page after deployment for the last successful snapshot.
+
 If an actual `.env` file or credential was ever committed to a repository or included in an archive shared outside your team, rotate those secrets immediately. Removing a file from the latest version does not remove it from Git history.
 
 ## Deployment checklist and smoke tests
