@@ -7,6 +7,7 @@ import {
   Edit3,
   Eye,
   EyeOff,
+  Info,
   Loader2,
   RefreshCw,
   Search,
@@ -50,6 +51,15 @@ const ROLES = [
     label: "Accountant",
     description: "Handles expenses, payments and financial reports.",
   },
+];
+
+const ROLE_LIMITS = [
+  { role: "OWNER", title: "Business Owner", limits: "Full access across the business, every branch, users, reports, and backups. The owner account cannot be assigned to another user." },
+  { role: "ADMIN", title: "Administrator", limits: "Broad operational access, staff management, branch administration, and reports. Cannot manage or replace the owner account; backup and restore remain owner-only." },
+  { role: "MANAGER", title: "Manager", limits: "Runs daily operations and reports for the assigned active branch. Cannot manage user accounts, remove branches, access backups, or view another branch unless assigned." },
+  { role: "CASHIER", title: "Cashier", limits: "Creates sales, handles receipts, returns and customers, and manages own shift. Access is limited to assigned branch and own sales; no financial reports, expenses, or user administration." },
+  { role: "INVENTORY_MANAGER", title: "Inventory Manager", limits: "Manages products, stock, transfers, suppliers, and purchases in assigned branches. Cannot manage users or access financial reports and business backups." },
+  { role: "ACCOUNTANT", title: "Accountant", limits: "Views sales and financial reports, records expenses and payments, and works with assigned branches. Cannot create POS sales, manage stock, users, or backups." },
 ];
 
 /* =========================================================
@@ -157,6 +167,7 @@ export default function Users() {
   const [statusFilter, setStatusFilter] = useState("ALL");
 
   const [showModal, setShowModal] = useState(false);
+  const [showRoleGuide, setShowRoleGuide] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
 
   const [showPassword, setShowPassword] = useState(false);
@@ -967,6 +978,19 @@ export default function Users() {
           icon={UserX}
         />
       </div>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <button type="button" onClick={() => setShowRoleGuide((value) => !value)} aria-expanded={showRoleGuide} className="flex w-full items-center justify-between gap-3 p-4 text-left">
+          <span className="flex items-center gap-2 font-bold text-slate-800"><Info size={18} className="text-blue-600" />Role access limits</span>
+          <span className="text-sm font-semibold text-blue-700">{showRoleGuide ? "Hide" : "View roles"}</span>
+        </button>
+        {showRoleGuide && <div className="grid gap-3 border-t border-slate-100 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-3">
+          {ROLE_LIMITS.map((item) => <article key={item.role} className="rounded-xl border border-slate-200 bg-white p-4">
+            <h3 className="font-bold text-slate-900">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{item.limits}</p>
+          </article>)}
+        </div>}
+      </section>
 
       {/* FILTERS */}
 
