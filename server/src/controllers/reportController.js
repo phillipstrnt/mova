@@ -135,12 +135,26 @@ const getBusinessId = (req) => {
  * 3. branchId from authenticated user
  */
 const getActiveBranchId = (req) => {
-  return (
-    req.query?.branchId ||
-    req.user?.activeBranchId ||
-    req.user?.branchId ||
-    null
-  );
+  const role = String(req.user?.role || "").toUpperCase();
+  const canViewBusiness = ["OWNER", "ADMIN"].includes(role);
+
+  // The all-branch view is only available to business-wide administrators.
+  if (canViewBusiness && String(req.query?.allBranches || "").toLowerCase() === "true") {
+    return null;
+  }
+
+  // Staff always use the branch assigned by the authenticated session. Never
+  // let a query string widen a manager/cashier's branch access.
+  if (!canViewBusiness) {
+    const requestedBranchId = String(req.query?.branchId || "");
+    const authorizedBranchIds = (req.user?.authorizedBranchIds || req.user?.branchIds || []).map((id) => String(id?._id || id));
+    if (requestedBranchId && authorizedBranchIds.includes(requestedBranchId)) return requestedBranchId;
+    const activeBranchId = req.user?.activeBranchId || req.user?.branchId;
+    if (activeBranchId) return activeBranchId;
+    return authorizedBranchIds;
+  }
+
+  return req.query?.branchId || req.user?.activeBranchId || req.user?.branchId || null;
 };
 
 /*
@@ -155,72 +169,60 @@ const getActiveBranchId = (req) => {
  */
 const getDateRange = (req) => {
   const now = new Date();
+  const timeZone = "Africa/Kampala";
+  const localDate = (date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date).reduce((result, part) => {
+      if (part.type !== "literal") result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const localMidnight = (dateText) => {
+    const match = String(dateText || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const [, yearText, monthText, dayText] = match;
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const target = Date.UTC(year, month - 1, day);
+    let timestamp = target;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date(timestamp)).reduce((result, part) => {
+        if (part.type !== "literal") result[part.type] = Number(part.value);
+        return result;
+      }, {});
+      const represented = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+      const adjustment = target - represented;
+      timestamp += adjustment;
+      if (!adjustment) break;
+    }
+    const result = new Date(timestamp);
+    return localDate(result) === dateText ? result : null;
+  };
 
-  let startDate;
-  let endDate;
+  const today = localDate(now);
+  let startDate = req.query.startDate ? localMidnight(req.query.startDate) : localMidnight(today);
+  if (!startDate) startDate = localMidnight(today);
 
-  if (req.query.startDate) {
-    startDate = new Date(
-      `${req.query.startDate}T00:00:00`
-    );
-  } else {
-    startDate = new Date(now);
-
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-  }
-
-  if (req.query.endDate) {
-    endDate = new Date(
-      `${req.query.endDate}T23:59:59.999`
-    );
-  } else {
-    endDate = new Date(now);
-
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999
-    );
-  }
-
-  /*
-   * Protect against invalid dates.
-   */
-  if (
-    Number.isNaN(
-      startDate.getTime()
-    )
-  ) {
-    startDate = new Date(now);
-
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-  }
-
-  if (
-    Number.isNaN(
-      endDate.getTime()
-    )
-  ) {
-    endDate = new Date(now);
-
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999
-    );
-  }
+  let endDate = req.query.endDate ? localMidnight(req.query.endDate) : localMidnight(today);
+  if (!endDate) endDate = localMidnight(today);
+  // Query dates are inclusive in the UI. Use the final millisecond of the
+  // Kampala calendar day so the existing MongoDB $lte filters remain exact.
+  endDate = new Date(endDate.getTime() + 86400000 - 1);
 
   return {
     startDate,
@@ -266,7 +268,9 @@ const buildSaleFilter = (req) => {
     },
   };
 
-  if (branchId) {
+  if (Array.isArray(branchId)) {
+    filter.branchId = { $in: branchId };
+  } else if (branchId) {
     filter.branchId =
       branchId;
   }
@@ -305,7 +309,9 @@ const buildExpenseFilter = (req) => {
     },
   };
 
-  if (branchId) {
+  if (Array.isArray(branchId)) {
+    filter.branchId = { $in: branchId };
+  } else if (branchId) {
     filter.branchId =
       branchId;
   }
@@ -702,19 +708,27 @@ const getSalesReport = async (
             sale.createdAt
           );
 
-        const dayKey =
-          date
-            .toISOString()
-            .slice(0, 10);
+        const dayParts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "Africa/Kampala",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(date).reduce((result, part) => {
+          if (part.type !== "literal") result[part.type] = part.value;
+          return result;
+        }, {});
+        const dayKey = `${dayParts.year}-${dayParts.month}-${dayParts.day}`;
 
         if (!dailyMap[dayKey]) {
           dailyMap[dayKey] = {
             date: dayKey,
+            revenue: 0,
             sales: 0,
             transactions: 0,
           };
         }
 
+        dailyMap[dayKey].revenue += saleTotal;
         dailyMap[dayKey]
           .sales +=
           saleTotal;

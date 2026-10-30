@@ -147,7 +147,7 @@ const ReportCharts = ({
   const salesChartData = useMemo(() => {
     return dailySales.map((item) => ({
       date: formatShortDate(item?.date || item?.createdAt),
-      revenue: Number(item?.revenue) || 0,
+      revenue: Number(item?.revenue ?? item?.sales ?? item?.amount ?? item?.total) || 0,
       transactions:
         Number(item?.transactions ?? item?.count) || 0,
     }));

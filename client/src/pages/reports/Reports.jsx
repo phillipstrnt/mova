@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import api from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 import { useBusiness } from "../../context/BusinessContext";
 
 import ReportCharts from "../../components/pages/reports/ReportCharts";
@@ -251,7 +252,11 @@ const StatusBadge = ({ status }) => {
 };
 
 const Reports = () => {
-  const { business } = useBusiness();
+  const { user } = useAuth();
+  const isOwnerOrAdmin = ["OWNER", "ADMIN"].includes(String(user?.role || "").toUpperCase());
+  const { business, branches } = useBusiness();
+  const [allBranches, setAllBranches] = useState(false);
+  const [reportBranchId, setReportBranchId] = useState("");
 
   const [startDate, setStartDate] = useState(
     getDefaultStartDate()
@@ -294,6 +299,8 @@ const Reports = () => {
         const params = {
           startDate,
           endDate,
+          ...(reportBranchId ? { branchId: reportBranchId } : {}),
+          ...(isOwnerOrAdmin && allBranches && !reportBranchId ? { allBranches: "true" } : {}),
         };
 
         const [
@@ -362,9 +369,11 @@ const Reports = () => {
         }
 
         const salesList = normalizeArray(
-          sales?.sales ||
+          sales?.recentTransactions ||
+            sales?.sales ||
             sales?.transactions ||
             sales?.recentSales ||
+            general?.recentTransactions ||
             general?.sales ||
             general?.transactions
         );
@@ -463,7 +472,7 @@ const Reports = () => {
         setRefreshing(false);
       }
     },
-    [startDate, endDate]
+    [startDate, endDate, isOwnerOrAdmin, allBranches, reportBranchId]
   );
 
   useEffect(() => {
@@ -877,6 +886,18 @@ const Reports = () => {
               />
             </label>
           </div>
+
+          {branches.length > 1 && <label className="block text-xs font-semibold text-slate-500">
+            Branch scope
+            <select value={reportBranchId} onChange={(event) => { setReportBranchId(event.target.value); setAllBranches(false); }} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+              <option value="">Current branch</option>
+              {branches.map((item) => <option key={item._id || item.id} value={item._id || item.id}>{item.name || item.code || "Branch"}</option>)}
+            </select>
+          </label>}
+          {isOwnerOrAdmin && <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <input type="checkbox" checked={allBranches} disabled={Boolean(reportBranchId)} onChange={(event) => setAllBranches(event.target.checked)} className="h-4 w-4 rounded border-slate-300 accent-blue-600" />
+            Include all business branches
+          </label>}
         </div>
       </section>
 
