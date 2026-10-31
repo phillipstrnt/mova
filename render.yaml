@@ -1,12 +1,11 @@
-# Render Blueprint. Import this file from the repository root.
 services:
   - type: web
-    name: mova-api
-    runtime: node
-    rootDir: server
-    buildCommand: npm ci
-    startCommand: npm start
+    name: mova-recovery
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
@@ -15,9 +14,15 @@ services:
       - key: MONGO_URI
         sync: false
       - key: CLIENT_URL
-        sync: false
+        fromService:
+          type: web
+          name: mova-recovery
+          envVarKey: RENDER_EXTERNAL_URL
       - key: APP_URL
-        sync: false
+        fromService:
+          type: web
+          name: mova-recovery
+          envVarKey: RENDER_EXTERNAL_URL
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: SMTP_HOST
