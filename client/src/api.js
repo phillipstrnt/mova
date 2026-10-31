@@ -5,7 +5,7 @@ import axios from "axios";
 // fallback so a missing Vercel environment variable never points visitors at
 // their own computer (localhost). Local development still uses the local API.
 const DEFAULT_API_URL = import.meta.env.PROD
-  ? "https://mova-syfn.onrender.com/api"
+  ? "/api"
   : "http://localhost:5000/api";
 
 const API_URL =
@@ -14,8 +14,7 @@ const API_URL =
 
 const api = axios.create({
   baseURL: API_URL,
-  // Render Free services can take roughly a minute to wake after idling.
-  // Allow authentication requests to survive that cold start.
+  // Allow authentication requests to survive a cold start.
   timeout: 90_000,
   headers: {
     "Content-Type": "application/json",
@@ -26,8 +25,8 @@ const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 // Authentication POSTs are safe to retry: failed credentials are never
-// retried, while connection failures and transient Render gateway responses
-// often mean the sleeping API is still waking up.
+// retried, while connection failures and transient gateway responses may
+// indicate that the API is still waking up.
 export const postAuthWithRetry = async (url, data) => {
   const maxAttempts = 3;
 

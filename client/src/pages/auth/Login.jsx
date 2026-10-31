@@ -52,6 +52,9 @@ const Login = () => {
   const [error, setError] =
     useState("");
 
+  const [errorType, setErrorType] =
+    useState("auth");
+
   const [loading, setLoading] =
     useState(false);
 
@@ -60,6 +63,7 @@ const Login = () => {
 
   const handleGoogleCredential = useCallback(async (credential) => {
     setError("");
+    setErrorType("auth");
     try {
       const session = await googleSignIn(credential);
       const destination =
@@ -80,6 +84,7 @@ const Login = () => {
         return;
       }
       setError(googleError.message || "Google sign-in could not be completed.");
+      setErrorType(googleError.code === "ERR_NETWORK" || googleError.message === "Network Error" ? "network" : "auth");
     }
   }, [googleSignIn, navigate]);
 
@@ -125,6 +130,7 @@ const Login = () => {
     event.preventDefault();
 
     setError("");
+    setErrorType("auth");
 
     const cleanEmail =
       email.trim();
@@ -167,10 +173,9 @@ const Login = () => {
         loginError
       );
 
-      setError(
-        loginError.message ||
-          "Unable to sign in."
-      );
+      const networkIssue = loginError.code === "ERR_NETWORK" || loginError.message === "Network Error" || /server is taking longer|could not be reached/i.test(loginError.message || "");
+      setErrorType(networkIssue ? "network" : "auth");
+      setError(networkIssue ? "The sign-in service is waking up or your connection is interrupted. Please try again shortly." : loginError.response?.status === 401 ? "The email or password is incorrect. Check your details and try again." : loginError.message || "Unable to sign in.");
     } finally {
       setLoading(false);
     }
@@ -274,7 +279,7 @@ const Login = () => {
             {/* ERROR */}
 
             {error && (
-              <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+              <div role="alert" className={`mb-5 flex items-start gap-3 rounded-xl border p-4 ${errorType === "network" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-red-200 bg-red-50 text-red-700"}`}>
 
                 <AlertCircle
                   size={19}
@@ -283,7 +288,7 @@ const Login = () => {
 
                 <div>
                   <p className="text-sm font-bold">
-                    Sign in failed
+                    {errorType === "network" ? "Connection interrupted" : error.includes("incorrect") ? "Check your sign-in details" : "Unable to sign in"}
                   </p>
 
                   <p className="mt-1 text-sm">
