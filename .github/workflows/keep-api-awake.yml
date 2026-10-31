@@ -1,0 +1,27 @@
+name: Keep MOVA API and database warm
+
+on:
+  schedule:
+    # Render Free services spin down after 15 minutes without inbound traffic.
+    # Run at offset 10-minute intervals to leave time for delayed Actions starts.
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mova-api-health-ping
+  cancel-in-progress: true
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping MOVA API and database health
+        run: >-
+          curl --fail --silent --show-error
+          --retry 5 --retry-all-errors --retry-delay 10
+          --max-time 120
+          https://mova-syfn.onrender.com/api/health

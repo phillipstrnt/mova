@@ -22,7 +22,8 @@ const GoogleSignInButton = ({ onCredential, disabled = false }) => {
   const buttonRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [setupError, setSetupError] = useState("");
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const clientId =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID || window.__MOVA_CONFIG__?.googleClientId;
 
   useEffect(() => {
     if (!clientId) {
