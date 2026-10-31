@@ -2,6 +2,8 @@
 import "dotenv/config";
 
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -220,9 +222,18 @@ app.get("/", (req, res) => {
 // HEALTH CHECK
 // ============================================================
 
-app.get("/api/health", (req, res) => {
-  const databaseConnected =
-    mongooseConnectionReadyState() === 1;
+app.get("/api/health", async (req, res) => {
+  let databaseConnected = false;
+  if (mongooseConnectionReadyState() === 1 && mongoose.connection.db) {
+    try {
+      // Check the database itself as well as Mongoose's cached connection state.
+      // Scheduled health checks also keep the managed database connection active.
+      await mongoose.connection.db.admin().ping();
+      databaseConnected = true;
+    } catch (error) {
+      console.warn("[MOVA] Health check could not reach MongoDB:", error.message);
+    }
+  }
 
   res.status(databaseConnected ? 200 : 503).json({
     success: databaseConnected,
@@ -384,6 +395,16 @@ app.use("/api/reports", reportsRoutes);
 
 // Legacy singular report endpoint
 app.use("/api/report", reportRoutes);
+
+// Serve the Vite client from the same Northflank service as the API.
+const clientDistPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../client/dist"
+);
+app.use(express.static(clientDistPath));
+app.get(/^(?!\/api(?:\/|$)).*/, (req, res) => {
+  res.sendFile(path.join(clientDistPath, "index.html"));
+});
 
 // ============================================================
 // 404 HANDLER
