@@ -8,9 +8,13 @@ const DEFAULT_API_URL = import.meta.env.PROD
   ? "/api"
   : "http://localhost:5000/api";
 
+const configuredApiUrl = import.meta.env.VITE_API_URL;
+const recoveryApiUrl = "https://mova-api-7m8j.onrender.com/api";
+
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  DEFAULT_API_URL;
+  configuredApiUrl && /mova-syfn\.onrender\.com/i.test(configuredApiUrl)
+    ? recoveryApiUrl
+    : configuredApiUrl || DEFAULT_API_URL;
 
 const api = axios.create({
   baseURL: API_URL,
