@@ -235,8 +235,11 @@ app.get("/api/health", async (req, res) => {
     }
   }
 
-  res.status(databaseConnected ? 200 : 503).json({
-    success: databaseConnected,
+  // Liveness must remain successful while the API retries MongoDB. The
+  // readiness endpoint below reports whether data operations can run.
+  res.status(200).json({
+    success: true,
+    api: "running",
     status: databaseConnected ? "healthy" : "database_disconnected",
     message: databaseConnected
       ? "MOVA API and database are healthy 🚀"
@@ -244,6 +247,29 @@ app.get("/api/health", async (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
   });
+});
+
+app.get("/health/ready", (_req, res) => {
+  const ready = mongooseConnectionReadyState() === 1;
+  res.status(ready ? 200 : 503).json({
+    success: ready,
+    status: ready ? "ready" : "database_disconnected",
+    database: ready ? "connected" : "unavailable",
+  });
+});
+
+// Keep health checks available, and return a clear temporary-unavailable
+// response for data routes instead of misleading auth or application errors.
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health" || req.path === "/test") return next();
+  if (mongooseConnectionReadyState() !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: "MOVA data is temporarily unavailable while the database reconnects. Please retry shortly.",
+      code: "DATABASE_UNAVAILABLE",
+    });
+  }
+  next();
 });
 
 // ============================================================
@@ -517,16 +543,27 @@ function mongooseConnectionReadyState() {
 // START SERVER
 // ============================================================
 
-const startServer = async () => {
-  try {
-    console.log("[MOVA] Connecting to MongoDB...");
+const initializeDatabase = async () => {
+  let backupsStarted = false;
+  while (true) {
+    try {
+      console.log("[MOVA] Connecting to MongoDB...");
+      await connectDB();
+      console.log("[MOVA] MongoDB connected successfully.");
+      if (!backupsStarted) {
+        startAutomaticBackups();
+        backupsStarted = true;
+      }
+      return;
+    } catch (error) {
+      console.error("[MOVA] Database initialization failed; retrying in 10 seconds:", error.message);
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+    }
+  }
+};
 
-    await connectDB();
-    startAutomaticBackups();
-
-    console.log("[MOVA] MongoDB connected successfully.");
-
-    app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
+      console.log("[MOVA] API process started.");
       console.log("");
       console.log("================================================");
       console.log("              MOVA API SERVER");
@@ -547,20 +584,18 @@ const startServer = async () => {
       console.log("================================================");
       console.log("");
     });
-  } catch (error) {
-    console.error("");
-    console.error("================================================");
-    console.error("       MOVA SERVER STARTUP FAILED");
-    console.error("================================================");
-    console.error(error);
-    console.error("================================================");
-    console.error("");
 
-    process.exit(1);
-  }
+void initializeDatabase();
+
+const shutdown = (signal) => {
+  console.log(`[MOVA] ${signal} received; closing server.`);
+  server.close(() => {
+    void mongoose.disconnect().finally(() => process.exit(0));
+  });
 };
 
-startServer();
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
 
 export default app;
 
