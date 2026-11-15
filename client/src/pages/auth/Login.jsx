@@ -24,7 +24,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 import InstallMovaButton from "../../components/InstallMovaButton";
-import api from "../../api";
+import { useApiWakeProgress, warmApi } from "../../api";
 
 const Login = () => {
   const navigate =
@@ -60,6 +60,7 @@ const Login = () => {
 
   const [slowConnection, setSlowConnection] =
     useState(false);
+  const apiWake = useApiWakeProgress();
 
   const handleGoogleCredential = useCallback(async (credential) => {
     setError("");
@@ -107,11 +108,9 @@ const Login = () => {
     user?.role,
   ]);
 
-  // Wake the hosted API while the user enters their credentials. Render's
-  // free backend sleeps when idle, so this moves its cold start off the
-  // critical path of the sign-in button.
+  // Start waking the API while the user enters their credentials.
   useEffect(() => {
-    api.get("/health", { timeout: 90_000 }).catch(() => {});
+    warmApi().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -173,7 +172,7 @@ const Login = () => {
         loginError
       );
 
-      const networkIssue = loginError.code === "ERR_NETWORK" || loginError.message === "Network Error" || /server is taking longer|could not be reached/i.test(loginError.message || "");
+      const networkIssue = loginError.code === "ERR_NETWORK" || loginError.message === "Network Error" || /server is taking longer|could not be reached|taking longer than expected|appear to be offline/i.test(loginError.message || "");
       setErrorType(networkIssue ? "network" : "auth");
       setError(networkIssue ? "The sign-in service is waking up or your connection is interrupted. Please try again shortly." : loginError.response?.status === 401 ? "The email or password is incorrect. Check your details and try again." : loginError.message || "Unable to sign in.");
     } finally {
@@ -435,7 +434,11 @@ const Login = () => {
                       className="animate-spin"
                     />
 
-                    {slowConnection ? "Connecting to MOVA..." : "Signing in..."}
+                    {apiWake.status === "waking"
+                      ? `Waking MOVA (${apiWake.percentage}%)...`
+                      : slowConnection
+                        ? "Finishing sign in..."
+                        : "Signing in..."}
                   </>
                 ) : (
                   <>
@@ -447,7 +450,7 @@ const Login = () => {
 
               </button>
 
-              {loading && (
+              {loading && apiWake.status !== "waking" && (
                 <div
                   className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
                   role="progressbar"
@@ -460,7 +463,7 @@ const Login = () => {
 
               {loading && slowConnection && (
                 <p role="status" className="text-center text-xs leading-5 text-slate-500">
-                  MOVA is waking its server. The first connection can take about a minute; please keep this page open.
+                  MOVA is responding slowly. Keep this page open while sign-in finishes.
                 </p>
               )}
 

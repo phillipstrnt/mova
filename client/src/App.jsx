@@ -1,6 +1,7 @@
 
 import { Routes, Route, Navigate } from "react-router-dom";
 
+import ApiWakeOverlay from "./components/ApiWakeOverlay";
 import ProtectedRoute from "./components/ProtectedRoute";
 import SetupGuard from "./components/SetupGuard";
 
@@ -46,6 +47,8 @@ import ReceiptSetup from "./pages/setup/ReceiptSetup";
 
 function App() {
   return (
+    <>
+    <ApiWakeOverlay />
     <Routes>
 
       {/* =========================================================
@@ -329,6 +332,7 @@ function App() {
       />
 
     </Routes>
+    </>
   );
 }
 

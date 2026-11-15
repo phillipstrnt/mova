@@ -16,7 +16,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 import InstallMovaButton from "../../components/InstallMovaButton";
-import api from "../../api";
+import { useApiWakeProgress, warmApi } from "../../api";
 
 const Register = () => {
   const navigate = useNavigate();
@@ -24,8 +24,10 @@ const Register = () => {
   const { register, googleSignIn } = useAuth();
   const pendingGoogle = location.state?.googleRegistration || null;
 
+  const apiWake = useApiWakeProgress();
+
   useEffect(() => {
-    api.get("/health", { timeout: 90_000 }).catch(() => {});
+    warmApi().catch(() => {});
   }, []);
 
   const [form, setForm] = useState({
@@ -630,7 +632,9 @@ const Register = () => {
                 {loading ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Creating account...
+                    {apiWake.status === "waking"
+                      ? `Waking MOVA (${apiWake.percentage}%)...`
+                      : "Creating account..."}
                   </>
                 ) : (
                   <>
@@ -640,7 +644,7 @@ const Register = () => {
                 )}
               </button>
 
-              {loading && (
+              {loading && apiWake.status !== "waking" && (
                 <div className="mt-3" role="status" aria-live="polite">
                   <div
                     className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
@@ -657,6 +661,7 @@ const Register = () => {
                   )}
                 </div>
               )}
+
 
             </form>
 

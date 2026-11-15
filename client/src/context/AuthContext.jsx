@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import api, { postAuthWithRetry } from "../api";
+import api, { postAuthWithRetry, warmApi } from "../api";
 
 const AuthContext = createContext(null);
 
@@ -603,8 +603,8 @@ export const AuthProvider = ({
       }
 
       try {
-        const response =
-          await api.get("/auth/me");
+        await warmApi();
+        const response = await api.get("/auth/me", { timeout: 25_000 });
 
         const payload =
           response.data?.data ||

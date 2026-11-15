@@ -9,8 +9,12 @@ function ProtectedRoute({ children }) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600" role="status" aria-live="polite">
-        <Loader2 className="mr-3 h-5 w-5 animate-spin text-blue-600" />
-        Checking your MOVA session…
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-3 text-slate-700" role="status" aria-live="polite">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            Checking your MOVA session…
+          </div>
+        </div>
       </div>
     );
   }

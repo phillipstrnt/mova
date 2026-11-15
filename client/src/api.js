@@ -1,5 +1,6 @@
 
 import axios from "axios";
+import { useEffect, useState } from "react";
 
 // VITE_API_URL is the preferred deployment setting, but keep a production
 // fallback so a missing Vercel environment variable never points visitors at
@@ -28,15 +29,132 @@ const api = axios.create({
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const API_WAKE_TIMEOUT_MS = 90_000;
+const API_READY_CACHE_MS = 30_000;
+const wakeListeners = new Set();
+let wakeSnapshot = {
+  status: "idle",
+  percentage: 0,
+  elapsedMs: 0,
+  message: "",
+};
+let readinessPromise = null;
+let apiReadyUntil = 0;
+
+const publishWakeState = (nextState) => {
+  wakeSnapshot = nextState;
+  wakeListeners.forEach((listener) => listener(wakeSnapshot));
+};
+
+export const useApiWakeProgress = () => {
+  const [state, setState] = useState(wakeSnapshot);
+
+  useEffect(() => {
+    wakeListeners.add(setState);
+    setState(wakeSnapshot);
+    return () => wakeListeners.delete(setState);
+  }, []);
+
+  return state;
+};
+
+/**
+ * Wait until both the hosted API and its database are ready before a user
+ * request starts. The host exposes readiness, not boot percentage, so the
+ * percentage shown by the UI is an elapsed-time estimate capped at 95%.
+ */
+export const warmApi = ({ force = false, timeoutMs = API_WAKE_TIMEOUT_MS } = {}) => {
+  if (!force && Date.now() < apiReadyUntil) {
+    return Promise.resolve(wakeSnapshot);
+  }
+
+  if (readinessPromise) return readinessPromise;
+
+  const startedAt = Date.now();
+  publishWakeState({
+    status: "waking",
+    percentage: 2,
+    elapsedMs: 0,
+    message: "Connecting to MOVA…",
+  });
+
+  const progressTimer = window.setInterval(() => {
+    const elapsedMs = Date.now() - startedAt;
+    const percentage = Math.min(
+      95,
+      Math.max(2, Math.round((elapsedMs / timeoutMs) * 95))
+    );
+    publishWakeState({
+      status: "waking",
+      percentage,
+      elapsedMs,
+      message:
+        elapsedMs > 25_000
+          ? "Still starting MOVA and reconnecting its database…"
+          : "Waking the MOVA service…",
+    });
+  }, 500);
+
+  readinessPromise = (async () => {
+    try {
+      while (Date.now() - startedAt < timeoutMs) {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          throw new Error("You appear to be offline. Reconnect, then try again.");
+        }
+
+        try {
+          const response = await api.get("/health", {
+            timeout: 10_000,
+            __skipApiWake: true,
+          });
+          if (response.data?.success && response.data?.status === "healthy") {
+            apiReadyUntil = Date.now() + API_READY_CACHE_MS;
+            publishWakeState({
+              status: "ready",
+              percentage: 100,
+              elapsedMs: Date.now() - startedAt,
+              message: "MOVA is ready.",
+            });
+            return wakeSnapshot;
+          }
+        } catch (error) {
+          const status = error?.response?.status;
+          if (status && ![502, 503, 504].includes(status)) throw error;
+        }
+
+        await delay(2_000);
+      }
+
+      throw new Error(
+        "MOVA is taking longer than expected to start. Your data is safe; check your connection and retry."
+      );
+    } catch (error) {
+      publishWakeState({
+        status: "error",
+        percentage: 0,
+        elapsedMs: Date.now() - startedAt,
+        message: error.message || "MOVA could not connect. Please retry.",
+      });
+      throw error;
+    } finally {
+      window.clearInterval(progressTimer);
+      readinessPromise = null;
+    }
+  })();
+
+  return readinessPromise;
+};
+
 // Authentication POSTs are safe to retry: failed credentials are never
 // retried, while connection failures and transient gateway responses may
 // indicate that the API is still waking up.
 export const postAuthWithRetry = async (url, data) => {
-  const maxAttempts = 3;
+  await warmApi();
+  const maxAttempts = 2;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await api.post(url, data, { timeout: 90_000 });
+      return await api.post(url, data, { timeout: 25_000 });
     } catch (error) {
       const status = error?.response?.status;
       const retryable =
@@ -55,13 +173,23 @@ export const postAuthWithRetry = async (url, data) => {
         throw error;
       }
 
-      await delay(attempt * 1200);
+      await delay(attempt * 1000);
     }
   }
 };
 
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    const requestPath = String(config.url || "");
+    const isHealthProbe = /(?:^|\/)health(?:\?|$)/i.test(requestPath);
+
+    // An installed app can remain open until the hosted API goes idle. Wait
+    // for API and database readiness before sending any real request so a
+    // cold start never drops a user's save, sale, or other write request.
+    if (!config.__skipApiWake && !isHealthProbe) {
+      await warmApi();
+    }
+
     const token = localStorage.getItem("mova_token");
 
     if (token) {

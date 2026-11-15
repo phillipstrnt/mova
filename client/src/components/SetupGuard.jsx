@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 
-import api from "../services/api";
+import api, { warmApi } from "../services/api";
 
 const SetupGuard = ({
   children,
@@ -45,6 +45,8 @@ const SetupGuard = ({
           setLoading(true);
           setError("");
           setSlowConnection(false);
+
+          await warmApi();
 
           let response;
           let lastError;
@@ -157,14 +159,6 @@ const SetupGuard = ({
               ? "The service is waking up. Keep this page open while we reconnect."
               : "Checking your business setup..."}
           </p>
-          <div
-            className="mt-6 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
-            role="progressbar"
-            aria-label="Connecting to MOVA"
-            aria-valuetext="Connection in progress"
-          >
-            <div className="h-full w-1/3 animate-[mova-progress_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
-          </div>
         </div>
       </div>
     );
