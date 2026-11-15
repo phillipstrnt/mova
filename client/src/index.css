@@ -1,6 +1,11 @@
 
 @import "tailwindcss";
 
+@keyframes mova-progress {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(340%); }
+}
+
 /* =========================================================
    MOVA — PROFESSIONAL BLUE THEME
    ========================================================= */

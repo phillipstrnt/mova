@@ -42,11 +42,22 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
+  const [slowConnection, setSlowConnection] = useState(false);
   const [error, setError] = useState("");
   const [googleCredential, setGoogleCredential] = useState(
     pendingGoogle?.credential || sessionStorage.getItem("mova_google_registration") || ""
   );
   const [googleReady, setGoogleReady] = useState(Boolean(pendingGoogle?.credential));
+
+  useEffect(() => {
+    if (!loading) {
+      setSlowConnection(false);
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setSlowConnection(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   const businessTypes = [
     "Retail",
@@ -628,6 +639,24 @@ const Register = () => {
                   </>
                 )}
               </button>
+
+              {loading && (
+                <div className="mt-3" role="status" aria-live="polite">
+                  <div
+                    className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+                    role="progressbar"
+                    aria-label="Creating your MOVA account"
+                    aria-valuetext={slowConnection ? "Waiting for the server to wake" : "Creating your account"}
+                  >
+                    <div className="h-full w-1/3 animate-[mova-progress_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
+                  </div>
+                  {slowConnection && (
+                    <p className="mt-2 text-center text-xs leading-5 text-slate-500">
+                      The service is waking up. Keep this page open; your request is still in progress.
+                    </p>
+                  )}
+                </div>
+              )}
 
             </form>
 

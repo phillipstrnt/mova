@@ -1,5 +1,6 @@
 import {
   Navigate,
+  Link,
   useLocation,
 } from "react-router-dom";
 
@@ -28,6 +29,9 @@ const SetupGuard = ({
   const [error, setError] =
     useState("");
 
+  const [retryKey, setRetryKey] = useState(0);
+  const [slowConnection, setSlowConnection] = useState(false);
+
   // ============================================================
   // CHECK SETUP STATUS
   // ============================================================
@@ -40,11 +44,38 @@ const SetupGuard = ({
         try {
           setLoading(true);
           setError("");
+          setSlowConnection(false);
 
-          const response =
-            await api.get(
-              `/business/setup-status?check=${Date.now()}`
-            );
+          let response;
+          let lastError;
+
+          // Retry temporary network/gateway failures while a free API instance
+          // is waking. A failed check is not evidence that setup is incomplete.
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+              response = await api.get(
+                `/business/setup-status?check=${Date.now()}`,
+                { timeout: 30_000 }
+              );
+              lastError = null;
+              break;
+            } catch (requestError) {
+              lastError = requestError;
+              const status = requestError?.response?.status;
+              const retryable =
+                !requestError?.response || [502, 503, 504].includes(status);
+
+              if (!retryable || attempt === 3) {
+                throw requestError;
+              }
+
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, attempt * 1200)
+              );
+            }
+          }
+
+          if (lastError) throw lastError;
 
           if (!mounted) {
             return;
@@ -88,17 +119,8 @@ const SetupGuard = ({
 
           setError(message);
 
-          setSetupComplete(
-            false
-          );
-
-          /*
-           * If setup status cannot be verified,
-           * safely return the user to business setup.
-           */
-          setNextStep(
-            "business"
-          );
+          // Keep the authenticated user on a recoverable screen instead of
+          // sending them back through account creation/onboarding.
         } finally {
           if (mounted) {
             setLoading(false);
@@ -108,10 +130,13 @@ const SetupGuard = ({
 
     checkSetupStatus();
 
+    const slowTimer = window.setTimeout(() => setSlowConnection(true), 5000);
+
     return () => {
       mounted = false;
+      window.clearTimeout(slowTimer);
     };
-  }, []);
+  }, [retryKey]);
 
   // ============================================================
   // LOADING
@@ -128,8 +153,41 @@ const SetupGuard = ({
           </h2>
 
           <p className="mt-2 text-sm text-slate-500">
-            Checking your business setup...
+            {slowConnection
+              ? "The service is waking up. Keep this page open while we reconnect."
+              : "Checking your business setup..."}
           </p>
+          <div
+            className="mt-6 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+            role="progressbar"
+            aria-label="Connecting to MOVA"
+            aria-valuetext="Connection in progress"
+          >
+            <div className="h-full w-1/3 animate-[mova-progress_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-8 text-center shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">MOVA could not verify your setup yet</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600" role="alert">
+            Your account is still signed in. The server may be waking or your connection may have paused. Try again to continue without creating another account.
+          </p>
+          <button
+            type="button"
+            onClick={() => setRetryKey((value) => value + 1)}
+            className="mt-6 w-full rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-800"
+          >
+            Retry connection
+          </button>
+          <Link to="/login" className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:text-blue-800">
+            Return to sign in
+          </Link>
         </div>
       </div>
     );

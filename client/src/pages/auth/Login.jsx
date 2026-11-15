@@ -447,6 +447,17 @@ const Login = () => {
 
               </button>
 
+              {loading && (
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+                  role="progressbar"
+                  aria-label="Signing in to MOVA"
+                  aria-valuetext={slowConnection ? "Waiting for the server to wake" : "Signing in"}
+                >
+                  <div className="h-full w-1/3 animate-[mova-progress_1.4s_ease-in-out_infinite] rounded-full bg-blue-600" />
+                </div>
+              )}
+
               {loading && slowConnection && (
                 <p role="status" className="text-center text-xs leading-5 text-slate-500">
                   MOVA is waking its server. The first connection can take about a minute; please keep this page open.
