@@ -31,6 +31,8 @@ const delay = (milliseconds) =>
 
 const API_WAKE_TIMEOUT_MS = 90_000;
 const API_READY_CACHE_MS = 30_000;
+const API_WAKE_STARTED_KEY = "mova_api_wake_started_at";
+const API_WAKE_PROGRESS_MAX_AGE_MS = 15 * 60_000;
 const wakeListeners = new Set();
 let wakeSnapshot = {
   status: "idle",
@@ -70,16 +72,40 @@ export const warmApi = ({ force = false, timeoutMs = API_WAKE_TIMEOUT_MS } = {})
 
   if (readinessPromise) return readinessPromise;
 
-  const startedAt = Date.now();
+  const attemptStartedAt = Date.now();
+  let progressStartedAt = attemptStartedAt;
+  try {
+    const savedStart = Number(window.localStorage.getItem(API_WAKE_STARTED_KEY));
+    if (
+      Number.isFinite(savedStart) &&
+      savedStart > 0 &&
+      attemptStartedAt - savedStart < API_WAKE_PROGRESS_MAX_AGE_MS
+    ) {
+      progressStartedAt = savedStart;
+    } else {
+      window.localStorage.setItem(API_WAKE_STARTED_KEY, String(attemptStartedAt));
+    }
+  } catch {
+    // Storage may be unavailable in private browsing; progress still works in-page.
+  }
+
+  const initialElapsedMs = Date.now() - progressStartedAt;
+  const initialPercentage = Math.min(
+    95,
+    Math.max(2, Math.round((initialElapsedMs / timeoutMs) * 95))
+  );
   publishWakeState({
     status: "waking",
-    percentage: 2,
-    elapsedMs: 0,
-    message: "Connecting to MOVA…",
+    percentage: initialPercentage,
+    elapsedMs: initialElapsedMs,
+    message:
+      initialElapsedMs > 25_000
+        ? "Still starting MOVA and reconnecting its database…"
+        : "Connecting to MOVA…",
   });
 
   const progressTimer = window.setInterval(() => {
-    const elapsedMs = Date.now() - startedAt;
+    const elapsedMs = Date.now() - progressStartedAt;
     const percentage = Math.min(
       95,
       Math.max(2, Math.round((elapsedMs / timeoutMs) * 95))
@@ -97,7 +123,7 @@ export const warmApi = ({ force = false, timeoutMs = API_WAKE_TIMEOUT_MS } = {})
 
   readinessPromise = (async () => {
     try {
-      while (Date.now() - startedAt < timeoutMs) {
+      while (Date.now() - attemptStartedAt < timeoutMs) {
         if (typeof navigator !== "undefined" && !navigator.onLine) {
           throw new Error("You appear to be offline. Reconnect, then try again.");
         }
@@ -109,10 +135,15 @@ export const warmApi = ({ force = false, timeoutMs = API_WAKE_TIMEOUT_MS } = {})
           });
           if (response.data?.success && response.data?.status === "healthy") {
             apiReadyUntil = Date.now() + API_READY_CACHE_MS;
+            try {
+              window.localStorage.removeItem(API_WAKE_STARTED_KEY);
+            } catch {
+              // Ignore unavailable browser storage.
+            }
             publishWakeState({
               status: "ready",
               percentage: 100,
-              elapsedMs: Date.now() - startedAt,
+              elapsedMs: Date.now() - progressStartedAt,
               message: "MOVA is ready.",
             });
             return wakeSnapshot;
@@ -132,7 +163,7 @@ export const warmApi = ({ force = false, timeoutMs = API_WAKE_TIMEOUT_MS } = {})
       publishWakeState({
         status: "error",
         percentage: 0,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs: Date.now() - progressStartedAt,
         message: error.message || "MOVA could not connect. Please retry.",
       });
       throw error;
